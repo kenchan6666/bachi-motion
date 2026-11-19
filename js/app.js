@@ -58,7 +58,18 @@
     if (currentMode() === "suyue") {
       const raw = jsonInput.value.trim();
       if (!raw) throw new Error("请先贴上溯月的手顺 JSON，或切回「主人」模式用 TJA 自动生成手顺");
-      return TaikoParser.loadHandJson(raw, parseOpts());
+      const opts = parseOpts();
+      const tja = tjaInput.value.trim();
+      if (tja) {
+        try {
+          const base = TaikoParser.eventsFromTja(tja, opts);
+          opts.chartMeasures = base.chartMeasures;
+          opts.timeShift = base.timeShift || 0;
+          opts.rangeStart = base.rangeStart;
+          opts.rangeEnd = base.rangeEnd;
+        } catch (err) { /* 手顺 can still load without a companion TJA */ }
+      }
+      return TaikoParser.loadHandJson(raw, opts);
     }
     const raw = tjaInput.value.trim();
     if (!raw) throw new Error("请先在输入框里贴一段 TJA 谱面");

@@ -238,6 +238,7 @@ function buildPayload(args) {
       rangeStart: base.rangeStart,
       rangeEnd: base.rangeEnd,
       timeShift: base.timeShift || 0,
+      chartMeasures: base.chartMeasures,
     });
     return Object.assign({}, base, hands, {
       rangeStart: base.rangeStart,

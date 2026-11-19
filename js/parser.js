@@ -109,6 +109,7 @@
           measure: { num: measure.num, den: measure.den },
           slots: 0,
           notes: 0,
+          slotTimes: [],
         });
         time = t0 + duration;
         items = [];
@@ -116,6 +117,7 @@
       }
 
       const slotBeats = beats / n;
+      const slotTimes = [];
       for (const it of items) {
         if (it.type === "bpm") {
           curBpm = it.value;
@@ -126,6 +128,7 @@
           continue;
         }
         const beatDur = 60 / curBpm;
+        slotTimes.push(tCursor - headers.offset);
         const typ = NOTE_TYPE[it.ch];
         if (typ) {
           notes.push({
@@ -157,6 +160,7 @@
         measure: { num: measure.num, den: measure.den },
         slots: n,
         notes: count,
+        slotTimes: slotTimes,
       });
       time = tCursor;
       bpm = curBpm;
@@ -341,7 +345,11 @@
     const notes = course.notes
       .filter((n) => n.measure >= from && n.measure <= toClamped)
       .map((n) => Object.assign({}, n, { t: n.t - t0, tRaw: n.tRaw - t0 }));
-    const measures = meas.map((m) => Object.assign({}, m, { t: m.t - t0, tRaw: m.tRaw - t0 }));
+    const measures = meas.map((m) => Object.assign({}, m, {
+      t: m.t - t0,
+      tRaw: m.tRaw - t0,
+      slotTimes: Array.isArray(m.slotTimes) ? m.slotTimes.map((s) => s - t0) : [],
+    }));
     return {
       headers: course.headers,
       notes,
@@ -429,7 +437,38 @@
     const picked = pickCourse(parsed, opts && opts.course);
     const sliced = sliceCourse(picked, parseMeasuresOpt(opts && opts.measures));
     const events = assignHands(sliced);
-    return coursePayload(sliced, { events, courses: parsed.courses.map((c) => c.headers.course) });
+    return coursePayload(sliced, {
+      events,
+      courses: parsed.courses.map((c) => c.headers.course),
+      chartMeasures: picked.measures,
+    });
+  }
+
+  /** Parse a 手顺 `src` string ("119:12") into { measure, pos }. */
+  function parseSrc(src) {
+    if (typeof src !== "string") return null;
+    const m = src.trim().match(/^(\d+)\s*:\s*(-?\d+)\s*$/);
+    if (!m) return null;
+    return { measure: +m[1], pos: +m[2] };
+  }
+
+  /**
+   * Absolute (song-timeline) start time of slot `pos` in measure `M`,
+   * using the parser's per-slot times (includes mid-measure #BPMCHANGE / #DELAY).
+   * `measures` must be the unsliced chart measures (opts.chartMeasures).
+   */
+  function slotTimeAbs(measures, src) {
+    const parsed = typeof src === "string" || src == null ? parseSrc(src) : src;
+    if (!parsed || !measures || !measures.length) return null;
+    const meas = measures.find((m) => m.index === parsed.measure);
+    if (!meas) return null;
+    if (Array.isArray(meas.slotTimes) && parsed.pos >= 0 && parsed.pos < meas.slotTimes.length) {
+      return meas.slotTimes[parsed.pos];
+    }
+    if (meas.slots > 0 && parsed.pos >= 0) {
+      return meas.t + (parsed.pos / meas.slots) * meas.duration;
+    }
+    return meas.t;
   }
 
   /**
@@ -440,8 +479,11 @@
    * Extra fields (rolls, inserted notes, gold rings) pass through — the
    * animation engine already knows grip:"roll" and inserted:true.
    *
-   * opts.measures crops by the `src` measure index ("119:0") when present,
-   * otherwise by event.t against the companion TJA range (opts.rangeStart/End).
+   * `t` in 溯溯's JSON is passage-relative (first event ≈ 0), not song time.
+   * When `src` ("M:slot") is present and opts.chartMeasures is provided,
+   * each event's time is taken from the chart slot and then expressed on
+   * the sliced timeline (first selected bar → t = 0). Events without `src`
+   * fall back to a relative-vs-absolute heuristic. No --measures → no shift.
    */
   function loadHandJson(input, opts) {
     const data = typeof input === "string" ? JSON.parse(input) : input;
@@ -451,22 +493,40 @@
       throw new Error("手顺 JSON 里没有 events 数组");
     }
     const range = parseMeasuresOpt(opts && opts.measures);
+    const shift = opts && isFinite(+opts.timeShift) ? +opts.timeShift : 0;
+    const chartMeasures = (opts && (opts.chartMeasures || opts.measuresChart)) || [];
+
     if (range) {
-      const hasSrc = events.some((e) => typeof e.src === "string" && e.src.indexOf(":") >= 0);
+      const hasSrc = events.some((e) => parseSrc(e.src));
       if (hasSrc) {
         events = events.filter((e) => {
-          const m = String(e.src || "").split(":");
-          const idx = +m[0];
-          return idx >= range.from && idx <= range.to;
+          const p = parseSrc(e.src);
+          if (!p) return true;
+          return p.measure >= range.from && p.measure <= range.to;
         });
       }
       if (!events.length) throw new Error("手顺 JSON 在小节 " + range.from + "-" + range.to + " 里没有事件");
     }
-    // Same shift the TJA slice uses: first selected bar → t = 0.
-    const shift = opts && isFinite(+opts.timeShift) ? +opts.timeShift : 0;
-    if (shift) {
-      events = events.map((e) => Object.assign({}, e, { t: e.t - shift }));
+
+    if (range) {
+      const remapped = [];
+      const leftover = [];
+      for (const e of events) {
+        const abs = slotTimeAbs(chartMeasures, e.src);
+        if (abs != null) remapped.push(Object.assign({}, e, { t: abs - shift }));
+        else leftover.push(e);
+      }
+      if (leftover.length) {
+        // No src (or no chart timing): detect passage-relative (min t ≈ 0)
+        // vs absolute song time (min t ≈ timeShift) instead of always subtracting.
+        const minT = leftover.reduce((m, e) => Math.min(m, +e.t), Infinity);
+        const alreadyRelative = !shift || Math.abs(minT) <= Math.abs(minT - shift);
+        const adj = alreadyRelative ? 0 : shift;
+        leftover.forEach((e) => remapped.push(Object.assign({}, e, { t: e.t - adj })));
+      }
+      events = remapped;
     }
+
     return {
       song: data.song || "",
       passage: data.passage || "",
@@ -474,7 +534,7 @@
       events,
       rangeStart: opts && opts.rangeStart,
       rangeEnd: opts && opts.rangeEnd,
-      timeShift: shift,
+      timeShift: range ? shift : 0,
       source: "hand-json",
     };
   }
@@ -583,6 +643,54 @@
       }
     }
 
+    // --sticking + --measures: JSON t is passage-relative; align by src, not t - timeShift.
+    const longBars = [];
+    for (let i = 0; i < 118; i++) longBars.push("0000,");
+    longBars.push("1212,");
+    longBars.push("1212,");
+    const longTja = ["BPM:300", "OFFSET:0", "#START"].concat(longBars).concat(["#END", ""]).join("\n");
+    const longBase = eventsFromTja(longTja, { measures: "119-120" });
+    const relHands = {
+      events: [
+        { t: 0, hand: "R", face: "don", grip: "single", src: "119:0" },
+        { t: 0.2, hand: "L", face: "ka", grip: "single", src: "119:1" },
+        { t: 0.4, hand: "R", face: "don", grip: "single", src: "119:2" },
+        { t: 0.6, hand: "L", face: "ka", grip: "single", src: "119:3" },
+      ],
+    };
+    const aligned = loadHandJson(relHands, {
+      measures: "119-120",
+      timeShift: longBase.timeShift,
+      chartMeasures: longBase.chartMeasures,
+    });
+    const alignedT = aligned.events.map((e) => e.t);
+    if (longBase.timeShift < 90) {
+      failures.push("expected bar 119 to start near 94s, got timeShift=" + longBase.timeShift);
+    }
+    expect("sticking src-align measures 119-120 (passage-relative t, not t-timeShift)", alignedT, [0, 0.2, 0.4, 0.6]);
+    if (alignedT[0] < -1) {
+      failures.push("sticking double-shift: first event t=" + alignedT[0] + " (timeShift=" + longBase.timeShift + ")");
+    }
+
+    const uncut = loadHandJson(relHands, { chartMeasures: longBase.chartMeasures });
+    expect("sticking without --measures keeps JSON t", uncut.events.map((e) => e.t), [0, 0.2, 0.4, 0.6]);
+
+    const midBpmHands = {
+      events: [
+        { t: 0, hand: "R", face: "don", src: "1:0" },
+        { t: 0.5, hand: "L", face: "don", src: "1:1" },
+        { t: 1, hand: "R", face: "don", src: "1:2" },
+        { t: 2, hand: "L", face: "don", src: "1:3" },
+      ],
+    };
+    const midBase = eventsFromTja(bpmChange);
+    const midAligned = loadHandJson(midBpmHands, {
+      measures: "1-1",
+      timeShift: midBase.timeShift,
+      chartMeasures: midBase.chartMeasures,
+    });
+    expect("sticking src-align follows mid-measure #BPMCHANGE slot times", midAligned.events.map((e) => e.t), [0, 0.5, 1, 2]);
+
     if (failures.length) {
       throw new Error("parser self-check failed:\n- " + failures.join("\n- "));
     }
@@ -594,6 +702,9 @@
         "suyue_division_test.tja even spacing (4/8/12/16/24/32/48 @120 4/4)",
         "suyue_demo.tja regression",
         "suyue_demo2_8bun16bun.tja parses",
+        "sticking src-align --measures 119-120 (passage-relative, first t≈0 not -94)",
+        "sticking without --measures keeps JSON t",
+        "sticking src-align follows mid-measure #BPMCHANGE",
       ],
     }
   }
@@ -612,6 +723,8 @@
     assignHands,
     eventsFromTja,
     loadHandJson,
+    parseSrc,
+    slotTimeAbs,
     selfCheck,
     NOTE_TYPE,
   };

@@ -11,7 +11,7 @@
 
 ## 网页怎么用
 
-1. 左边默认是「主人」模式。把 TJA 贴进输入框（已预填溯溯的 5 小节练习谱 `samples/suyue_demo.tja`），或点「打开 TJA」。
+1. 左边默认是「主人」模式。输入框预填的是溯溯的练习谱2（`samples/suyue_demo2_8bun16bun.tja`，8 分散音 + 16 分三连/五连）。也可以打开 TJA，或用 `?sample=suyue_demo` 换成第一张练习谱。
 2. 点 **生成 / 播放**。慢放和谱面流速滑块跟以前一样，可以随时改。
 3. 需要讲滚奏 / 插音时，切到「溯月」模式，贴或打开手顺 JSON。格式见 `samples/handorder.example.json`。
 
@@ -52,7 +52,9 @@
 | `?autoplay=1` | 载入后自动从开头播完一遍（不循环）。给浏览器里随手录屏用 |
 | `?rate=0.5` | 实时播放的慢放倍率（默认 1） |
 | `?scroll=2` | 谱面流速 |
-| `?sample=suyue_demo` | 预载 `samples/suyue_demo.tja`（只要 `samples/` 下的安全文件名） |
+| `?sample=suyue_demo2_8bun16bun` | 预载练习谱2（默认展示谱，输入框也预填了这一张） |
+| `?sample=suyue_demo` | 预载第一张练习谱 `samples/suyue_demo.tja` |
+| `?sample=suyue_division_test` | 预载 4–48 分音测试谱 |
 | `?tja=...` | 把一整段 TJA URL 编码后直接预载 |
 | `?course=Oni` | 多 COURSE 时选难度 |
 | `?measures=119-120` | 只播这一段小节（从 1 起算，含两端） |
@@ -145,7 +147,7 @@ t = chartStart + (f / fps) * rate
 ```bash
 npx --yes serve -p 8080   # 或任意静态服务器
 # 打开 http://127.0.0.1:8080/
-# 示例：http://127.0.0.1:8080/?sample=suyue_demo&rate=0.5
+# 示例：http://127.0.0.1:8080/?sample=suyue_demo2_8bun16bun&rate=0.5
 ```
 
 需要 Node 18+（只在跑 `render.js` 时必须）、浏览器，以及导出视频时的 ffmpeg。
@@ -158,7 +160,9 @@ js/parser.js            TJA 解析 + 1-1 手顺
 js/engine.js            动画引擎（renderAt / 实时时钟共用同一套绘制）
 js/app.js               输入框、模式切换、URL 参数
 assets/                 仅手 PNG、锚点、合成的 don/ka
-samples/suyue_demo.tja  溯溯原创示例（可以进仓库）
+samples/suyue_demo2_8bun16bun.tja  默认展示谱：练习谱2（8 分散音 + 16 分三连/五连）
+samples/suyue_demo.tja              练习谱1（仍打包）
+samples/suyue_division_test.tja     4/8/12/16/24/32/48 分音测试谱
 samples/handorder.example.json
 render.js               手元 mp4 命令行
 package.json

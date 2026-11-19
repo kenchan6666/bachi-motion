@@ -129,10 +129,11 @@
         if (!res.ok) throw new Error(res.status);
         tjaInput.value = await res.text();
       } catch (err) {
-        if (sample !== "suyue_demo") {
+        const prefilled = sample === "suyue_demo2_8bun16bun" || sample === "suyue_demo";
+        if (!prefilled) {
           showError("无法加载示例谱 samples/" + sample + ".tja");
         }
-        // suyue_demo is prefilled in the textarea; file:// fetch may fail and that's ok.
+        // Default showcase (练习谱2) is prefilled in the textarea; file:// fetch may fail and that's ok.
       }
     }
 

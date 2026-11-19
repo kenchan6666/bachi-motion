@@ -47,8 +47,8 @@ const CONFIG = {
   },
   PIVOT_Y: { img: 700, vector: 806, none: 806 },   // 捏点高度：图片手露到手腕；矢量手裁到指关节
   DON_RISE: 0.05, DON_FALL: 0.2,            // 咚：半边鼓面 0.05s 亮起，0.2s 退回
-  KA_DUR: 0.25, KA_W: 14, KA_SPAN: 100,     // 咔：鼓边青光 100° 弧，宽 14，0.25s
-  GOLD_DUR: 0.35, GOLD_W: 16,               // 插音金光
+  KA_DUR: 0.25, KA_W: 14, KA_SPAN: 60,      // 咔：鼓边青光，紧贴落点同侧近端鼓边（约 60°，不跨过顶点到对侧）
+  GOLD_DUR: 0.35, GOLD_W: 16, GOLD_KA_SPAN: 68,  // 插音金光；咔插音弧略宽于青光，仍留在落点一侧
   SECOND_HIT: 0.8,                          // 滚奏第二下亮度/光宽 80%
   REBOUND_ARC_FADE: 0.15,
   TRAIL_STEP: 1 / 60,   // 残影每 1 帧（60fps）留 1 层
@@ -593,7 +593,7 @@ function renderHitFx(events, second, now) {
   const maxAge = Math.max(CONFIG.KA_DUR, CONFIG.GOLD_DUR, CONFIG.LABEL_DUR);
   for (const { e, age } of activeHits(events, now, maxAge)) {
     const H = GEOM.hands[e.hand], k2 = second.has(e.i) ? CONFIG.SECOND_HIT : 1;
-    if (e.face === "ka" && age <= CONFIG.KA_DUR) {     // 咔：那一侧鼓边外圈青色柔光 100°
+    if (e.face === "ka" && age <= CONFIG.KA_DUR) {     // 咔：落点同侧近端鼓边的青色柔光，以 kaAng 为中心
       const k = age / CONFIG.KA_DUR, half = CONFIG.KA_SPAN / 2;
       const d = ellipseArcD(H.kaAng - half, H.kaAng + half, 7);
       s += `<path d="${d}" fill="none" stroke="${COL.ka}" stroke-width="${f1(CONFIG.KA_W * k2)}" stroke-linecap="round"
@@ -603,8 +603,9 @@ function renderHitFx(events, second, now) {
     }
     if (e.inserted && age <= CONFIG.GOLD_DUR) {      // 插音：效果外面再一圈金色柔光
       const k = age / CONFIG.GOLD_DUR;
+      const goldHalf = CONFIG.GOLD_KA_SPAN / 2;
       const d = e.face === "ka"
-        ? ellipseArcD(H.kaAng - 62, H.kaAng + 62, 20)
+        ? ellipseArcD(H.kaAng - goldHalf, H.kaAng + goldHalf, 20)
         : (e.hand === "R" ? ellipseArcD(-90, 90, 12) : ellipseArcD(90, 270, 12));
       s += `<path d="${d}" fill="none" stroke="${COL.gold}" stroke-width="${CONFIG.GOLD_W}" stroke-linecap="round"
             opacity="${f1(0.7 * (1 - k))}" filter="url(#softGlow)"/>`;

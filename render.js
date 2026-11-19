@@ -237,10 +237,12 @@ function buildPayload(args) {
       measures: args.measures,
       rangeStart: base.rangeStart,
       rangeEnd: base.rangeEnd,
+      timeShift: base.timeShift || 0,
     });
     return Object.assign({}, base, hands, {
       rangeStart: base.rangeStart,
       rangeEnd: base.rangeEnd,
+      timeShift: base.timeShift || 0,
       source: "hand-json",
     });
   }
@@ -297,7 +299,8 @@ async function main() {
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
   const { server, port } = await startStaticServer(ROOT);
-  const url = "http://127.0.0.1:" + port + "/index.html?export=1";
+  // Pass --rate so the page's rate-dependent roll blur (扇形模糊 at rate==1) stays off during slow-mo.
+  const url = "http://127.0.0.1:" + port + "/index.html?export=1&rate=" + encodeURIComponent(String(args.rate));
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "bachi-frames-"));
   let browser;
   try {
@@ -327,11 +330,12 @@ async function main() {
     await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
     await page.waitForFunction(() => typeof window.renderAt === "function" && typeof window.startEngine === "function", { timeout: 15000 });
 
-    await page.evaluate((payload) => {
+    await page.evaluate((payload, rate) => {
       document.body.classList.add("export");
+      if (typeof window.setRate === "function") window.setRate(rate);
       window.startEngine(payload, { mode: payload.source || "cli" });
       if (typeof window.setPlaying === "function") window.setPlaying(false);
-    }, data);
+    }, data, args.rate);
 
     const timing = await page.evaluate(() => ({
       start: window.chartStart,

@@ -30,8 +30,17 @@ const CONFIG = {
   TAPE_LEN: 221,        // 胶带长度（略长于 1/3，手上面多露一截紫色）
   STUB: 76,             // 捏点以下的棒尾长度（约胶带 1/4~1/3）：穿过虎口继续藏到手背下面，圆头不会露在虎口里
   RING_W: 10,
-  NOD_PX: 1.5,          // 滚奏：手最多点头 1~2px，棒子绕捏点转
-  SINGLE_FOLLOW: 0.55,  // 单击：整只手 + 鼓棒一起往下砸（握点跟着棒尖走 55%，棒子是刚体；略收小咚/咔挥动幅度）
+  NOD_PX: 1.5,          // 滚奏：手最多点头 1~2px，棒子绕捏点转（滚奏不焊死，棒可绕捏点转）
+  SINGLE_FOLLOW: 0.75,  // 单击稀疏：前臂带着整只手走，握点约跟着棒尖位移的 75%（刚体，手和棒一起抬落）
+  SINGLE_FOLLOW_DENSE: 0.38, // 密击（同手 16 分及更密）：手腕主导，前臂少跟
+  LIFT_PX: 70,          // 单击全幅度抬起高度（像素）。上一轮 rest 相对咚只抬 46px，这里约 1.5×；咔/咚共用这段高度
+  LIFT_OUT_PX: 12,      // 举起时棒尖略向外（保持八字），不要横着甩成外刷
+  // 同手相邻击的间隔 → 抬起高度（8 分及更疏 = 满幅，16 分起收小，32/48 分贴住）
+  LIFT_DT_FULL: 0.18,   // ≥ 约 8 分（@160 ≈ 0.1875s）→ 满幅
+  LIFT_DT_16: 0.094,    // 16 分 @160
+  LIFT_DT_MIN: 0.031,   // 48 分 @160（32 分更密时也收在下限）
+  LIFT_SCALE_16: 0.55,
+  LIFT_SCALE_MIN: 0.22,
   BLUR_DT: 0.1,         // 滚奏两下间隔 < 100ms 且 rate==1 → 残影合并成扇形模糊
   // 画师手图（默认 hands=img）。按文件名加载（相对路径，file:// 也能显示），换图只要同名覆盖即可。
   //   anchor  = 图里的捏点像素坐标（鼓棒旋转轴，棒子从拇指下面穿过）—— 锚点.txt 给的是拇指尖，这里微调到棒子中线上
@@ -67,8 +76,9 @@ const GEOM = {
   hands: {
     // anchorX：手大概在的 x；kaAng：咔的鼓边位置（度，0 = 右，-90 = 上）
     // 咔落在同侧偏上、靠近咚的近端鼓边（斜上方），不是远端侧面
-    // rest：举起时棒尖所在（在鼓面椭圆以内，靠这只手那一侧的上方）
-    // 第一人称：手从画面底部进来，pivot = 捏点（手几乎不动）；两根棒呈「八」字往鼓面中上部伸
+    // rest：滚奏回弹用的棒尖参考（保持上一轮高度，避免滚奏被单击加大幅度带走）
+    // 单击举起高度走 LIFT_PX（从当前落点向上），不再靠这个 rest
+    // 第一人称：手从画面底部进来；单击时手+棒是刚体，pivot 只是握点的参考原点
     L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 272 }, kaAng: 235, out: -1, rest: { x: 342, y: 226 } },
     R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 272 }, kaAng: -55, out: 1, rest: { x: 458, y: 226 } },
   },
@@ -140,8 +150,44 @@ function buildHandTracks(events, routeOverride = "data") {
       } else tracks[hand].push(mk(e, 0));
       strokeId++;
     }
+    const arr = tracks[hand];
+    for (let i = 0; i < arr.length; i++) {
+      const dts = [];
+      if (i > 0) dts.push(arr[i].t - arr[i - 1].t);
+      if (i + 1 < arr.length) dts.push(arr[i + 1].t - arr[i].t);
+      arr[i].gap = dts.length ? Math.min.apply(null, dts) : Infinity;
+    }
   }
   return tracks;
+}
+
+/** 同手间隔 → 单击抬起比例：8 分及更疏 = 1，16 分 ≈ 0.55，32/48 分 → 0.22。 */
+function densityScale(dt) {
+  if (!isFinite(dt) || dt >= CONFIG.LIFT_DT_FULL) return 1;
+  if (dt <= CONFIG.LIFT_DT_MIN) return CONFIG.LIFT_SCALE_MIN;
+  if (dt >= CONFIG.LIFT_DT_16) {
+    const u = (dt - CONFIG.LIFT_DT_16) / (CONFIG.LIFT_DT_FULL - CONFIG.LIFT_DT_16);
+    return CONFIG.LIFT_SCALE_16 + (1 - CONFIG.LIFT_SCALE_16) * smooth(clamp01(u));
+  }
+  const u = (dt - CONFIG.LIFT_DT_MIN) / (CONFIG.LIFT_DT_16 - CONFIG.LIFT_DT_MIN);
+  return CONFIG.LIFT_SCALE_MIN + (CONFIG.LIFT_SCALE_16 - CONFIG.LIFT_SCALE_MIN) * smooth(clamp01(u));
+}
+
+/** 稀疏跟手 0.75 → 密击跟手 0.38，和 densityScale 同步。 */
+function followFromScale(scale) {
+  const u = (scale - CONFIG.LIFT_SCALE_MIN) / (1 - CONFIG.LIFT_SCALE_MIN);
+  return CONFIG.SINGLE_FOLLOW_DENSE + (CONFIG.SINGLE_FOLLOW - CONFIG.SINGLE_FOLLOW_DENSE) * clamp01(u);
+}
+
+/** 单击举起方向：从落点向上、略向外（八字），幅度 LIFT_PX。 */
+function liftVec(hand) {
+  return { x: GEOM.hands[hand].out * CONFIG.LIFT_OUT_PX, y: -CONFIG.LIFT_PX };
+}
+
+/** 鼓棒握点到棒尖的固定长度（以咚的持棒为准，单击过程中不滑动）。 */
+function stickLen(hand) {
+  const H = GEOM.hands[hand];
+  return V.len(V.sub(H.don, H.pivot));
 }
 
 function findSegment(track, t) {
@@ -195,45 +241,58 @@ function poseAt(hand, track, t, opts = {}) {
   const H = GEOM.hands[hand];
   const { a, b } = findSegment(track, t);
   let lift, base, bend = { x: 0, y: 0 }, grip, wobble = 0, buzz = null;   // buzz = 正在滚奏的那一对（画震动线/残影用）
-  if (!a && !b) { lift = 1; base = H.rest; grip = "single"; }
+  let follow = CONFIG.SINGLE_FOLLOW;
+  if (!a && !b) { lift = 1; base = H.don; grip = "single"; }
   else if (!a) {
     const s = clamp01((b.t - t) / CONFIG.RISE);
-    lift = 1 - (1 - s) * (1 - s); base = b.target; grip = b.grip;
+    const raw = 1 - (1 - s) * (1 - s);
+    const scale = b.grip === "roll" ? 1 : densityScale(b.gap);
+    lift = raw * scale; base = b.target; grip = b.grip;
+    follow = followFromScale(scale);
   } else if (!b) {
     const s = clamp01((t - a.t) / CONFIG.RISE);
-    lift = 1 - (1 - s) * (1 - s); base = a.target; grip = a.grip;
+    const raw = 1 - (1 - s) * (1 - s);
+    const scale = a.grip === "roll" ? 1 : densityScale(a.gap);
+    lift = raw * scale; base = a.target; grip = a.grip;
+    follow = followFromScale(scale);
     wobble = wobbleAfter(a, t);
     if (wobble) buzz = a;
   } else {
     const u = clamp01((t - a.t) / (b.t - a.t));
     const same = a.stroke === b.stroke;               // 滚奏两下之间 = 回弹
-    const peak = same ? CONFIG.ROLL_REBOUND : CONFIG.FULL_LIFT;
+    const scale = same ? 1 : densityScale(b.t - a.t);
+    const peak = same ? CONFIG.ROLL_REBOUND : CONFIG.FULL_LIFT * scale;
     lift = arcHeight(t, a.t, b.t, peak);
     base = V.lerp(a.target, b.target, smooth(u));
     grip = same ? a.grip : (u < 0.5 ? a.grip : b.grip);   // 手型直接切换，不做中间帧
+    follow = followFromScale(scale);
     wobble = wobbleAfter(a, t);
     if (same && a.grip === "roll" || wobble) buzz = a;
     if (!same) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * peak);
   }
-  const p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, base);
+  const p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow);
   p.buzz = buzz; p.wobble = opts.noWobble ? 0 : wobble;
   return p;
 }
 
 /** 落点 + 抬起 + 弯曲 + 晃动 → 棒尖、握点、角度。手在鼓下方，从下往上握棒。 */
-function composePose(hand, base, lift, bend, wobble, grip) {
+function composePose(hand, base, lift, bend, wobble, grip, follow) {
   const H = GEOM.hands[hand];
   if (grip === "single") {
-    // 单击：手和棒一起动（刚体）。握点跟着棒尖的位移走 SINGLE_FOLLOW，棒子角度由握点→棒尖决定
-    const tipS = V.add(V.lerp(base, H.rest, lift), bend);
-    const gripS = V.add(H.pivot, V.mul(V.sub(tipS, base), CONFIG.SINGLE_FOLLOW));
+    // 单击：手+棒焊成刚体。握点固定在棒上（到棒尖距离不变），手和棒同一个角度一起抬落。
+    // 滚奏不走这条路（见下）：捏点几乎不动，棒绕捏点转。
+    const k = follow == null ? CONFIG.SINGLE_FOLLOW : follow;
+    const tipS = V.add(V.add(base, V.mul(liftVec(hand), lift)), bend);
+    let gripS = V.add(H.pivot, V.mul(V.sub(tipS, base), k));
+    const L = stickLen(hand);
+    const back = V.sub(gripS, tipS);
+    const dirBack = V.len(back) > 1 ? V.norm(back) : V.norm(V.sub(H.pivot, tipS));
+    gripS = V.add(tipS, V.mul(dirBack, L));
     const d = V.sub(tipS, gripS), deg = Math.atan2(d.y, d.x) * 180 / Math.PI;
     return { tip: tipS, grip: gripS, gripType: grip, handDeg: deg, stickDeg: deg, lift };
   }
-  // 举起：棒尖朝鼓面里的 rest 点移动（rest 在鼓面边缘以内），所以停着时棒尖一定在鼓面范围内
+  // 滚奏：保持原来的捏棒感觉——手几乎不动（最多点头 NOD_PX），鼓棒以捏点为轴转/晃。不要焊死。
   const tip0 = V.add(V.lerp(base, H.rest, lift), bend);
-  // 鼓棒以手里的捏点为轴转；手只跟着轻轻点头（往棒尖方向挪 NOD_PX × lift）
-  // 手的朝向只看落点（不看抬棒和晃动）→ 滚奏时手几乎不动，只有鼓棒绕捏点转
   const dirH = V.norm(V.sub(base, H.pivot));
   const gripPt = V.add(H.pivot, V.mul(dirH, CONFIG.NOD_PX * lift));   // 手最多点头 1.5px
   const handDeg = Math.atan2(dirH.y, dirH.x) * 180 / Math.PI;

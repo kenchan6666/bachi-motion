@@ -34,9 +34,10 @@ const CONFIG = {
   STUB: 76,             // 捏点以下的棒尾长度（约胶带 1/4~1/3）：穿过虎口继续藏到手背下面，圆头不会露在虎口里
   RING_W: 10,
   NOD_PX: 1.5,          // 旧滚奏点头（像素）；新滚奏手腕用 LIFT_PX * ROLL_BOB_SCALE
-  SINGLE_FOLLOW: 0.75,  // 单击稀疏：前臂带着整只手走，握点约跟着棒尖位移的 75%（刚体，手和棒一起抬落）
-  SINGLE_FOLLOW_DENSE: 0.38, // 密击（同手 16 分及更密）：手腕主导，前臂少跟
-  LIFT_PX: 70,          // 单击全幅度抬起高度（像素）。上一轮 rest 相对咚只抬 46px，这里约 1.5×；咔/咚共用这段高度
+  SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
+  SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
+  LIFT_PX: 95,          // 单击全幅度（≥8 分）抬起高度；16 分及更密仍用 LIFT_SCALE_* 去乘
+  ROLL_LIFT_PX: 70,     // 滚奏手腕点头仍按上一轮 70px 的 1/3 算，不随单击 LIFT_PX 变
   LIFT_OUT_PX: 12,      // 举起时棒尖略向外（保持八字），不要横着甩成外刷
   // 同手相邻击的间隔 → 抬起高度（8 分及更疏 = 满幅，16 分起收小，32/48 分贴住）
   LIFT_DT_FULL: 0.18,   // ≥ 约 8 分（@160 ≈ 0.1875s）→ 满幅
@@ -179,10 +180,9 @@ function densityScale(dt) {
   return CONFIG.LIFT_SCALE_MIN + (CONFIG.LIFT_SCALE_16 - CONFIG.LIFT_SCALE_MIN) * smooth(clamp01(u));
 }
 
-/** 稀疏跟手 0.75 → 密击跟手 0.38，和 densityScale 同步。 */
-function followFromScale(scale) {
-  const u = (scale - CONFIG.LIFT_SCALE_MIN) / (1 - CONFIG.LIFT_SCALE_MIN);
-  return CONFIG.SINGLE_FOLLOW_DENSE + (CONFIG.SINGLE_FOLLOW - CONFIG.SINGLE_FOLLOW_DENSE) * clamp01(u);
+/** 单击跟手永远是 1.0（完全固定）。密度只通过 densityScale 缩抬起高度，不再改 follow。 */
+function followFromScale(_scale) {
+  return 1;
 }
 
 /** 单击举起方向：从落点向上、略向外（八字），幅度 LIFT_PX。 */
@@ -299,7 +299,7 @@ function poseAt(hand, track, t, opts = {}) {
       lift = arcHeight(t, a.t, b.t, peak);
       base = V.lerp(a.target, b.target, smooth(u));
       grip = u < 0.5 ? a.grip : b.grip;
-      follow = followFromScale(scale);
+      follow = 1;
       if (!isRollContact({ grip })) rollState = null;
       else rollState = { bob: lift, rock: 0 };
       if (!isRollContact({ grip })) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * peak);
@@ -309,13 +309,13 @@ function poseAt(hand, track, t, opts = {}) {
     const raw = 1 - (1 - s) * (1 - s);
     const scale = densityScale(b.gap);
     lift = raw * scale; base = b.target; grip = b.grip;
-    follow = followFromScale(scale);
+    follow = 1;
   } else if (!b) {
     const s = clamp01((t - a.t) / CONFIG.RISE);
     const raw = 1 - (1 - s) * (1 - s);
     const scale = densityScale(a.gap);
     lift = raw * scale; base = a.target; grip = a.grip;
-    follow = followFromScale(scale);
+    follow = 1;
   } else {
     const u = clamp01((t - a.t) / (b.t - a.t));
     const scale = densityScale(b.t - a.t);
@@ -323,7 +323,7 @@ function poseAt(hand, track, t, opts = {}) {
     lift = arcHeight(t, a.t, b.t, peak);
     base = V.lerp(a.target, b.target, smooth(u));
     grip = u < 0.5 ? a.grip : b.grip;
-    follow = followFromScale(scale);
+    follow = 1;
     bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * peak);
   }
   const p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState);
@@ -345,12 +345,13 @@ function rollRockSign(gripPt, base, L) {
 function composePose(hand, base, lift, bend, wobble, grip, follow, rollState) {
   const H = GEOM.hands[hand];
   if (grip === "single") {
-    // 单击：手+棒焊成刚体。握点固定在棒上（到棒尖距离不变），手和棒同一个角度一起抬落。
+    // 单击：完全固定。follow 永远是 1，握点在棒上的位置和握点→棒尖夹角每帧不变，
+    // 手和棒共用一个变换（handDeg === stickDeg）。密度只缩 lift 高度。
     // 滚奏不走这条路（见下）：捏点钉在胶带约 1/4 处，棒绕捏点转，不焊死。
-    const k = follow == null ? CONFIG.SINGLE_FOLLOW : follow;
     const tipS = V.add(V.add(base, V.mul(liftVec(hand), lift)), bend);
-    let gripS = V.add(H.pivot, V.mul(V.sub(tipS, base), k));
     const L = stickLen(hand);
+    // follow=1：grip 跟着 tip 平移 (tip - grip == base - pivot)；再按固定棒长钉在棒轴上，防止 don↔ka 过渡时拉长。
+    let gripS = V.add(H.pivot, V.sub(tipS, base));
     const back = V.sub(gripS, tipS);
     const dirBack = V.len(back) > 1 ? V.norm(back) : V.norm(V.sub(H.pivot, tipS));
     gripS = V.add(tipS, V.mul(dirBack, L));
@@ -361,7 +362,7 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState) {
   // 手腕叠一层小幅上下点头（单击抬起的 1/3）。手的朝向不跟着棒的回弹走。
   const bob = rollState && isFinite(+rollState.bob) ? +rollState.bob : lift;
   const rock = rollState && isFinite(+rollState.rock) ? +rollState.rock : 0;
-  const gripPt = V.add(H.pivot, V.mul(liftVec(hand), CONFIG.ROLL_BOB_SCALE * bob));
+  const gripPt = V.add(H.pivot, V.mul({ x: H.out * CONFIG.LIFT_OUT_PX, y: -CONFIG.ROLL_LIFT_PX }, CONFIG.ROLL_BOB_SCALE * bob));
   const L = V.len(V.sub(base, H.pivot)) || stickLen(hand);
   const contactDeg = Math.atan2(base.y - H.pivot.y, base.x - H.pivot.x) * 180 / Math.PI;
   const sign = rollRockSign(gripPt, base, L);
@@ -532,6 +533,44 @@ function stickGeom(pose) {
   const ring = V.add(butt, V.mul(dir, CONFIG.TAPE_LEN));                // 胶带上端 = 黑环
   return { dir, n: { x: -dir.y, y: dir.x }, butt, ring, tip: pose.tip, tw: CONFIG.TAPE_W * k, sw: CONFIG.SHAFT_W * k };
 }
+
+/**
+ * Auto-check: 单击时握点→棒尾长度、握点→棒尖长度每帧不变（允许 1px 误差），
+ * 且 handDeg === stickDeg。samples 是 { t, pose } 或 pose 数组。
+ * 返回 { ok, errors, stats }；ok=false 时 errors 里有说明。
+ */
+function checkSingleWeld(samples) {
+  const poses = (samples || []).map((s) => s.pose || s).filter((p) => p && p.gripType === "single");
+  const errors = [], stubLens = [], tipLens = [], handDegs = [], stickDegs = [];
+  for (let i = 0; i < poses.length; i++) {
+    const p = poses[i], g = stickGeom(p);
+    const stubLen = V.len(V.sub(p.grip, g.butt));
+    const tipLen = V.len(V.sub(p.grip, p.tip));
+    stubLens.push(stubLen);
+    tipLens.push(tipLen);
+    handDegs.push(p.handDeg);
+    stickDegs.push(p.stickDeg);
+    const dAng = Math.abs(p.handDeg - p.stickDeg);
+    const angErr = Math.min(dAng, Math.abs(dAng - 360));
+    if (angErr > 1e-3) {
+      errors.push("frame " + i + ": handDeg=" + p.handDeg.toFixed(4) + " !== stickDeg=" + p.stickDeg.toFixed(4));
+    }
+  }
+  function drift(arr, label) {
+    if (!arr.length) return;
+    const lo = Math.min.apply(null, arr), hi = Math.max.apply(null, arr);
+    if (hi - lo > 1) errors.push(label + " drifted " + (hi - lo).toFixed(3) + "px (min " + lo.toFixed(3) + ", max " + hi.toFixed(3) + ")");
+    return { min: lo, max: hi, span: hi - lo };
+  }
+  const stats = {
+    n: poses.length,
+    stub: drift(stubLens, "grip→棒尾 length"),
+    gripTip: drift(tipLens, "grip→tip length"),
+    handDeg: handDegs.length ? { min: Math.min.apply(null, handDegs), max: Math.max.apply(null, handDegs) } : null,
+    stickDeg: stickDegs.length ? { min: Math.min.apply(null, stickDegs), max: Math.max.apply(null, stickDegs) } : null,
+  };
+  return { ok: errors.length === 0, errors, stats };
+}
 /** 棒身：从黑环到棒尖慢慢收尖的多边形 */
 function shaftD(g, grow = 0) {
   const a = V.add(g.ring, V.mul(g.n, g.sw / 2 + grow)), b = V.sub(g.ring, V.mul(g.n, g.sw / 2 + grow));
@@ -634,8 +673,11 @@ function fingerDetail(f, k0 = 1) {
 /** 画师手图：把图里的锚点放到捏点上，图里的棒子方向转到当前鼓棒方向。ghost = 透明度（残影用） */
 function handImg(handSide, pose) {
   const I = CONFIG.HAND_IMG[handSide][pose.gripType];
-  const rot = pose.handDeg - I.axisDeg;          // 手的朝向（不含滚奏晃动：手几乎不动，只有棒子抖）
-  // 图里的捏点直接对到鼓棒的旋转轴（pose.grip）上；手的朝向用 handDeg（不含滚奏晃动）
+  // 单击：手图和棒共用 stickDeg（handDeg === stickDeg），棒在手里永远是 0°。
+  // 旋转中心是捏点（棒轴上的握点）；手腕在图里、捏点下方，跟着整只手一起转、一起抬。
+  // 滚奏：仍用手朝向 handDeg（手几乎不动，只有棒绕捏点晃）。
+  const alignDeg = pose.gripType === "single" ? pose.stickDeg : pose.handDeg;
+  const rot = alignDeg - I.axisDeg;
   const T = `translate(${f1(pose.grip.x)},${f1(pose.grip.y)}) rotate(${f1(rot)}) scale(${I.scale}) translate(${-I.pinch[0]},${-I.pinch[1]})`;
   let s = `<g transform="${T}">`;
   s += `<image href="${I.href}" x="0" y="0" width="${I.w}" height="${I.h}" preserveAspectRatio="none"/>`;
@@ -1005,7 +1047,7 @@ function startEngine(data, meta) {
   const info = meta || data || {};
   window.taikoAnim = {
     state, seek, setPlaying, setRate, setData, startEngine,
-    renderAt, signalBachiDone, poseAt, buildHandTracks,
+    renderAt, signalBachiDone, poseAt, buildHandTracks, stickGeom, checkSingleWeld,
     raw: data, meta: info,
   };
   window.renderAt = renderAt;

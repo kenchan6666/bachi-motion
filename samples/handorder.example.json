@@ -1,0 +1,50 @@
+{
+  "song": "手顺 JSON 示例（溯月模式）",
+  "passage": "格式说明：events 覆盖自动 1-1 手顺；grip 为 roll 表示滚奏捏棒；inserted 为 true 会画金色光圈",
+  "bpm": 160,
+  "note": "把这段（或溯溯写的完整手顺）贴进「溯月」模式的 JSON 框即可播放。t 单位是秒。",
+  "events": [
+    {
+      "t": 0.0,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "1:0"
+    },
+    {
+      "t": 0.09375,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": true,
+      "src": "1:1"
+    },
+    {
+      "t": 0.1875,
+      "hand": "L",
+      "face": "ka",
+      "grip": "single",
+      "inserted": false,
+      "src": "1:2"
+    },
+    {
+      "t": 0.375,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "both": true,
+      "big": true,
+      "src": "1:4"
+    },
+    {
+      "t": 0.375,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "both": true,
+      "big": true,
+      "src": "1:4"
+    }
+  ]
+}

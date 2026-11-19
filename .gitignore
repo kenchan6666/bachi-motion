@@ -1,0 +1,7 @@
+node_modules/
+.DS_Store
+.render-frames/
+bachi-frames-*/
+_test_out.mp4
+*.mp4
+!samples/**

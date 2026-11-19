@@ -74,52 +74,93 @@
     let measure = { num: 4, den: 4 };
     let time = 0;
     let measureIndex = 0;
-    let slotBuf = "";
+    // Tokens in the current (unclosed) measure: {type:"slot", ch} | {type:"bpm", value} | {type:"delay", value}.
+    // Mid-measure #BPMCHANGE / #DELAY must take effect from that point on, not retroactively.
+    let items = [];
     const notes = [];
     const measures = [];
     let i = startIndex;
     let ended = false;
 
+    function inMeasure() {
+      return items.some((it) => it.type === "slot");
+    }
+
     function flushMeasure() {
-      const slots = slotBuf;
-      slotBuf = "";
+      const slotChars = items.filter((it) => it.type === "slot").map((it) => it.ch);
+      const n = slotChars.length;
       measureIndex += 1;
       const beats = (measure.num / measure.den) * 4;
-      const beatDur = 60 / bpm;
-      const duration = beats * beatDur;
-      const n = slots.length;
-      const step = n ? duration / n : duration;
+      const t0 = time;
+      let curBpm = bpm;
+      let tCursor = time;
       let count = 0;
-      for (let s = 0; s < n; s++) {
-        const typ = NOTE_TYPE[slots[s]];
-        if (!typ) continue;
-        const tRaw = time + s * step;
-        notes.push({
-          tRaw,
-          t: tRaw - headers.offset,
-          type: typ,
-          char: slots[s],
-          measure: measureIndex,
-          pos: s,
-          slots: n,
-          bpm,
-          beatDur,
-          measureBeats: beats,
+      let pos = 0;
+
+      if (n === 0) {
+        const duration = beats * (60 / curBpm);
+        measures.push({
+          index: measureIndex,
+          tRaw: t0,
+          t: t0 - headers.offset,
+          duration,
+          beats,
+          bpm: curBpm,
+          measure: { num: measure.num, den: measure.den },
+          slots: 0,
+          notes: 0,
         });
-        count += 1;
+        time = t0 + duration;
+        items = [];
+        return;
       }
+
+      const slotBeats = beats / n;
+      for (const it of items) {
+        if (it.type === "bpm") {
+          curBpm = it.value;
+          continue;
+        }
+        if (it.type === "delay") {
+          tCursor += it.value;
+          continue;
+        }
+        const beatDur = 60 / curBpm;
+        const typ = NOTE_TYPE[it.ch];
+        if (typ) {
+          notes.push({
+            tRaw: tCursor,
+            t: tCursor - headers.offset,
+            type: typ,
+            char: it.ch,
+            measure: measureIndex,
+            pos: pos,
+            slots: n,
+            bpm: curBpm,
+            beatDur,
+            measureBeats: beats,
+          });
+          count += 1;
+        }
+        tCursor += slotBeats * beatDur;
+        pos += 1;
+      }
+
+      const duration = tCursor - t0;
       measures.push({
         index: measureIndex,
-        tRaw: time,
-        t: time - headers.offset,
+        tRaw: t0,
+        t: t0 - headers.offset,
         duration,
         beats,
-        bpm,
+        bpm: curBpm,
         measure: { num: measure.num, den: measure.den },
         slots: n,
         notes: count,
       });
-      time += duration;
+      time = tCursor;
+      bpm = curBpm;
+      items = [];
     }
 
     for (; i < rawLines.length && !ended; i++) {
@@ -127,7 +168,7 @@
       if (!line) continue;
       if (/^#START\b/i.test(line)) continue;
       if (/^#END\b/i.test(line)) {
-        if (slotBuf.length) flushMeasure();
+        if (items.length) flushMeasure();
         ended = true;
         break;
       }
@@ -142,12 +183,16 @@
       if (bpmCh) {
         const v = +bpmCh[1];
         if (!isFinite(v) || v <= 0) throw new Error("无效的 #BPMCHANGE " + bpmCh[1]);
-        bpm = v;
+        if (inMeasure()) items.push({ type: "bpm", value: v });
+        else bpm = v;
         continue;
       }
       const delay = line.match(/^#DELAY\s+(-?\d+(?:\.\d+)?)\s*$/i);
       if (delay) {
-        time += +delay[1];
+        const v = +delay[1];
+        if (!isFinite(v)) throw new Error("无效的 #DELAY " + delay[1]);
+        if (inMeasure()) items.push({ type: "delay", value: v });
+        else time += v;
         continue;
       }
       if (line.charAt(0) === "#") continue;
@@ -155,10 +200,10 @@
         const ch = line.charAt(c);
         if (ch === ",") { flushMeasure(); continue; }
         if (ch === " " || ch === "\t" || ch === "|") continue;
-        slotBuf += ch;
+        items.push({ type: "slot", ch: ch });
       }
     }
-    if (!ended && slotBuf.length) flushMeasure();
+    if (!ended && items.length) flushMeasure();
     if (!measureIndex) throw new Error("#START 和 #END 之间没有小节");
     return {
       notes,
@@ -280,6 +325,7 @@
         rangeEnd: course.measures.length
           ? course.measures[course.measures.length - 1].t + course.measures[course.measures.length - 1].duration
           : course.duration,
+        timeShift: 0,
       };
     }
     const { from, to } = range;
@@ -305,6 +351,7 @@
       rangeEnd: t1 - t0,
       measureFrom: from,
       measureTo: toClamped,
+      timeShift: t0,
     };
   }
 
@@ -372,6 +419,7 @@
       duration: course.duration,
       rangeStart: course.rangeStart,
       rangeEnd: course.rangeEnd,
+      timeShift: course.timeShift || 0,
     }, extra || {});
   }
 
@@ -414,6 +462,11 @@
       }
       if (!events.length) throw new Error("手顺 JSON 在小节 " + range.from + "-" + range.to + " 里没有事件");
     }
+    // Same shift the TJA slice uses: first selected bar → t = 0.
+    const shift = opts && isFinite(+opts.timeShift) ? +opts.timeShift : 0;
+    if (shift) {
+      events = events.map((e) => Object.assign({}, e, { t: e.t - shift }));
+    }
     return {
       song: data.song || "",
       passage: data.passage || "",
@@ -421,8 +474,134 @@
       events,
       rangeStart: opts && opts.rangeStart,
       rangeEnd: opts && opts.rangeEnd,
+      timeShift: shift,
       source: "hand-json",
     };
+  }
+
+  function nearlyEqual(a, b, eps) {
+    return Math.abs(a - b) <= (eps == null ? 1e-9 : eps);
+  }
+
+  function timesOf(text, opts) {
+    return eventsFromTja(text, opts).events.filter((e) => !e.both || e.hand === "R").map((e) => e.t);
+  }
+
+  /**
+   * Parser self-checks (mid-measure #BPMCHANGE, even subdivisions including
+   * 32nds / 16th triplets / quintuplets). Run with `node js/parser.js`.
+   */
+  function selfCheck() {
+    const failures = [];
+    function expect(name, got, want) {
+      const ok = got.length === want.length && got.every((t, i) => nearlyEqual(t, want[i]));
+      if (!ok) {
+        failures.push(name + "\n    got  " + got.map((x) => +x.toFixed(10)).join(", ") +
+          "\n    want " + want.join(", "));
+      }
+      return ok;
+    }
+
+    // Mid-measure BPMCHANGE: 4/4 @120, "11" then #BPMCHANGE 60 then "11,"
+    // Four quarter-note slots: 0.5s + 0.5s at 120, then 1s + 1s at 60 → 0 / 0.5 / 1 / 2.
+    const bpmChange = [
+      "TITLE:selfcheck",
+      "BPM:120",
+      "OFFSET:0",
+      "#START",
+      "11",
+      "#BPMCHANGE 60",
+      "11,",
+      "#END",
+      "",
+    ].join("\n");
+    expect("mid-measure #BPMCHANGE 120→60", timesOf(bpmChange), [0, 0.5, 1, 2]);
+
+    // Mid-measure DELAY: 4/4 @120 four quarters, delay 0.25 after the first two.
+    const delayTja = [
+      "BPM:120",
+      "#START",
+      "11",
+      "#DELAY 0.25",
+      "11,",
+      "#END",
+      "",
+    ].join("\n");
+    expect("mid-measure #DELAY 0.25", timesOf(delayTja), [0, 0.5, 1.25, 1.75]);
+
+    // 溯溯的分音测试谱：4/4 @120，每小节 2.0s，槽位数 4,8,12,16,24,32,48（再加一小节大咚）。
+    const fs = require("fs");
+    const path = require("path");
+    function evenTimes(n, duration, t0) {
+      const out = [];
+      for (let i = 0; i < n; i++) out.push(t0 + (duration * i) / n);
+      return out;
+    }
+    const divPath = path.join(__dirname, "..", "samples", "suyue_division_test.tja");
+    if (!fs.existsSync(divPath)) {
+      failures.push("missing samples/suyue_division_test.tja");
+    } else {
+      const div = eventsFromTja(fs.readFileSync(divPath, "utf8"));
+      const expectedSlots = { 1: 4, 2: 8, 3: 12, 4: 16, 5: 24, 6: 32, 7: 48 };
+      const labels = {
+        3: "12-slot triplet (2.0/12)",
+        5: "24-slot 16th-triplet 三连 (2.0/24)",
+        6: "32nd notes (2.0/32)",
+        7: "48th notes (2.0/48)",
+      };
+      for (const [mIndex, n] of Object.entries(expectedSlots)) {
+        const idx = +mIndex;
+        const meas = div.measures.find((m) => m.index === idx);
+        const got = div.events.filter((e) => e.measure === idx && (!e.both || e.hand === "R")).map((e) => e.t);
+        const t0 = meas ? meas.t : (idx - 1) * 2;
+        const dur = meas ? meas.duration : 2;
+        const name = "suyue_division_test m" + idx + " " + (labels[idx] || (n + " slots")) +
+          "  step=" + (2 / n) + "  t0=" + t0;
+        if (!meas || !nearlyEqual(dur, 2) || meas.slots !== n) {
+          failures.push(name + "  bad measure meta slots=" + (meas && meas.slots) + " dur=" + (meas && meas.duration));
+        }
+        expect(name, got, evenTimes(n, 2, t0));
+      }
+    }
+
+    // Showcase demos must still parse; practice chart 1 keeps its known times.
+    const demoPath = path.join(__dirname, "..", "samples", "suyue_demo.tja");
+    if (fs.existsSync(demoPath)) {
+      const demo = timesOf(fs.readFileSync(demoPath, "utf8"));
+      if (!nearlyEqual(demo[0], 0) || !nearlyEqual(demo[8], 1.5) || !nearlyEqual(demo[24], 3) || !nearlyEqual(demo[demo.length - 1], 6.75)) {
+        failures.push("suyue_demo.tja timing regression: first/m2/m3/last = " +
+          [demo[0], demo[8], demo[24], demo[demo.length - 1]].join(", "));
+      }
+    }
+    const demo2Path = path.join(__dirname, "..", "samples", "suyue_demo2_8bun16bun.tja");
+    if (!fs.existsSync(demo2Path)) {
+      failures.push("missing samples/suyue_demo2_8bun16bun.tja");
+    } else {
+      const demo2 = eventsFromTja(fs.readFileSync(demo2Path, "utf8"));
+      if (!demo2.events.length || demo2.headers.title !== "溯溯的练习谱2" || demo2.bpm !== 170) {
+        failures.push("suyue_demo2_8bun16bun.tja failed to parse as 练习谱2 @170");
+      }
+    }
+
+    if (failures.length) {
+      throw new Error("parser self-check failed:\n- " + failures.join("\n- "));
+    }
+    return {
+      ok: true,
+      cases: [
+        "mid-measure #BPMCHANGE → 0 / 0.5 / 1 / 2",
+        "mid-measure #DELAY",
+        "suyue_division_test.tja even spacing (4/8/12/16/24/32/48 @120 4/4)",
+        "suyue_demo.tja regression",
+        "suyue_demo2_8bun16bun.tja parses",
+      ],
+    }
+  }
+
+  if (typeof require !== "undefined" && require.main === module) {
+    const result = selfCheck();
+    console.log("parser self-check ok");
+    result.cases.forEach((c) => console.log("  ✓ " + c));
   }
 
   return {
@@ -433,6 +612,7 @@
     assignHands,
     eventsFromTja,
     loadHandJson,
+    selfCheck,
     NOTE_TYPE,
   };
 });

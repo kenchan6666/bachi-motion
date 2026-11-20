@@ -334,6 +334,27 @@
     return "拿不准：这段像滚奏，点选后可改";
   }
 
+  // Expand a warning's horizontal span so both ends land on capsule seams.
+  // hit = note indices in this measure that belong to the warning.
+  function expandWarnToCapsules(capsules, hit) {
+    let left = null;
+    let right = null;
+    for (let i = 0; i < capsules.length; i++) {
+      const cap = capsules[i];
+      let overlap = false;
+      for (let h = 0; h < hit.length; h++) {
+        if (hit[h] >= cap.from && hit[h] <= cap.to) { overlap = true; break; }
+      }
+      if (!overlap) continue;
+      if (left == null || cap.left < left) left = cap.left;
+      if (right == null || cap.right > right) right = cap.right;
+    }
+    if (left == null) {
+      return { left: 0, right: 32 };
+    }
+    return { left: left, right: right };
+  }
+
   function renderTracks() {
     if (!ui.measuresEl) return;
     hidePops();
@@ -422,6 +443,7 @@
       }
 
       // Hand capsules: merge adjacent same-hand notes in this measure.
+      const capsules = [];
       let c = 0;
       while (c < idxs.length) {
         const start = c;
@@ -429,6 +451,7 @@
         while (c + 1 < idxs.length && (hands[idxs[c + 1]] === "L" ? "L" : "R") === hand) c += 1;
         const left = noteXInMeasure(raw[idxs[start]], measure) - 14;
         const right = noteXInMeasure(raw[idxs[c]], measure) + 14;
+        capsules.push({ from: idxs[start], to: idxs[c], left: left, right: right, hand: hand });
         const cap = document.createElement("div");
         cap.className = "editor-capsule is-" + hand;
         cap.style.left = left + "px";
@@ -438,14 +461,17 @@
         c += 1;
       }
 
-      // Warnings overlapping this measure.
+      // Warnings overlapping this measure. Box edges sit in capsule seams:
+      // if a warned note sits inside a merged same-hand capsule, expand to
+      // that whole capsule so the dashed frame never bisects a label.
       for (let w = 0; w < (resolved.warnings || []).length; w++) {
         const item = resolved.warnings[w];
         const a = item[0], b = item[1], typ = item[2];
         const hit = idxs.filter((i) => i >= a && i <= b);
         if (!hit.length) continue;
-        const left = noteXInMeasure(raw[hit[0]], measure) - 16;
-        const right = noteXInMeasure(raw[hit[hit.length - 1]], measure) + 16;
+        const bounds = expandWarnToCapsules(capsules, hit);
+        const left = bounds.left - 2;
+        const right = bounds.right + 2;
         const band = document.createElement("div");
         band.className = "editor-warn-band";
         band.style.left = left + "px";

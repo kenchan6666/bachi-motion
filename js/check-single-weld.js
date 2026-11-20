@@ -105,7 +105,13 @@ async function main() {
       const s = report.stats;
       console.log("  samples", s.n);
       if (s.stub) console.log("  grip→棒尾  min", s.stub.min.toFixed(3), "max", s.stub.max.toFixed(3), "span", s.stub.span.toFixed(4), "px");
-      if (s.gripTip) console.log("  grip→tip   min", s.gripTip.min.toFixed(3), "max", s.gripTip.max.toFixed(3), "span", s.gripTip.span.toFixed(4), "px");
+      if (s.gripTip) {
+        const g = s.gripTip;
+        if (g.don) console.log("  grip→tip don  min", g.don.min.toFixed(3), "max", g.don.max.toFixed(3), "span", g.don.span.toFixed(4), "px  (L=" + (g.donL||0).toFixed(3) + ")");
+        if (g.ka)  console.log("  grip→tip ka   min", g.ka.min.toFixed(3), "max", g.ka.max.toFixed(3), "span", g.ka.span.toFixed(4), "px  (L=" + (g.kaL||0).toFixed(3) + ")");
+        if (g.blend != null) console.log("  grip→tip blend", g.blend, "frames (don↔ka interpolate, excluded from span)");
+        console.log("  grip→tip   cluster span", g.span.toFixed(4), "px");
+      }
     }
     if (report.donLift) {
       const d = report.donLift;

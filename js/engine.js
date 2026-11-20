@@ -43,11 +43,12 @@ const CONFIG = {
   NOD_PX: 1.5,          // 旧滚奏点头（像素）；新滚奏手腕用 LIFT_PX * ROLL_BOB_SCALE
   SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
-  LIFT_PX: 110,         // 咚全幅度（≥8 分）抬起高度（拉大最高点→打中落差）
-  KA_LIFT_PX: 96,       // 咔举起上抬高度：整只手搬到鼓右侧上方高度
-  ROLL_LIFT_PX: 64,     // 滚奏一对结束后的整手大抬回高度（清晰一高一低、比单音紧凑）
+  LIFT_PX: 200,         // 咚全幅度抬起高度：最高点要明显高于预备，才能看出「打下去」
+  KA_LIFT_PX: 72,       // 咔举起：在已经抬到鼓下缘的接触位上再往上送一截
+  ROLL_LIFT_PX: 150,    // 滚奏大抬回：任意一帧都能看出一只手低（在打）、一只手高（抬起）
   LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
-  KA_STICK_OUT_DEG: 21, // 咔手搬到鼓右侧外，棒从右外侧斜向 1 点钟黑线（横移一眼看出）
+  KA_STICK_OUT_DEG: 10, // 咔棒近竖直，只外倾一点（不再靠长棒斜着从画面下方够鼓边）
+  KA_GRIP_Y: 536,       // 咔接触时握点高度：至少抬到鼓下缘（bodyBottom=548）附近
   KA_TIP_OUT_PX: 14,    // 咔棒尖压在 1 点钟鼓边黑线上，只露一小截棒头（不戳到 12 点半）
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
   WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
@@ -69,12 +70,12 @@ const CONFIG = {
   IMPACT_DUR: 0.028,    // 击中光+波纹只在击中那一帧亮起（绝不延到回弹帧）
   IMPACT_ROLL_DUR: 0.020,
   KA_LIFT_OUT_PX: 44,   // 咔举起时整只手往斜上外侧送
-  IDLE_HOVER_PX: 56,    // 闲手/预备棒尖明显悬在鼓面上方（远离落点 y=258，不压在鼓面上像也在打）
+  IDLE_HOVER_PX: 112,   // 闲手/预备棒尖明显高出鼓外轮廓（鼓顶 y=182，尖约 y=146，不贴鼓边像也在打）
   IDLE_V_DEG: 16,       // 倒V：近平行微收（两棒不交叉）
   IDLE_KA_SHIFT_RX: 0.15, // 对方打咔时，闲置棒尖往自己一侧偏 0.15 个面半径，避免两棒交叉
   IDLE_SETTLE: 0.22,    // 同手间隔够宽时，中间回到鼓心倒V；实际是否回预备由 strikeFit 按相位时值判断
   SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
-  SCENE_CLIP_PAD_TOP: 110, // 卡片上沿额外留白，允许棒尖略画出框
+  SCENE_CLIP_PAD_TOP: 170, // 卡片上沿额外留白：单击最高点抬高后棒尖不裁切
   KA_GLOW_GROW: 12,     // 青光画在鼓边外侧（不是鼓面上）
   // 同手相邻击的间隔 → 抬起高度（8 分及更疏 = 满幅，16 分起收小，32/48 分贴住）
   LIFT_DT_FULL: 0.18,   // ≥ 约 8 分（@160 ≈ 0.1875s）→ 满幅
@@ -273,12 +274,14 @@ function singleContactPose(hand, face) {
     return { tip, grip, deg: Math.atan2(d.y, d.x) * 180 / Math.PI };
   }
   const C = H.ka; // 接触点在鼓边黑线上（kaAng 约 1 / 11 点钟）
-  // 棒几乎竖直。倒角让手在外侧（宽站位：整只手连棒外移），比把棒顶再往外倒更优先。
+  // 手抬到鼓下缘高度，棒短而近竖直（只外倾一点）。棒尖仍贴 1/11 点钟黑线。
+  // 不改全局 don 棒长：咔这一击的握点离棒尖更近，整只手停在鼓右侧，不再从画面下方用长棒斜着够边。
   const deg = -90 - CONFIG.KA_STICK_OUT_DEG * H.out;
   const r = deg * Math.PI / 180;
   const dir = { x: Math.cos(r), y: Math.sin(r) };
   const tip = V.add(C, V.mul(dir, CONFIG.KA_TIP_OUT_PX));
-  const grip = V.sub(tip, V.mul(dir, L));
+  const kaLen = Math.max(220, (CONFIG.KA_GRIP_Y - tip.y) / Math.max(0.25, -dir.y));
+  const grip = V.sub(tip, V.mul(dir, kaLen));
   return { tip, grip, deg };
 }
 
@@ -315,7 +318,12 @@ function weldSnap(tip, grip, L) {
 }
 
 function lerpPose(a, b, u, L) {
-  return weldSnap(V.lerp(a.tip, b.tip, u), V.lerp(a.grip, b.grip, u), L);
+  const tip = V.lerp(a.tip, b.tip, u);
+  const grip = V.lerp(a.grip, b.grip, u);
+  const lenA = V.len(V.sub(a.tip, a.grip));
+  const lenB = V.len(V.sub(b.tip, b.grip));
+  const len = isFinite(L) ? L : lenA + (lenB - lenA) * u;
+  return weldSnap(tip, grip, len);
 }
 
 /** 举起时整组绕手腕后倒；棒相对手仍是 0°，握点不滑动。 */
@@ -535,7 +543,8 @@ function rollPhase(hand, track, a, b, t) {
     const pairDt = (bNext && bNext.stroke === b.stroke) ? (bNext.t - b.t) : CONFIG.ROLL_RISE;
     const down = Math.min(CONFIG.ROLL_DOWN_MAX, Math.max(0.025, pairDt));
     const peakT = otherHandRollPeak(hand, b.t - 3 * down, b.t, down);
-    const upDur = Math.max(0.08, 2 * down);
+    // 抬起要提早完成：对侧第一下时这只手已经接近最高，才能看出「一只手低、一只手高」
+    const upDur = Math.max(0.16, 3 * down);
     const upStart = peakT - upDur;
     const grip = t >= b.t - 0.25 ? "roll" : "single";
     if (t >= peakT) {
@@ -544,7 +553,7 @@ function rollPhase(hand, track, a, b, t) {
     }
     if (t >= upStart) {
       const s = clamp01((t - upStart) / upDur);
-      return { lift: 1, idle: 1 - easeOutQuad(s), press: 0, grip, base: b.target, buzz: null };
+      return { lift: easeOutQuad(s), idle: 1 - easeOutQuad(s), press: 0, grip, base: b.target, buzz: null };
     }
     return { lift: 0, idle: 1, press: 0, grip, base: b.target, buzz: null };
   }
@@ -616,7 +625,7 @@ function applyHitKickback(pose, hand, track, t) {
   const u = age / dur;
   // u=0 为 0（贴鼓），紧接着 u≈0.28 冲到峰值 1.0，然后快速融入回弹
   const k = Math.sin(Math.PI * u) * (1 - u) * 2.598;
-  const L = stickLen(hand);
+  const L = V.len(V.sub(pose.tip, pose.grip)); // 用当前刚体长度（咔比咚短），不要一律用 don 的 stickLen
   const r = pose.stickDeg * Math.PI / 180;
   const dir = { x: Math.cos(r), y: Math.sin(r) };
   const amp = last.grip === "roll" ? 0.65 : clamp01(0.45 + 0.55 * densityScale(last.gap));
@@ -675,11 +684,11 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
     // 单击：完全固定。follow=1，握点在棒上的位置和握点→棒尖夹角不变，handDeg===stickDeg。
     // 咚：从落点向上举起，绕手腕后倒（上下主要靠手腕轴；近竖直的棒要抬起棒尖，手会跟着焊死的棒走一点）。
     // 咔：整只手连棒明显往斜上外侧平移，再往下砸到 1 点钟鼓边；不靠手腕外翻，平移是主力。
-    const L = stickLen(hand);
     const face = (singleState && singleState.face) || targetFace(hand, base);
     const scale = singleState && isFinite(+singleState.scale) ? +singleState.scale : 1;
     const idleAmt = singleState && isFinite(+singleState.idle) ? clamp01(+singleState.idle) : 0;
     const hit = singleContactPose(hand, face);
+    const L = V.len(V.sub(hit.tip, hit.grip)); // 咚/咔各自刚体长度：咔握点更高，棒身看起来短而竖
     const lv = liftVec(hand, face);
     const raised = weldSnap(
       V.add(V.add(hit.tip, V.mul(lv, scale)), bend),
@@ -690,7 +699,7 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
     let pose = lerpPose(contact, raised, clamp01(lift), L);
     // 咚才加手腕后倒，让「打下」读成手腕一弹；咔不加，避免把整手外移读成翻腕。
     if (face !== "ka") pose = applyWristTilt(pose, clamp01(lift) * scale);
-    if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift), idleAmt, L);
+    if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift), idleAmt);
     return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }
   // 滚奏全程焊死：手与棒一体，不再绕捏点单独转 12°。
@@ -923,16 +932,36 @@ function checkSingleWeld(samples) {
       errors.push("frame " + i + ": handDeg=" + p.handDeg.toFixed(4) + " !== stickDeg=" + p.stickDeg.toFixed(4));
     }
   }
-  function drift(arr, label) {
+  function drift(arr, label, throwErr) {
     if (!arr.length) return;
     const lo = Math.min.apply(null, arr), hi = Math.max.apply(null, arr);
-    if (hi - lo > 1) errors.push(label + " drifted " + (hi - lo).toFixed(3) + "px (min " + lo.toFixed(3) + ", max " + hi.toFixed(3) + ")");
-    return { min: lo, max: hi, span: hi - lo };
+    if (throwErr !== false && hi - lo > 1) errors.push(label + " drifted " + (hi - lo).toFixed(3) + "px (min " + lo.toFixed(3) + ", max " + hi.toFixed(3) + ")");
+    return { min: lo, max: hi, span: hi - lo, n: arr.length };
   }
+  // 咚与咔是两套刚体长度（咔握点抬到鼓下缘，棒身更短），各自内部 span 必须为 0；
+  // 从预备/咚过渡到咔时长度在两者之间插值，这些中间帧不计入漂移。
+  const donL = stickLen("R");
+  const kaPose = singleContactPose("R", "ka");
+  const kaL = V.len(V.sub(kaPose.tip, kaPose.grip));
+  const donTips = [], kaTips = [], blendTips = [];
+  for (const L of tipLens) {
+    if (Math.abs(L - donL) <= 0.08) donTips.push(L);
+    else if (Math.abs(L - kaL) <= 0.08) kaTips.push(L);
+    else blendTips.push(L);
+  }
+  const donStat = drift(donTips, "grip→tip (don) length");
+  const kaStat = drift(kaTips, "grip→tip (ka) length");
+  for (const L of blendTips) {
+    const lo = Math.min(donL, kaL), hi = Math.max(donL, kaL);
+    if (L < lo - 1.05 || L > hi + 1.05) {
+      errors.push("grip→tip length " + L.toFixed(3) + "px outside don/ka range [" + lo.toFixed(3) + ", " + hi.toFixed(3) + "]");
+    }
+  }
+  const clusterSpan = Math.max(donStat && donStat.span || 0, kaStat && kaStat.span || 0);
   const stats = {
     n: poses.length,
     stub: drift(stubLens, "grip→棒尾 length"),
-    gripTip: drift(tipLens, "grip→tip length"),
+    gripTip: { min: clusterSpan, max: clusterSpan, span: clusterSpan, don: donStat, ka: kaStat, blend: blendTips.length, donL: donL, kaL: kaL },
     handDeg: handDegs.length ? { min: Math.min.apply(null, handDegs), max: Math.max.apply(null, handDegs) } : null,
     stickDeg: stickDegs.length ? { min: Math.min.apply(null, stickDegs), max: Math.max.apply(null, stickDegs) } : null,
   };
@@ -1113,25 +1142,7 @@ function renderTrail(hand, track, now) {
     const fill = mixWhite(col, 0.15 * Math.min(k - 1, 2));
     s += `<g opacity="${alphas[k - 1]}">${stickSilhouette(p, fill)}${state.hands === "none" ? "" : state.hands === "img" ? "" : handSVG(hand, p, fill)}</g>`;
   }
-  // 方向弧线：取棒尖在 span 前、中点、现在三个点。滚奏弧更长更淡（刷刷刷），单击保持原来的箭头。
-  const span = rolling ? CONFIG.ROLL_TRAIL_ARC_SPAN : CONFIG.TRAIL_ARC_SPAN;
-  const A = poseAt(hand, track, now - span, { noWobble: true }).tip;
-  const M = poseAt(hand, track, now - span / 2, { noWobble: true }).tip;
-  const B = poseAt(hand, track, now, { noWobble: true }).tip;
-  if (V.len(V.sub(B, A)) + V.len(V.sub(M, A)) < (rolling ? 8 : 14)) return s;
-  const Q = V.sub(V.mul(M, 2), V.mul(V.add(A, B), 0.5));            // 让曲线经过 M 的控制点
-  const d = `M${f1(A.x)},${f1(A.y)} Q${f1(Q.x)},${f1(Q.y)} ${f1(B.x)},${f1(B.y)}`;
-  if (rolling) {
-    s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="6" stroke-linecap="round" opacity=".22"/>`;
-    s += `<path d="${d}" fill="none" stroke="${col}" stroke-width="2.8" stroke-linecap="round" opacity=".28"/>`;
-    return s;
-  }
-  s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity=".5"/>`;
-  s += `<path d="${d}" fill="none" stroke="${col}" stroke-width="3.5" stroke-linecap="round" opacity=".75"/>`;
-  let tan = V.sub(B, Q); if (V.len(tan) < 0.5) tan = V.sub(B, A);   // 末端切线方向
-  const dir = V.norm(tan), n = { x: -dir.y, y: dir.x };
-  const head = V.add(B, V.mul(dir, 10)), b1 = V.add(B, V.mul(n, 6)), b2 = V.sub(B, V.mul(n, 6));
-  s += `<path d="M${f1(head.x)},${f1(head.y)} L${f1(b1.x)},${f1(b1.y)} L${f1(b2.x)},${f1(b2.y)} Z" fill="${col}" opacity=".6"/>`;
+  // 只保留拖影带（棒/手剪影）。不再画棒尖往外的彩色细直线+箭头：那条线会一直伸到画面外，像棒子变长或打穿了鼓。
   return s;
 }
 

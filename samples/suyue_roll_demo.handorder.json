@@ -1,0 +1,828 @@
+{
+  "song": "溯溯的滚奏练习谱",
+  "passage": "四类滚奏：第2小节滚红dd、第3小节滚蓝kk、第4小节kd（咔→咚，鼓边往鼓心）、第5小节dk（咚→咔，鼓心往鼓边）、第6小节混合、第7小节24分1-2-1",
+  "bpm": 260,
+  "note": "16分按2-2拆，每对同一只手(RR)(LL)靠反弹；24分按1-2-1，单-对-单，下一组换手起。t单位是秒。",
+  "events": [
+    {
+      "t": 0.0,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "1:0"
+    },
+    {
+      "t": 0.23077,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "1:4"
+    },
+    {
+      "t": 0.46154,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "1:8"
+    },
+    {
+      "t": 0.69231,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "1:12"
+    },
+    {
+      "t": 0.92308,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:0"
+    },
+    {
+      "t": 0.98077,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:1"
+    },
+    {
+      "t": 1.03846,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:2"
+    },
+    {
+      "t": 1.09615,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:3"
+    },
+    {
+      "t": 1.15385,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:4"
+    },
+    {
+      "t": 1.21154,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:5"
+    },
+    {
+      "t": 1.26923,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:6"
+    },
+    {
+      "t": 1.32692,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:7"
+    },
+    {
+      "t": 1.38462,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:8"
+    },
+    {
+      "t": 1.44231,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:9"
+    },
+    {
+      "t": 1.5,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:10"
+    },
+    {
+      "t": 1.55769,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:11"
+    },
+    {
+      "t": 1.61538,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:12"
+    },
+    {
+      "t": 1.67308,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:13"
+    },
+    {
+      "t": 1.73077,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:14"
+    },
+    {
+      "t": 1.78846,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "2:15"
+    },
+    {
+      "t": 1.84615,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:0"
+    },
+    {
+      "t": 1.90385,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:1"
+    },
+    {
+      "t": 1.96154,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:2"
+    },
+    {
+      "t": 2.01923,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:3"
+    },
+    {
+      "t": 2.07692,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:4"
+    },
+    {
+      "t": 2.13462,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:5"
+    },
+    {
+      "t": 2.19231,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:6"
+    },
+    {
+      "t": 2.25,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:7"
+    },
+    {
+      "t": 2.30769,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:8"
+    },
+    {
+      "t": 2.36538,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:9"
+    },
+    {
+      "t": 2.42308,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:10"
+    },
+    {
+      "t": 2.48077,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:11"
+    },
+    {
+      "t": 2.53846,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:12"
+    },
+    {
+      "t": 2.59615,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:13"
+    },
+    {
+      "t": 2.65385,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:14"
+    },
+    {
+      "t": 2.71154,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "3:15"
+    },
+    {
+      "t": 2.76923,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:0"
+    },
+    {
+      "t": 2.82692,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:1"
+    },
+    {
+      "t": 2.88462,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:2"
+    },
+    {
+      "t": 2.94231,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:3"
+    },
+    {
+      "t": 3.0,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:4"
+    },
+    {
+      "t": 3.05769,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:5"
+    },
+    {
+      "t": 3.11538,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:6"
+    },
+    {
+      "t": 3.17308,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:7"
+    },
+    {
+      "t": 3.23077,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:8"
+    },
+    {
+      "t": 3.28846,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:9"
+    },
+    {
+      "t": 3.34615,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:10"
+    },
+    {
+      "t": 3.40385,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:11"
+    },
+    {
+      "t": 3.46154,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:12"
+    },
+    {
+      "t": 3.51923,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:13"
+    },
+    {
+      "t": 3.57692,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:14"
+    },
+    {
+      "t": 3.63462,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "4:15"
+    },
+    {
+      "t": 3.69231,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:0"
+    },
+    {
+      "t": 3.75,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:1"
+    },
+    {
+      "t": 3.80769,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:2"
+    },
+    {
+      "t": 3.86538,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:3"
+    },
+    {
+      "t": 3.92308,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:4"
+    },
+    {
+      "t": 3.98077,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:5"
+    },
+    {
+      "t": 4.03846,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:6"
+    },
+    {
+      "t": 4.09615,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:7"
+    },
+    {
+      "t": 4.15385,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:8"
+    },
+    {
+      "t": 4.21154,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:9"
+    },
+    {
+      "t": 4.26923,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:10"
+    },
+    {
+      "t": 4.32692,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:11"
+    },
+    {
+      "t": 4.38462,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:12"
+    },
+    {
+      "t": 4.44231,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:13"
+    },
+    {
+      "t": 4.5,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:14"
+    },
+    {
+      "t": 4.55769,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "5:15"
+    },
+    {
+      "t": 4.61538,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:0"
+    },
+    {
+      "t": 4.67308,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:1"
+    },
+    {
+      "t": 4.73077,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:2"
+    },
+    {
+      "t": 4.78846,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:3"
+    },
+    {
+      "t": 4.84615,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:4"
+    },
+    {
+      "t": 4.90385,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:5"
+    },
+    {
+      "t": 4.96154,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:6"
+    },
+    {
+      "t": 5.01923,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:7"
+    },
+    {
+      "t": 5.07692,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:8"
+    },
+    {
+      "t": 5.13462,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:9"
+    },
+    {
+      "t": 5.19231,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:10"
+    },
+    {
+      "t": 5.25,
+      "hand": "L",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:11"
+    },
+    {
+      "t": 5.30769,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:12"
+    },
+    {
+      "t": 5.36538,
+      "hand": "R",
+      "face": "ka",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:13"
+    },
+    {
+      "t": 5.42308,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:14"
+    },
+    {
+      "t": 5.48077,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "6:15"
+    },
+    {
+      "t": 5.53846,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:0"
+    },
+    {
+      "t": 5.57692,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:1"
+    },
+    {
+      "t": 5.61538,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:2"
+    },
+    {
+      "t": 5.65385,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:3"
+    },
+    {
+      "t": 5.76923,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:6"
+    },
+    {
+      "t": 5.80769,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:7"
+    },
+    {
+      "t": 5.84615,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:8"
+    },
+    {
+      "t": 5.88462,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:9"
+    },
+    {
+      "t": 6.0,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:12"
+    },
+    {
+      "t": 6.03846,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:13"
+    },
+    {
+      "t": 6.07692,
+      "hand": "L",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:14"
+    },
+    {
+      "t": 6.11538,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:15"
+    },
+    {
+      "t": 6.23077,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:18"
+    },
+    {
+      "t": 6.26923,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:19"
+    },
+    {
+      "t": 6.30769,
+      "hand": "R",
+      "face": "don",
+      "grip": "roll",
+      "inserted": false,
+      "src": "7:20"
+    },
+    {
+      "t": 6.34615,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "7:21"
+    },
+    {
+      "t": 6.46154,
+      "hand": "R",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "8:0",
+      "both": true,
+      "big": true
+    },
+    {
+      "t": 6.46154,
+      "hand": "L",
+      "face": "don",
+      "grip": "single",
+      "inserted": false,
+      "src": "8:0",
+      "both": true,
+      "big": true
+    }
+  ]
+}

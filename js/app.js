@@ -129,6 +129,44 @@
     return /^[A-Za-z0-9_-]+$/.test(base) ? base : null;
   }
 
+  const sampleSelect = $("sampleSelect");
+  const PREFILLED_SAMPLES = { suyue_demo2_8bun16bun: true, suyue_demo: true };
+
+  async function loadSampleChart(name) {
+    const sample = safeSampleName(name);
+    if (!sample) return null;
+    const tjaRes = await fetch("samples/" + sample + ".tja", { cache: "no-store" });
+    if (!tjaRes.ok) throw new Error(tjaRes.status);
+    tjaInput.value = await tjaRes.text();
+    let hasHands = false;
+    try {
+      const jsonRes = await fetch("samples/" + sample + ".handorder.json", { cache: "no-store" });
+      if (jsonRes.ok) {
+        jsonInput.value = await jsonRes.text();
+        hasHands = true;
+      }
+    } catch (err) { /* no companion 手顺 is fine */ }
+    if (hasHands) setMode("suyue");
+    else {
+      jsonInput.value = "";
+      setMode("zhuren");
+    }
+    if (sampleSelect) sampleSelect.value = sample;
+    return sample;
+  }
+
+  if (sampleSelect) {
+    sampleSelect.onchange = async (e) => {
+      showError("");
+      try {
+        await loadSampleChart(e.target.value);
+        generate(true);
+      } catch (err) {
+        showError("无法加载示例谱 samples/" + e.target.value + ".tja");
+      }
+    };
+  }
+
   async function boot() {
     if (pageParams.get("mode") === "suyue") setMode("suyue");
     else setMode("zhuren");
@@ -136,12 +174,9 @@
     const sample = safeSampleName(pageParams.get("sample") || "");
     if (sample) {
       try {
-        const res = await fetch("samples/" + sample + ".tja", { cache: "no-store" });
-        if (!res.ok) throw new Error(res.status);
-        tjaInput.value = await res.text();
+        await loadSampleChart(sample);
       } catch (err) {
-        const prefilled = sample === "suyue_demo2_8bun16bun" || sample === "suyue_demo";
-        if (!prefilled) {
+        if (!PREFILLED_SAMPLES[sample]) {
           showError("无法加载示例谱 samples/" + sample + ".tja");
         }
         // Default showcase (练习谱2) is prefilled in the textarea; file:// fetch may fail and that's ok.

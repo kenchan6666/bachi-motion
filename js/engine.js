@@ -2242,7 +2242,7 @@ function swipeDashState(tRel, T) {
 /* ---------- 滚奏实心圆（仅 dd 滚红 / kk 滚蓝；与内外刷箭头共位、同时序） ---------- */
 const ROLL_DOT = {
   midDeg: (SWIPE_ARROW.a0Deg + SWIPE_ARROW.a1Deg) / 2, // -129.1，箭头弧中点（汐月 A 方案）
-  raise: 0.08,          // 再往上挪 0.08×ry，躲开滚红时咚落点红光
+  rimPad: 6,            // 白边外侧离鼓沿描边的最小间距（px）
   rFac: 0.11,           // 半径 = 鼓面 rx × 0.11
   stroke: 2.5,          // 白描边（外圈）
   opacity: 0.90,
@@ -2253,7 +2253,7 @@ const ROLL_DOT = {
   fadeK: 0.5,           // 第二下之后 0.5T 内淡出
 };
 
-/** 圆的圆心：SWIPE_ARROW 辅圆弧中点，左手镜像，再上移 raise×ry。不是击打落点。 */
+/** 圆的圆心：SWIPE_ARROW 辅圆弧中点，左手镜像；必要时把 y 夹进鼓面，避免压到鼓沿描边。不是击打落点。 */
 function rollDotPos(hand) {
   const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
   const left = hand === "L";
@@ -2261,7 +2261,18 @@ function rollDotPos(hand) {
   let ang = D.midDeg * Math.PI / 180;
   if (left) ang = Math.PI - ang;
   const R = S.rFac * F.rx;
-  return { x: C.x + R * Math.cos(ang), y: C.y + R * Math.sin(ang) - D.raise * F.ry };
+  const x = C.x + R * Math.cos(ang);
+  let y = C.y + R * Math.sin(ang);
+  const r = D.rFac * F.rx;
+  const u = (x - F.cx) / F.rx;
+  const inside = 1 - u * u;
+  if (inside > 0) {
+    const rimY = F.cy - F.ry * Math.sqrt(inside);
+    const minY = rimY + r + D.stroke + D.rimPad;
+    // 画出时用 f1（一位小数）；向上收到 0.1px，避免四舍后白边离鼓沿略小于 6
+    if (y < minY) y = Math.ceil(minY * 10 - 1e-9) / 10;
+  }
+  return { x, y };
 }
 
 /**

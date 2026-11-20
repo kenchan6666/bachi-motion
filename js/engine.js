@@ -44,15 +44,17 @@ const CONFIG = {
   SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
   // 棒尖比击中位置高出的像素（按同一手上一下间隔查表）
-  LIFT_PX_DENSE: 15,    // 密串/16分 ≲0.1s
-  LIFT_PX_LIGHT: 28,    // 8+16 复合里成对的第二颗 16 分，约 8 分的 0.4 倍
-  LIFT_PX_8TH: 70,      // 8 分 ~0.1–0.2s
+  LIFT_PX_DENSE: 15,    // 密串/纯 16 分滚串 ≲0.1s
+  LIFT_PX_LIGHT: 75,    // 8+16 复合轻点兜底（实际按同组重音 × 0.4）
+  LIFT_PX_8TH: 70,      // 纯 8 分连串 ~0.1–0.2s（后面不接 16 分对）
   LIFT_PX_SPARSE: 115,  // 普通散音 ~0.2–0.4s
-  LIFT_PX_LONG: 160,    // 长散音 / 休息后第一下 ≳0.4s
+  LIFT_PX_LONG: 180,    // 长散音 / 休息后第一下 ≳0.4s
+  LIFT_PX_COMPOUND_HEAVY: 188, // 复合重音（8 分后紧跟 16 分密对），旧版幅度 185–190
+  LIFT_COMPOUND_LIGHT_RATIO: 0.4, // 复合轻点 = 同组重音 × 0.4 ≈ 75px，重轻比 ≈ 2.3
   LIFT_PX_SLOW: 115,    // 兼容旧调用：等于普通散音
   LIFT_PX_FAST: 15,     // 兼容旧调用：等于密串
   LIFT_PX_FAST_MIN: 15,
-  LIFT_PX_WINDUP: 160,  // 不再用于「密串前预抬」；保留键以免旧调用读到 undefined
+  LIFT_PX_WINDUP: 180,  // 不再用于「密串前预抬」；保留键以免旧调用读到 undefined
   LIFT_PX: 115,         // 兼容旧调用：等于普通散音
   KA_LIFT_PX: 14,       // 咔举起：在接触位上再往上送；与快串同量级，避免回弹跨度过大
   ROLL_LIFT_PX: 150,    // 滚奏大抬回：任意一帧都能看出一只手低（在打）、一只手高（抬起）
@@ -94,6 +96,7 @@ const CONFIG = {
   IDLE_KA_SHIFT_RX: 0.15, // 对方打咔时，闲置棒尖往自己一侧偏 0.15 个面半径，避免两棒交叉
   IDLE_SETTLE: 0.22,    // 同手间隔够宽时，中间回到鼓心倒V；实际是否回预备由 strikeFit 按相位时值判断
   SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
+  DRUM_Y_SHIFT: 0,      // 鼓+手整体下移（px，正值向下）。最高抬手棒尖离谱面条下沿还需约 10px；具体数值等汐月量完再填。
   SCENE_CLIP_PAD_TOP: 170, // 卡片上沿额外留白：单击最高点抬高后棒尖不裁切
   KA_GLOW_GROW: 12,     // 青光沿鼓边外侧（中心对齐棒尖接触点，不落在鼓面里）
   // 同手相邻击的间隔 → 抬起高度（8 分及更疏 = 满幅，16 分起收小，32/48 分贴住）
@@ -297,18 +300,22 @@ function liftVec(hand, face, heightPx) {
   return { x: H.out * out, y: -h };
 }
 
+function sceneShiftY() { return CONFIG.DRUM_Y_SHIFT || 0; }
+
 function sceneTransform(shake) {
   const F = GEOM.face, s = CONFIG.SCENE_SCALE;
+  const dy0 = sceneShiftY();
   if (!shake || (Math.abs(shake.scale - 1) < 1e-5 && Math.abs(shake.dx) < 1e-3 && Math.abs(shake.dy) < 1e-3)) {
-    return `translate(${F.cx},${F.cy}) scale(${s}) translate(${-F.cx},${-F.cy})`;
+    return `translate(${F.cx},${F.cy + dy0}) scale(${s}) translate(${-F.cx},${-F.cy})`;
   }
-  return `translate(${f1(F.cx + shake.dx)},${f1(F.cy + shake.dy)}) scale(${(s * shake.scale).toFixed(4)}) translate(${-F.cx},${-F.cy})`;
+  return `translate(${f1(F.cx + shake.dx)},${f1(F.cy + shake.dy + dy0)}) scale(${(s * shake.scale).toFixed(4)}) translate(${-F.cx},${-F.cy})`;
 }
 
 /** 屏幕坐标 → 场景缩放后的本地坐标（卡片裁剪要对齐未缩放的画框，上沿再放宽）。 */
 function sceneInvPt(p) {
   const F = GEOM.face, s = CONFIG.SCENE_SCALE;
-  return { x: (p.x - F.cx) / s + F.cx, y: (p.y - F.cy) / s + F.cy };
+  const dy0 = sceneShiftY();
+  return { x: (p.x - F.cx) / s + F.cx, y: (p.y - F.cy - dy0) / s + F.cy };
 }
 
 /** 椭圆参数角（度），与 ellipsePt 用的 t 一致，不是几何 atan2。 */
@@ -383,12 +390,22 @@ function singleContactPose(hand, face) {
 }
 
 /** 预备/闲置：两棒回到鼓心咚位，倒V悬在鼓面上方。shiftOut=1 时棒尖往自己一侧微偏（对方打咔用）。 */
-function singleIdlePose(hand, shiftOut) {
+function singleIdlePose(hand, shiftOut, face) {
   const H = GEOM.hands[hand];
   const L = stickLen(hand);
+  const hoverY = H.don.y - CONFIG.IDLE_HOVER_PX;
+  // 下一击是咔时，在待机高度先横移到咔的 x，再按表往上抬，避免把换面挤进抬手窗。
+  if (face === "ka") {
+    const ka = singleContactPose(hand, "ka");
+    const tip = { x: ka.tip.x, y: hoverY };
+    const r = ka.deg * Math.PI / 180;
+    const dir = { x: Math.cos(r), y: Math.sin(r) };
+    const grip = V.sub(tip, V.mul(dir, L));
+    return weldSnap(tip, grip, L);
+  }
   const amt = isFinite(+shiftOut) ? clamp01(+shiftOut) : (shiftOut ? 1 : 0);
   const shift = amt * CONFIG.IDLE_KA_SHIFT_RX * GEOM.face.rx;
-  const tip = { x: H.don.x + H.out * shift, y: H.don.y - CONFIG.IDLE_HOVER_PX };
+  const tip = { x: H.don.x + H.out * shift, y: hoverY };
   const deg = -90 - CONFIG.IDLE_V_DEG * H.out; // 棒尖往内、手下往外 = 倒V
   const r = deg * Math.PI / 180;
   const dir = { x: Math.cos(r), y: Math.sin(r) };
@@ -635,7 +652,7 @@ function easeInDown(s, dist, dur) {
 }
 
 function tipDistIdleToRaised(hand, face, heightPx) {
-  const idle = singleIdlePose(hand, 0);
+  const idle = singleIdlePose(hand, 0, face);
   const raised = composeSingleByFace(hand, face, 1, { x: 0, y: 0 }, heightPx);
   return V.len(V.sub(idle.tip, raised.tip));
 }
@@ -646,9 +663,9 @@ function tipDistContactToRaised(hand, face, heightPx) {
   return V.len(V.sub(c.tip, r.tip));
 }
 
-function tipDistContactToIdle(hand, face) {
+function tipDistContactToIdle(hand, face, toIdleFace) {
   const a = singleContactPose(hand, face === "ka" ? "ka" : "don");
-  const b = singleIdlePose(hand, 0);
+  const b = singleIdlePose(hand, 0, toIdleFace || "don");
   return V.len(V.sub(a.tip, b.tip));
 }
 
@@ -659,9 +676,9 @@ function tipDistContacts(hand, faceA, faceB) {
 }
 
 /** 从 face 弹回预备位的最短时长：咔至少 5–6 帧，并按距离保证中间最快帧不超过 30px。 */
-function reboundMinDur(hand, face) {
+function reboundMinDur(hand, face, toIdleFace) {
   const minDur = (CONFIG.REBOUND_MIN_FRAMES || 6) / 60;
-  const dist = tipDistContactToIdle(hand || "R", face);
+  const dist = tipDistContactToIdle(hand || "R", face, toIdleFace);
   const maxStep = CONFIG.REBOUND_MAX_STEP_PX || 30;
   const need = dist * 1.5 / (maxStep * 60);
   if (face === "ka") return Math.max(minDur, need, 1e-4);
@@ -675,29 +692,68 @@ function prevGapOf(contact) {
   return Infinity;
 }
 
-/** 8+16 复合里成对的第二颗 16 分：上一颗更疏，这一颗间隔 ≤ 密串上沿。 */
-function isCompoundLightTap(contact) {
-  const dt = prevGapOf(contact);
-  const dense = CONFIG.LIFT_DT_DENSE || 0.10;
-  if (!(dt > 1e-6 && dt <= dense + 1e-6)) return false;
-  const tracks = (typeof state !== "undefined" && state.tracks) ? state.tracks : null;
-  const ev = contact && contact.ev;
-  const hand = ev && ev.hand;
-  const arr = tracks && hand && tracks[hand];
-  if (!arr || !arr.length) return false;
-  let idx = arr.indexOf(contact);
-  if (idx < 0 && ev) {
-    idx = arr.findIndex((c) => c === contact || (c.ev && ev && c.ev.i === ev.i) ||
-      (c.t === contact.t && (c.face === contact.face || (c.ev && ev && c.ev.face === ev.face))));
-  }
-  if (idx <= 0) return false;
-  return prevGapOf(arr[idx - 1]) > dense + 1e-6;
+/** 单击事件按时间排序（不含滚奏）。用来判定 8+16 复合。 */
+function singleEventList() {
+  return (state.events || []).filter((e) => e.grip !== "roll").slice().sort((a, b) => a.t - b.t);
 }
 
-/** 这下单击的抬手高度（棒尖比击中位置高出的像素）。只按上一击间隔查表，不吃残留、不做跨音平滑。 */
-function liftHeightPx(contact) {
-  if (isCompoundLightTap(contact)) return CONFIG.LIFT_PX_LIGHT;
-  const dt = prevGapOf(contact);
+function eventOfContact(contact) {
+  return (contact && contact.ev) ? contact.ev : contact;
+}
+
+function eventIndex(evs, ev) {
+  if (!ev) return -1;
+  return evs.findIndex((e) => e === ev || (e.i != null && ev.i != null && e.i === ev.i) ||
+    (e.t === ev.t && e.hand === ev.hand && e.face === ev.face));
+}
+
+/** 8+16 一组：这颗与下一颗相隔 8 分，再紧跟一对 16 分。
+ *  若 16 分对之后仍是密串（整段 16 分滚串的段首），不算复合，避免把段首 8 分抬到 188px 在短同手间隔里跳帧。 */
+function isCompoundHeavyAt(evs, k) {
+  if (k < 0 || k + 2 >= evs.length) return false;
+  const dense = CONFIG.LIFT_DT_DENSE || 0.10;
+  const eighth = CONFIG.LIFT_DT_8TH || 0.20;
+  const g = (i) => evs[i + 1].t - evs[i].t;
+  if (!(g(k) > dense + 1e-6 && g(k) <= eighth + 1e-6)) return false;
+  if (!(g(k + 1) > 1e-6 && g(k + 1) <= dense + 1e-6)) return false;
+  if (k + 3 >= evs.length) return true;
+  if (!(g(k + 2) > 1e-6 && g(k + 2) <= dense + 1e-6)) return true;
+  // 对后仍密：只有下一组又从 8 分起（重复的 8+16）才算复合重音
+  if (k + 4 >= evs.length) return true;
+  return g(k + 3) > dense + 1e-6;
+}
+
+/** 给每个单击标上复合角色。谱面载入后只算一次。 */
+function compoundRoleMap() {
+  const evs = singleEventList();
+  const cache = typeof state !== "undefined" ? state : null;
+  if (cache && cache._compoundRoles && cache._compoundRoles.n === evs.length) return cache._compoundRoles.map;
+  const map = new Map();
+  for (let k = 0; k < evs.length; k++) {
+    if (!isCompoundHeavyAt(evs, k)) continue;
+    map.set(evs[k], { role: "heavy", heavy: evs[k] });
+    // 同组轻点只标紧跟的那一对 16 分，不把后面的纯密串算进来
+    if (k + 1 < evs.length) map.set(evs[k + 1], { role: "light", heavy: evs[k] });
+    if (k + 2 < evs.length) map.set(evs[k + 2], { role: "light", heavy: evs[k] });
+  }
+  if (cache) cache._compoundRoles = { n: evs.length, map };
+  return map;
+}
+
+/** 复合段角色：heavy / light / null（走普通查表）。轻点只标同组那一对 16 分。 */
+function compoundRole(contact) {
+  const ev = eventOfContact(contact);
+  if (!ev || ev.grip === "roll") return null;
+  const map = compoundRoleMap();
+  if (map.has(ev)) return map.get(ev);
+  const evs = singleEventList();
+  const i = eventIndex(evs, ev);
+  if (i >= 0 && map.has(evs[i])) return map.get(evs[i]);
+  return null;
+}
+
+/** 只按同一只手上一下间隔查表（不含复合加重）。 */
+function liftHeightFromGap(dt) {
   const anchors = [
     [0, CONFIG.LIFT_PX_DENSE],
     [CONFIG.LIFT_DT_DENSE || 0.10, CONFIG.LIFT_PX_DENSE],
@@ -717,6 +773,34 @@ function liftHeightPx(contact) {
     }
   }
   return CONFIG.LIFT_PX_LONG;
+}
+
+function compoundHeavyHeight(heavyEv) {
+  const table = liftHeightFromGap(heavyEv && isFinite(heavyEv.prevGap) ? heavyEv.prevGap : Infinity);
+  // 事件上可能没有 prevGap（那是 track contact 的字段）；再从 tracks 找
+  let dt = Infinity;
+  if (heavyEv) {
+    const tracks = (typeof state !== "undefined" && state.tracks) ? state.tracks : null;
+    const arr = tracks && heavyEv.hand && tracks[heavyEv.hand];
+    if (arr) {
+      const c = arr.find((x) => x.ev === heavyEv || (x.ev && x.ev.i === heavyEv.i) ||
+        (x.t === heavyEv.t && x.face === heavyEv.face));
+      if (c) dt = prevGapOf(c);
+    }
+  }
+  if (!isFinite(dt) || dt === Infinity) dt = (heavyEv && isFinite(heavyEv.prevGap)) ? heavyEv.prevGap : Infinity;
+  return Math.max(liftHeightFromGap(dt), CONFIG.LIFT_PX_COMPOUND_HEAVY || 188);
+}
+
+/** 这下单击的抬手高度（棒尖比击中位置高出的像素）。 */
+function liftHeightPx(contact) {
+  const acc = compoundRole(contact);
+  if (acc && acc.role === "heavy") return Math.max(liftHeightFromGap(prevGapOf(contact)), CONFIG.LIFT_PX_COMPOUND_HEAVY || 188);
+  if (acc && acc.role === "light") {
+    const ratio = CONFIG.LIFT_COMPOUND_LIGHT_RATIO || 0.4;
+    return compoundHeavyHeight(acc.heavy) * ratio;
+  }
+  return liftHeightFromGap(prevGapOf(contact));
 }
 
 /** 固定起手窗口：抬到顶 0.08–0.12s（越密越短），顶点可停 0–0.1s，下砸 0.07–0.1s；总长 ≤0.33s。 */
@@ -770,7 +854,7 @@ function strikeFit(gap, opts) {
   const toFace = ((opts && opts.toFace) || face) === "ka" ? "ka" : "don";
   const hand = (opts && opts.hand) || "R";
   const heightB = (opts && isFinite(opts.height)) ? opts.height : (CONFIG.LIFT_PX_LONG || 160);
-  const needReb = reboundMinDur(hand, face);
+  const needReb = reboundMinDur(hand, face, toFace);
   // 必须在 REST 窗（上一击后 0.35s）之前停稳
   const rebound = Math.min(0.25, Math.max(tm.rebound, needReb));
   const hold = tm.hold || 0;
@@ -887,7 +971,7 @@ function singleBetween(t, a, b, scale, hand) {
     if (t < tRebEnd) {
       const dur = Math.max(1e-6, tm.rebound);
       const s = (t - ta - tm.hit) / dur;
-      const dist = tipDistContactToIdle(h, faceA);
+      const dist = tipDistContactToIdle(h, faceA, faceB);
       return { lift: 0, idle: travelEase(s, dist, dur), base: a.target, drift: zero };
     }
     if (t < w.tUpStart) {
@@ -1096,6 +1180,13 @@ function applyHitKickback(pose, hand, track, t) {
   return { tip: snapped.tip, grip: snapped.grip, gripType: pose.gripType, handDeg: snapped.deg, stickDeg: snapped.deg, lift: pose.lift };
 }
 
+function tmIdleFace(a, b, height, hand) {
+  if (!a || !b) return "don";
+  const faceB = b.face === "ka" ? "ka" : "don";
+  const tm = strikeFit(b.t - a.t, { fromFace: a.face, toFace: b.face, hand, height, prevGap: prevGapOf(b) });
+  return tm.idleMid ? faceB : "don";
+}
+
 function poseAt(hand, track, t, opts = {}) {
   const H = GEOM.hands[hand];
   const { a, b } = findSegment(track, t);
@@ -1105,7 +1196,7 @@ function poseAt(hand, track, t, opts = {}) {
   let singleState = null;
   if (!a && !b) {
     lift = 0; base = H.don; grip = "single";
-    singleState = { idle: 1, face: "don", idleShift: kaIdleShift(hand, t) };
+    singleState = { idle: 1, face: "don", idleFace: "don", idleShift: kaIdleShift(hand, t) };
   } else if (isRollContact(a) || isRollContact(b)) {
     const ph = rollPhase(hand, track, a, b, t);
     lift = ph.lift; base = ph.base; grip = ph.grip; buzz = ph.buzz;
@@ -1125,12 +1216,12 @@ function poseAt(hand, track, t, opts = {}) {
     const phase = singleApproach(t, b, hand);
     const height = liftHeightPx(b);
     lift = phase.lift; base = b.target; grip = "single"; follow = 1;
-    singleState = { idle: phase.idle, face: targetFace(hand, b.target), scale: height, idleShift: kaIdleShift(hand, t) };
+    singleState = { idle: phase.idle, face: targetFace(hand, b.target), idleFace: targetFace(hand, b.target), scale: height, idleShift: kaIdleShift(hand, t) };
   } else if (!b) {
     const phase = singleDepart(t, a, hand);
     const height = liftHeightPx(a);
     lift = phase.lift; base = a.target; grip = "single"; follow = 1;
-    singleState = { idle: phase.idle, face: targetFace(hand, a.target), scale: height, idleShift: kaIdleShift(hand, t) };
+    singleState = { idle: phase.idle, face: targetFace(hand, a.target), idleFace: "don", scale: height, idleShift: kaIdleShift(hand, t) };
   } else {
     const u = clamp01((t - a.t) / (b.t - a.t));
     const height = liftHeightPx(b);
@@ -1152,12 +1243,13 @@ function poseAt(hand, track, t, opts = {}) {
           faceU = dur <= 0.16 ? flattenMid(su, 0.85) : su;
         }
       } else {
-        // 够宽会先回倒V（共用预备），再从倒V打下一击；换脸发生在回弹结束、idleAmt≈1 时，位置连续。
+        // 间隔 ≥ 8 分走 idleMid：回弹阶段在待机高度横移到下一击的预备位，再按表抬，不把换面挤进抬手窗。
         const tRebEnd = a.t + tm.hit + tm.rebound;
         faceU = t < tRebEnd ? 0 : 1;
       }
     }
-    singleState = { idle: phase.idle, face: faceB, faceFrom: faceA, faceTo: faceB, faceU, scale: height, idleShift: kaIdleShift(hand, t), drift: phase.drift };
+    const idleFace = tmIdleFace(a, b, height, hand);
+    singleState = { idle: phase.idle, face: faceB, faceFrom: faceA, faceTo: faceB, faceU, idleFace, scale: height, idleShift: kaIdleShift(hand, t), drift: phase.drift };
     if (!phase.idle) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * lift);
   }
   let p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState, singleState);
@@ -1174,7 +1266,7 @@ function poseAt(hand, track, t, opts = {}) {
 
 /** 单击某一面（咚或咔）的接触/举起姿势。咔仍是整只手连棒往斜上外侧送，不改打法。 */
 function composeSingleByFace(hand, face, lift, bend, scale) {
-  // scale：新代码传抬手像素（15–160）；旧的 0–1 密度系数仍按满幅散音折算。
+  // scale：新代码传抬手像素（15–188）；旧的 0–1 密度系数仍按满幅散音折算。
   const slow = CONFIG.LIFT_PX_SPARSE || CONFIG.LIFT_PX_SLOW || CONFIG.LIFT_PX || 115;
   const heightPx = isFinite(scale) ? (scale <= 1.5 ? Math.max(0, scale) * slow : scale) : slow;
   const hit = singleContactPose(hand, face);
@@ -1214,7 +1306,10 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
     } else {
       pose = composeSingleByFace(hand, faceTo, lift, bend, scale);
     }
-    if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift), idleAmt);
+    if (idleAmt > 0) {
+      const idleFace = (singleState && singleState.idleFace) || "don";
+      pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift, idleFace), idleAmt);
+    }
     return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }
   // 滚奏全程焊死：手与棒一体，不再绕捏点单独转 12°。
@@ -2173,6 +2268,7 @@ function seek(t) { state.now = Math.max(state.start, Math.min(state.end, t)); re
 /** 换数据（调试/验收用）：传原始 JSON 对象 */
 function setData(data) {
   state.events = normalizeEvents(data);
+  state._compoundRoles = null;
   state.tracks = buildHandTracks(state.events, state.route);
   const first = state.events.length ? state.events[0].t : 0;
   const last = state.events.length ? state.events[state.events.length - 1].t : 0;

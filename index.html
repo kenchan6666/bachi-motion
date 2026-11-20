@@ -469,6 +469,10 @@
   }
   .seg button {
     appearance: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
     flex: 1 1 0;
     border: 0;
     border-right: 1.5px solid var(--line);
@@ -485,7 +489,6 @@
   .seg button.on {
     background: var(--ink-deep);
     color: var(--paper);
-    font-weight: 700;
   }
   .seg button:disabled {
     cursor: not-allowed;

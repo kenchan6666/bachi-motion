@@ -107,10 +107,15 @@ body.editor-mode .editor {
   height: 36px;
   flex: 0 0 auto;
 }
-.editor-mode-seg button {
-  padding: 0 14px;
+.editor .seg.editor-mode-seg button {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 16px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 500;
   white-space: nowrap;
 }
 

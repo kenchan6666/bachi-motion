@@ -16,7 +16,7 @@ const COL = {
 const OUT = 3;   // 描边宽度
 
 const CONFIG = {
-  RISE: 0.15,           // 完全抬起 / 落下用时（播放秒）
+  RISE: 0.10,           // 兼容旧调用：等于 STRIKE_DOWN_MAX（稀疏下砸）
   FULL_LIFT: 1,
   ROLL_REBOUND: 1 / 3,  // 滚奏手腕点头幅度 = 单击抬起的 1/3（ROLL_BOB_SCALE）
   ROLL_PAIR_GAP: 0.12,  // 同手相邻两个滚奏音 ≤ 这个间隔 = 一对 (RR)/(LL)
@@ -44,11 +44,21 @@ const CONFIG = {
   KA_TIP_OUT_PX: 42,    // 咔棒头伸出鼓边黑线外（接触点仍在黑线上；略加长，打中姿势稍高一点）
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
   WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
-  WINDUP: 0.03,         // 单击从鼓心倒V预备抬到最高，再在 RISE 里落下；短到另一只手打中时这只还没抬
-  IDLE_HOVER_PX: 24,    // 预备/闲置：棒尖悬在咚落点上方，不落到面上、也不放到鼓前
+  WINDUP: 0.066,        // 兼容旧调用：等于 STRIKE_UPFLICK（快速上挑，不是慢抬蓄力）
+  // 打击节奏「打下去」（秒）。稀疏单击用看得见的时值；16 分及更密去掉上挑、按间隔压缩。
+  // 规格：单音 上挑 66ms → 加速下砸 66–100ms → 击中 66ms（发光不停顿）→ 回弹 133ms；16 分 无上挑、幅度约 1/3。
+  STRIKE_UPFLICK: 0.066,
+  STRIKE_DOWN_MIN: 0.066,
+  STRIKE_DOWN_MAX: 0.100,
+  STRIKE_HIT: 0.066,
+  STRIKE_HIT_DENSE: 0.033,
+  STRIKE_REBOUND: 0.133,
+  STRIKE_REBOUND_DENSE: 0.066,
+  KA_LIFT_OUT_PX: 44,   // 咔举起时整只手再往外送：斜上外侧平移要一眼看得出。落点仍用已定的 14° / 42px / 1 点钟
+  IDLE_HOVER_PX: 36,    // 预备悬高一档：约 0.3 个纵向鼓半径（1/4–1/3 鼓径）
   IDLE_V_DEG: 20,       // 倒V：每根棒相对竖直往内倾的角度（两棒夹角约 40°；参考视频是近竖直的倒V，不是45°大撇）
   IDLE_KA_SHIFT_RX: 0.15, // 对方打咔时，闲置棒尖往自己一侧偏 0.15 个面半径，避免两棒交叉
-  IDLE_SETTLE: 0.22,    // 同手间隔宽于约 8 分则回到鼓心预备悬停；打击节奏（蓄力/下砸）等主人手元后再定，这趟不改
+  IDLE_SETTLE: 0.22,    // 同手间隔够宽时，中间回到鼓心倒V；实际是否回预备由 strikeFit 按相位时值判断
   SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
   SCENE_CLIP_PAD_TOP: 110, // 卡片上沿额外留白，允许棒尖略画出框
   KA_GLOW_GROW: 12,     // 青光画在鼓边外侧（不是鼓面上）
@@ -56,8 +66,8 @@ const CONFIG = {
   LIFT_DT_FULL: 0.18,   // ≥ 约 8 分（@160 ≈ 0.1875s）→ 满幅
   LIFT_DT_16: 0.094,    // 16 分 @160
   LIFT_DT_MIN: 0.031,   // 48 分 @160（32 分更密时也收在下限）
-  LIFT_SCALE_16: 0.55,
-  LIFT_SCALE_MIN: 0.22,
+  LIFT_SCALE_16: 1 / 3, // 16 分幅度约单击的 1/3（规格）
+  LIFT_SCALE_MIN: 0.18,
   BLUR_DT: 0.04,        // 32 分及更密（两下间隔 < 40ms）且 rate==1 → 汐月扇形残影；16 分不合并
   ROLL_TRAIL_COUNT: 6,  // 滚奏残影比单击更长、更淡（刷刷刷）
   ROLL_TRAIL_ALPHA: [0.20, 0.15, 0.11, 0.08, 0.05, 0.03],
@@ -184,7 +194,7 @@ function buildHandTracks(events, routeOverride = "data") {
   return tracks;
 }
 
-/** 同手间隔 → 单击抬起比例：8 分及更疏 = 1，16 分 ≈ 0.55，32/48 分 → 0.22。 */
+/** 同手间隔 → 单击抬起比例：8 分及更疏 = 1，16 分 ≈ 1/3，32/48 分 → LIFT_SCALE_MIN。映射连续。 */
 function densityScale(dt) {
   if (!isFinite(dt) || dt >= CONFIG.LIFT_DT_FULL) return 1;
   if (dt <= CONFIG.LIFT_DT_MIN) return CONFIG.LIFT_SCALE_MIN;
@@ -201,11 +211,12 @@ function followFromScale(_scale) {
   return 1;
 }
 
-/** 单击举起方向：从落点向上。咚用 LIFT_PX；咔落点已在上沿，过冲用 KA_LIFT_PX。 */
+/** 单击举起方向。咚：从落点向上（外移很小）。咔：斜上外侧——整只手连棒明显往外送，再往下砸到鼓边。 */
 function liftVec(hand, face) {
-  const h = face === "ka" ? CONFIG.KA_LIFT_PX : CONFIG.LIFT_PX;
-  const out = face === "ka" ? 0 : CONFIG.LIFT_OUT_PX; // 咔外移靠宽站位，不在举起向量上再横推
-  return { x: GEOM.hands[hand].out * out, y: -h };
+  if (face === "ka") {
+    return { x: GEOM.hands[hand].out * CONFIG.KA_LIFT_OUT_PX, y: -CONFIG.KA_LIFT_PX };
+  }
+  return { x: GEOM.hands[hand].out * CONFIG.LIFT_OUT_PX, y: -CONFIG.LIFT_PX };
 }
 
 function sceneTransform() {
@@ -271,7 +282,7 @@ function singleIdlePose(hand, shiftOut) {
 function kaIdleShift(hand, t) {
   const other = hand === "R" ? "L" : "R";
   const evs = (state.events || []).filter((e) => e.hand === other && e.face === "ka" && e.grip !== "roll");
-  const win = CONFIG.RISE + (CONFIG.WINDUP || 0);
+  const win = CONFIG.STRIKE_UPFLICK + CONFIG.STRIKE_DOWN_MAX;
   for (const e of evs) {
     if (t >= e.t - win && t <= e.t + 0.05) return 1;
   }
@@ -378,52 +389,103 @@ function rollBobBetween(t, ta, tb) {
 }
 
 function easeInOut(s) { const x = clamp01(s); return 1 - (1 - x) * (1 - x); }
+function easeInQuad(s) { const x = clamp01(s); return x * x; }
+function easeOutQuad(s) { const x = clamp01(s); return 1 - (1 - x) * (1 - x); }
 
-/** 单击接近落点：闲置 → 抬到最高 → 打下。没轮到的手一直放低。 */
-function singleApproach(t, b) {
-  const rise = CONFIG.RISE, wind = CONFIG.WINDUP;
-  if (t >= b.t) return { lift: 0, idle: 0 };
-  if (t > b.t - rise) {
-    const s = (b.t - t) / rise;
-    return { lift: easeInOut(s), idle: 0 };
+/** 间隔 → 0（≤16 分）.. 1（≥8 分）。和 densityScale 同一条分界，连续。 */
+function strikeSparseU(dt) {
+  if (!isFinite(dt) || dt >= CONFIG.LIFT_DT_FULL) return 1;
+  if (dt <= CONFIG.LIFT_DT_16) return 0;
+  const u = (dt - CONFIG.LIFT_DT_16) / (CONFIG.LIFT_DT_FULL - CONFIG.LIFT_DT_16);
+  return smooth(clamp01(u));
+}
+
+/** 稀疏/密集目标时值。16 分及更密去掉上挑；下砸/击中/回弹往短的一端靠。 */
+function strikeTimes(dt) {
+  const u = strikeSparseU(dt);
+  return {
+    upflick: CONFIG.STRIKE_UPFLICK * u,
+    down: CONFIG.STRIKE_DOWN_MIN + (CONFIG.STRIKE_DOWN_MAX - CONFIG.STRIKE_DOWN_MIN) * u,
+    hit: CONFIG.STRIKE_HIT_DENSE + (CONFIG.STRIKE_HIT - CONFIG.STRIKE_HIT_DENSE) * u,
+    rebound: CONFIG.STRIKE_REBOUND_DENSE + (CONFIG.STRIKE_REBOUND - CONFIG.STRIKE_REBOUND_DENSE) * u,
+    u,
+  };
+}
+
+/**
+ * 把目标时值塞进两击间隔：够宽就击中后回预备再上挑打下；不够就丢掉预备/上挑并按比例压缩回弹+下砸。
+ * 返回的 hit 是上一击结束后停在落点的时间（发光、棒不另作停顿）。
+ */
+function strikeFit(gap) {
+  const tm = strikeTimes(gap);
+  if (!isFinite(gap) || gap > 4) return Object.assign({}, tm, { idleMid: true });
+  const rest = gap - tm.hit;
+  if (rest <= 1e-6) {
+    const hit = Math.min(tm.hit, gap * 0.25);
+    return { hit: hit, rebound: 0, upflick: 0, down: Math.max(1e-4, gap - hit), u: tm.u, idleMid: false };
   }
-  if (t > b.t - rise - wind) {
-    const s = (t - (b.t - rise - wind)) / wind;
-    return { lift: 1, idle: 1 - easeInOut(s) };
+  const wantIdle = tm.rebound + tm.upflick + tm.down;
+  if (rest >= wantIdle) return Object.assign({}, tm, { idleMid: true });
+  if (rest >= tm.rebound + tm.down) {
+    return { hit: tm.hit, rebound: tm.rebound, upflick: Math.min(tm.upflick, rest - tm.rebound - tm.down), down: tm.down, u: tm.u, idleMid: false };
+  }
+  const k = rest / (tm.rebound + tm.down);
+  return { hit: tm.hit, rebound: tm.rebound * k, upflick: 0, down: Math.max(1e-4, tm.down * k), u: tm.u, idleMid: false };
+}
+
+/** 单击接近落点：预备 → 极快上挑到最高 → 加速下砸。没有上挑（16 分）就从预备/当前高度直接打下。 */
+function singleApproach(t, b) {
+  const tm = strikeTimes(isFinite(b.gap) ? b.gap : Infinity);
+  if (t >= b.t) return { lift: 0, idle: 0 };
+  if (t >= b.t - tm.down) {
+    const s = (t - (b.t - tm.down)) / Math.max(1e-6, tm.down);
+    return { lift: 1 - easeInQuad(s), idle: 0 };
+  }
+  if (tm.upflick > 1e-6 && t >= b.t - tm.down - tm.upflick) {
+    const s = (t - (b.t - tm.down - tm.upflick)) / tm.upflick;
+    return { lift: 1, idle: 1 - easeOutQuad(s) };
   }
   return { lift: 0, idle: 1 };
 }
 
-/** 单击打完：打中姿势稍停一拍，再很快放回鼓前面。 */
+/** 单击打完：落点上留出发光的击中帧，立刻像皮球弹回预备高度（回弹≈下砸速度）。 */
 function singleDepart(t, a) {
-  const hold = 0.02, drop = Math.min(CONFIG.RISE, 0.12);
-  if (t - a.t < hold) return { lift: 0, idle: 0 };
-  const s = clamp01((t - a.t - hold) / drop);
-  return { lift: 0, idle: easeInOut(s) };
+  const tm = strikeTimes(isFinite(a.gap) ? a.gap : Infinity);
+  if (t - a.t < tm.hit) return { lift: 0, idle: 0 };
+  const s = clamp01((t - a.t - tm.hit) / Math.max(1e-6, tm.rebound));
+  return { lift: 0, idle: easeOutQuad(s) };
 }
 
-/** 两下单击之间：约 8 分同手（四分间隔）中间放低；更密就按密度走弧。 */
+/** 两下单击之间：够宽就弹回倒V再打下一击；更密就在两落点之间起落，不回预备。 */
 function singleBetween(t, a, b, scale) {
-  const rise = CONFIG.RISE, wind = CONFIG.WINDUP, drop = Math.min(rise, 0.12);
   const gap = b.t - a.t;
-  const need = CONFIG.IDLE_SETTLE; // 宽于约 8 分同手间隔：回到鼓心倒V悬停（闲手打中时要在预备位）
-  if (gap < need) {
-    return { lift: arcHeight(t, a.t, b.t, CONFIG.FULL_LIFT * scale), idle: 0, base: V.lerp(a.target, b.target, smooth(clamp01((t - a.t) / gap))) };
+  const tm = strikeFit(gap);
+  const ta = a.t, tb = b.t;
+  if (t < ta + tm.hit) return { lift: 0, idle: 0, base: a.target };
+
+  if (tm.idleMid) {
+    if (t < ta + tm.hit + tm.rebound) {
+      const s = (t - ta - tm.hit) / Math.max(1e-6, tm.rebound);
+      return { lift: 0, idle: easeOutQuad(s), base: a.target };
+    }
+    const upStart = tb - tm.down - tm.upflick;
+    if (t < upStart) return { lift: 0, idle: 1, base: a.target };
+    if (t < tb - tm.down) {
+      const s = (t - upStart) / Math.max(1e-6, tm.upflick);
+      return { lift: 1, idle: 1 - easeOutQuad(s), base: b.target };
+    }
+    const s = (t - (tb - tm.down)) / Math.max(1e-6, tm.down);
+    return { lift: 1 - easeInQuad(s), idle: 0, base: b.target };
   }
-  if (t - a.t < 0.02 + drop) {
-    if (t - a.t < 0.02) return { lift: 0, idle: 0, base: a.target };
-    const s = (t - a.t - 0.02) / drop;
-    return { lift: 0, idle: easeInOut(s), base: a.target };
+
+  const mid = V.lerp(a.target, b.target, smooth(clamp01((t - ta) / gap)));
+  const peakT = tb - tm.down;
+  if (t < peakT) {
+    const s = clamp01((t - (ta + tm.hit)) / Math.max(1e-6, peakT - (ta + tm.hit)));
+    return { lift: easeOutQuad(s), idle: 0, base: mid };
   }
-  if (b.t - t < rise) {
-    const s = (b.t - t) / rise;
-    return { lift: easeInOut(s), idle: 0, base: b.target };
-  }
-  if (b.t - t < rise + wind) {
-    const s = 1 - (b.t - rise - t) / wind;
-    return { lift: 1, idle: 1 - easeInOut(s), base: b.target };
-  }
-  return { lift: 0, idle: 1, base: a.target };
+  const s = (t - peakT) / Math.max(1e-6, tm.down);
+  return { lift: 1 - easeInQuad(s), idle: 0, base: mid };
 }
 
 function poseAt(hand, track, t, opts = {}) {
@@ -508,7 +570,8 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
   const H = GEOM.hands[hand];
   if (grip === "single") {
     // 单击：完全固定。follow=1，握点在棒上的位置和握点→棒尖夹角不变，handDeg===stickDeg。
-    // 咔：棒几乎竖直、手连棒外移到鼓边；举起时整组绕手腕后倒 4–6°（棒相对手仍是 0°）。
+    // 咚：从落点向上举起，绕手腕后倒（上下主要靠手腕轴；近竖直的棒要抬起棒尖，手会跟着焊死的棒走一点）。
+    // 咔：整只手连棒明显往斜上外侧平移，再往下砸到 1 点钟鼓边；不靠手腕外翻，平移是主力。
     const L = stickLen(hand);
     const face = (singleState && singleState.face) || targetFace(hand, base);
     const scale = singleState && isFinite(+singleState.scale) ? +singleState.scale : 1;
@@ -522,7 +585,8 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
     );
     const contact = weldSnap(V.add(hit.tip, bend), V.add(hit.grip, bend), L);
     let pose = lerpPose(contact, raised, clamp01(lift), L);
-    pose = applyWristTilt(pose, clamp01(lift) * scale);
+    // 咚才加手腕后倒，让「打下」读成手腕一弹；咔不加，避免把整手外移读成翻腕。
+    if (face !== "ka") pose = applyWristTilt(pose, clamp01(lift) * scale);
     if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift), idleAmt, L);
     return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }

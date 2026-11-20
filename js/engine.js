@@ -140,6 +140,10 @@ const CONFIG = {
   LABEL_DUR: 0.22,
   LEAD_IN: 0.7, TAIL_TIME: 0.5,
   BASE_PX_PER_SEC: 600,
+  // Stage backdrop. Drawn once into #static; renderFrame does not redraw it.
+  // "plain" = solid #ececee, no triangle pattern, no white panel, cool-grey floor shadow.
+  BG_STYLE: "plain",
+  CARD_GREY: "#ececee",
 };
 
 const GEOM = {
@@ -1491,9 +1495,8 @@ function renderStatic() {
   s += `<line x1="${L.x0 + 20}" y1="${L.y}" x2="${L.x1 - 20}" y2="${L.y}" stroke="#5c5562" stroke-width="2"/>`;
   s += `<circle cx="${L.judgeX}" cy="${L.y}" r="27" fill="#3a343f" stroke="#8d8693" stroke-width="2"/>`;
   s += `<circle cx="${L.judgeX}" cy="${L.y}" r="18" fill="none" stroke="#b9b2bf" stroke-width="2"/>`;
-  // 圆角卡片 + 三角格纹 + 鼓后面的浅色方块（照参考视频）
-  s += `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="30" fill="url(#triPat)" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
-  s += `<rect class="drum-backing" x="170" y="150" width="460" height="470" rx="28" fill="#FBFAF8" opacity=".75"/>`;
+  // 圆角卡片：纯色 #ececee，无三角格纹、无鼓后白底板；阴影画在 sceneDrum 里跟鼓一起缩放
+  s += `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="30" fill="${CONFIG.CARD_GREY}" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
   // ---- 鼓：全部平涂色块做立体感（汐月 v2.1 §1），鼓身往下收成圆底（溯溯） ----
   // 卡片本身不缩；鼓+手整组绕鼓心缩小，棒尖允许略画出框上沿。
   const bodyD = drumBodyD(0);
@@ -1507,6 +1510,8 @@ function renderStatic() {
           </filter>
         </defs>`;
   s += `<g id="sceneDrum" transform="${sceneTransform()}">`;
+  // 鼓下淡淡冷灰接触阴影（#2A2A30 / 0.11），跟鼓一起走 scene 缩放
+  s += `<ellipse cx="${GEOM.face.cx}" cy="${GEOM.bodyBottom + 8}" rx="168" ry="30" fill="#2A2A30" opacity=".11" filter="url(#drumFloorShadow)"/>`;
   s += `<defs><clipPath id="bodyClip"><path d="${bodyD}"/></clipPath></defs>`;
   s += `<path d="${bodyD}" fill="${COL.bodyDark}"/>`;                       // 底部深红暗带（整块先铺深红）
   s += `<path d="${drumBodyD(-24)}" fill="${COL.body}" clip-path="url(#bodyClip)"/>`; // 上面盖鼓身红，露出底下一条

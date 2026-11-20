@@ -526,7 +526,8 @@
   body.export .charts,
   body.export .transport,
   body.export .legend,
-  body.export .settings { display: none !important; }
+  body.export .settings,
+  body.export .rail { display: none !important; }
   body.export .page,
   body.export .shell,
   body.export .stage-well,
@@ -578,6 +579,9 @@
           <defs>
             <filter id="goldGlow" x="-50%" y="-50%" width="200%" height="200%">
               <feGaussianBlur stdDeviation="4"/>
+            </filter>
+            <filter id="drumFloorShadow" x="-50%" y="-50%" width="200%" height="200%">
+              <feGaussianBlur in="SourceGraphic" stdDeviation="12"/>
             </filter>
             <pattern id="triPat" width="64" height="56" patternUnits="userSpaceOnUse">
               <rect width="64" height="56" fill="#ececee"/>

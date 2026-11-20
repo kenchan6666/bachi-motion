@@ -76,7 +76,7 @@ const CONFIG = {
   IDLE_SETTLE: 0.22,    // 同手间隔够宽时，中间回到鼓心倒V；实际是否回预备由 strikeFit 按相位时值判断
   SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
   SCENE_CLIP_PAD_TOP: 170, // 卡片上沿额外留白：单击最高点抬高后棒尖不裁切
-  KA_GLOW_GROW: 12,     // 青光画在鼓边外侧（不是鼓面上）
+  KA_GLOW_GROW: 12,     // 青光沿鼓边外侧（中心对齐棒尖接触点，不落在鼓面里）
   // 同手相邻击的间隔 → 抬起高度（8 分及更疏 = 满幅，16 分起收小，32/48 分贴住）
   LIFT_DT_FULL: 0.18,   // ≥ 约 8 分（@160 ≈ 0.1875s）→ 满幅
   LIFT_DT_16: 0.094,    // 16 分 @160
@@ -246,6 +246,33 @@ function sceneTransform(shake) {
 function sceneInvPt(p) {
   const F = GEOM.face, s = CONFIG.SCENE_SCALE;
   return { x: (p.x - F.cx) / s + F.cx, y: (p.y - F.cy) / s + F.cy };
+}
+
+/** 椭圆参数角（度），与 ellipsePt 用的 t 一致，不是几何 atan2。 */
+function ellipseParamDeg(p) {
+  const F = GEOM.face;
+  return Math.atan2((p.y - F.cy) / F.ry, (p.x - F.cx) / F.rx) * 180 / Math.PI;
+}
+
+/**
+ * 棒画在未震动的 sceneDyn 里；击中光画在带鼓震的 sceneFaceFx 里。
+ * 把与棒同一套 GEOM 坐标的点换到 sceneFaceFx 局部坐标，使屏幕位置对齐。
+ */
+function unshakenToShakenLocal(p, shake) {
+  if (!shake) return p;
+  const F = GEOM.face, sc0 = CONFIG.SCENE_SCALE;
+  const sc1 = sc0 * (shake.scale != null ? shake.scale : 1);
+  const dx = shake.dx || 0, dy = shake.dy || 0;
+  if (Math.abs(sc1 - sc0) < 1e-8 && Math.abs(dx) < 1e-4 && Math.abs(dy) < 1e-4) return p;
+  return {
+    x: F.cx + (sc0 * (p.x - F.cx) - dx) / sc1,
+    y: F.cy + (sc0 * (p.y - F.cy) - dy) / sc1,
+  };
+}
+
+/** 咔冲击特效中心：棒尖压在鼓边黑线上的接触点（不是鼓面内的 H.ka）。 */
+function kaImpactPt(hand, shake) {
+  return unshakenToShakenLocal(singleContactPose(hand, "ka").tip, shake);
 }
 
 function sceneCardClipRect() {
@@ -1155,7 +1182,7 @@ function renderFaceGlow(_events, _second, _now) {
   return s;
 }
 
-function renderHitFx(events, second, now) {
+function renderHitFx(events, second, now, shake) {
   let s = "";
   // 不在滚奏期间整面染红；每一下的落点侧击中光+波纹在下方循环里单独按接触帧画出。
   const maxAge = Math.max(CONFIG.KA_DUR, CONFIG.GOLD_DUR, CONFIG.LABEL_DUR, CONFIG.IMPACT_DUR);
@@ -1165,9 +1192,10 @@ function renderHitFx(events, second, now) {
     const impDur = isRoll ? CONFIG.IMPACT_ROLL_DUR : CONFIG.IMPACT_DUR;
     if (age <= impDur) {
       // 接触点小冲击圈（咚打鼓面 / 咔打鼓边 / 滚奏每一下都有）
+      // 咔：中心对齐棒尖在鼓边黑线上的接触点（1/11 点钟），不要偏到鼓面里。
       const u = clamp01(age / impDur);
       const fade = (1 - u) * (1 - 0.35 * u) * k2;
-      const pt = e.face === "ka" ? H.ka : H.don;
+      const pt = e.face === "ka" ? kaImpactPt(e.hand, shake) : H.don;
       const col = e.face === "ka" ? COL.ka : COL.don;
       const maxR = isRoll ? 24 : 34;
       const r = 10 + maxR * easeOutQuad(u);
@@ -1177,7 +1205,7 @@ function renderHitFx(events, second, now) {
       s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(r)}" ry="${f1(ry)}" fill="none" stroke="${col}" stroke-width="${f1((isRoll ? 3.4 : 4.5) * (1 - 0.4 * u))}" opacity="${f1(0.95 * fade)}"/>`;
       s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(9.5 * (1 - 0.2 * u))}" ry="${f1(6.5 * (1 - 0.2 * u))}" fill="#fff" stroke="${col}" stroke-width="2.2" opacity="${f1(0.98 * fade)}"/>`;
       // 4条短放射冲击线（咚沿着鼓面散开，咔朝鼓边外侧放射）
-      const baseAng = e.face === "ka" ? H.kaAng : -90;
+      const baseAng = e.face === "ka" ? ellipseParamDeg(pt) : -90;
       const offsets = e.face === "ka" ? [-55, -18, 18, 55] : [-145, -35, 35, 145];
       const r0 = 7 + maxR * 0.45 * easeOutQuad(u);
       const r1 = r0 + (isRoll ? 6 : 9) * (1 - 0.3 * u);
@@ -1190,11 +1218,12 @@ function renderHitFx(events, second, now) {
     }
     if (isRoll) continue;                             // 滚奏不用单击那种一下一灭的大咔光
     if (e.face === "ka" && age <= CONFIG.KA_DUR) {
-      // 青光沿鼓边外侧亮一段弧（右手约 12 点到 4 点，左手镜像 8 点到 12 点），亮在鼓外侧、不在鼓面。
+      // 青光沿鼓边、压在棒尖接触点那一段（右 1 点钟 / 左 11 点钟），亮在鼓边外侧、不在鼓面里。
       const k = age / CONFIG.KA_DUR;
+      const mid = ellipseParamDeg(kaImpactPt(e.hand, shake));
       const halfSpan = CONFIG.KA_SPAN / 2;
-      const a0 = H.kaAng - halfSpan;
-      const a1 = H.kaAng + halfSpan;
+      const a0 = mid - halfSpan;
+      const a1 = mid + halfSpan;
       const d = ellipseArcD(a0, a1, CONFIG.KA_GLOW_GROW);
       s += `<path d="${d}" fill="none" stroke="${COL.ka}" stroke-width="${f1(CONFIG.KA_W * k2)}" stroke-linecap="round"
             opacity="${f1(0.9 * (1 - k) * k2)}" filter="url(#softGlow)"/>`;
@@ -1204,8 +1233,9 @@ function renderHitFx(events, second, now) {
     if (e.inserted && age <= CONFIG.GOLD_DUR) {      // 插音：效果外面再一圈金色柔光
       const k = age / CONFIG.GOLD_DUR;
       const goldHalf = CONFIG.GOLD_KA_SPAN / 2;
+      const kaAngFx = e.face === "ka" ? ellipseParamDeg(kaImpactPt(e.hand, shake)) : 0;
       const d = e.face === "ka"
-        ? ellipseArcD(H.kaAng - goldHalf, H.kaAng + goldHalf, CONFIG.KA_GLOW_GROW + 8)
+        ? ellipseArcD(kaAngFx - goldHalf, kaAngFx + goldHalf, CONFIG.KA_GLOW_GROW + 8)
         : (e.hand === "R" ? ellipseArcD(-90, 90, 12) : ellipseArcD(90, 270, 12));
       s += `<path d="${d}" fill="none" stroke="${COL.gold}" stroke-width="${CONFIG.GOLD_W}" stroke-linecap="round"
             opacity="${f1(0.7 * (1 - k))}" filter="url(#softGlow)"/>`;
@@ -1317,7 +1347,7 @@ function renderFrame(now) {
   if (drumEl) drumEl.setAttribute("transform", sceneTransform(shake));
   let s = `<g id="sceneFaceFx" transform="${sceneTransform(shake)}">`;
   s += renderFaceGlow(events, tracks.second, now);
-  s += renderHitFx(events, tracks.second, now);
+  s += renderHitFx(events, tracks.second, now, shake);
   s += `</g>`;
   s += `<g id="sceneDyn" transform="${sceneTransform()}">`;
   s += `<g clip-path="url(#sceneCardClip)">`;       // 左右下仍齐卡片；上沿放宽，咔棒尖可略画出框

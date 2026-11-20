@@ -2242,7 +2242,8 @@ function swipeDashState(tRel, T) {
 /* ---------- 滚奏实心圆（仅 dd 滚红 / kk 滚蓝；与内外刷箭头共位、同时序） ---------- */
 const ROLL_DOT = {
   midDeg: (SWIPE_ARROW.a0Deg + SWIPE_ARROW.a1Deg) / 2, // -129.1，箭头弧中点（汐月 A 方案）
-  rimPad: 6,            // 白边外侧离鼓沿描边的最小间距（px）
+  rimPad: 6,            // 白边外沿离鼓沿描边外沿的最小间距（px）
+  rimSamples: 720,      // 鼓沿椭圆采样点数（用来算圆心到沿的最短距离）
   rFac: 0.11,           // 半径 = 鼓面 rx × 0.11
   stroke: 2.5,          // 白描边（外圈）
   opacity: 0.90,
@@ -2253,7 +2254,24 @@ const ROLL_DOT = {
   fadeK: 0.5,           // 第二下之后 0.5T 内淡出
 };
 
-/** 圆的圆心：SWIPE_ARROW 辅圆弧中点，左手镜像；必要时把 y 夹进鼓面，避免压到鼓沿描边。不是击打落点。 */
+/** 点到鼓面椭圆（中心线）的最短距离：沿参数角采 rimSamples 个点取最小。 */
+function ellipseMinDist(cx, cy, rx, ry, x, y, samples) {
+  const n = samples || ROLL_DOT.rimSamples;
+  let min = Infinity;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2;
+    const d = Math.hypot(cx + rx * Math.cos(a) - x, cy + ry * Math.sin(a) - y);
+    if (d < min) min = d;
+  }
+  return min;
+}
+
+/**
+ * 圆的圆心：SWIPE_ARROW 辅圆弧中点，左手镜像。
+ * 夹紧按「放到 bounceScale 最大」+「圆心到鼓沿椭圆的最短距离」：
+ * 白边外沿离鼓沿描边外沿（椭圆中心线再扣描边半宽 OUT/2）至少 rimPad。
+ * 不是击打落点。
+ */
 function rollDotPos(hand) {
   const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
   const left = hand === "L";
@@ -2263,15 +2281,21 @@ function rollDotPos(hand) {
   const R = S.rFac * F.rx;
   const x = C.x + R * Math.cos(ang);
   let y = C.y + R * Math.sin(ang);
-  const r = D.rFac * F.rx;
-  const u = (x - F.cx) / F.rx;
-  const inside = 1 - u * u;
-  if (inside > 0) {
-    const rimY = F.cy - F.ry * Math.sqrt(inside);
-    const minY = rimY + r + D.stroke + D.rimPad;
-    // 画出时用 f1（一位小数）；向上收到 0.1px，避免四舍后白边离鼓沿略小于 6
-    if (y < minY) y = Math.ceil(minY * 10 - 1e-9) / 10;
+  const rMax = D.rFac * F.rx * D.bounceScale;
+  // 放到 1.15× 时白边外沿半径，再留 6px，并扣掉鼓沿描边半宽（描边外沿朝鼓面的那一侧）
+  const need = rMax + D.stroke + D.rimPad + OUT / 2;
+  const dist = (yy) => ellipseMinDist(F.cx, F.cy, F.rx, F.ry, x, yy, D.rimSamples);
+  if (dist(y) < need) {
+    let lo = y, hi = F.cy;
+    for (let i = 0; i < 24; i++) {
+      const mid = (lo + hi) / 2;
+      if (dist(mid) < need) lo = mid;
+      else hi = mid;
+    }
+    y = hi;
   }
+  // 画出时用 f1（一位小数）；向下收（y 增大）到 0.1px，避免四舍后间距略小于 6
+  y = Math.ceil(y * 10 - 1e-9) / 10;
   return { x, y };
 }
 

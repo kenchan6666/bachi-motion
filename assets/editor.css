@@ -13,6 +13,11 @@ body.editor-mode {
   --ed-gold-line: #C9891A;
   --ed-gold-stroke: #E3C56A;
   --ed-lane: #4b4550;
+  --ed-hand-r: #E4D2B8;
+  --ed-hand-r-line: #9A8164;
+  --ed-hand-l: #D9D0E8;
+  --ed-hand-l-line: #8F7BC8;
+  --ed-hand-ink: #3E3228;
 }
 
 body.editor-mode .page { height: 100%; overflow: hidden; }
@@ -410,7 +415,7 @@ body.editor-mode .editor {
   margin-top: -14px;
 }
 .editor-note.is-active {
-  box-shadow: 0 0 0 2px #fff, 0 0 0 5px var(--grip-l);
+  box-shadow: 0 0 0 2px #fff, 0 0 0 5px var(--ed-hand-l-line);
 }
 .editor.is-readonly .editor-note { cursor: default; }
 
@@ -436,14 +441,14 @@ body.editor-mode .editor {
   pointer-events: none;
 }
 .editor-capsule.is-R {
-  background: var(--grip-r);
-  box-shadow: 0 0 0 1.5px #3E8F6E;
-  color: #1F4334;
+  background: var(--ed-hand-r);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-r-line);
+  color: var(--ed-hand-ink);
 }
 .editor-capsule.is-L {
-  background: var(--grip-l);
-  box-shadow: 0 0 0 1.5px #C45C8C;
-  color: #6B2344;
+  background: var(--ed-hand-l);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
+  color: var(--ed-hand-ink);
 }
 
 .editor-roll-band {
@@ -600,16 +605,16 @@ body.editor-mode .editor {
   color: var(--ink);
 }
 .editor-swap-btn.is-R.is-on {
-  background: var(--grip-r);
+  background: var(--ed-hand-r);
   border-style: solid;
-  border-color: #3E8F6E;
-  color: #1F4334;
+  border-color: var(--ed-hand-r-line);
+  color: var(--ed-hand-ink);
 }
 .editor-swap-btn.is-L.is-on {
-  background: var(--grip-l);
+  background: var(--ed-hand-l);
   border-style: solid;
-  border-color: #C45C8C;
-  color: #6B2344;
+  border-color: var(--ed-hand-l-line);
+  color: var(--ed-hand-ink);
 }
 .editor-pop-note {
   margin: 8px 0 0;
@@ -639,9 +644,13 @@ body.editor-mode .editor {
   width: 10px;
   height: 10px;
   border-radius: 3px;
-  background: var(--grip-r);
+  background: var(--ed-hand-r);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-r-line);
 }
-.editor-swatch.is-L i { background: var(--grip-l); }
+.editor-swatch.is-L i {
+  background: var(--ed-hand-l);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
+}
 .editor-swatch.is-roll i {
   background: #EFE8FA;
   box-shadow: 0 0 0 1.5px var(--ed-tape);
@@ -741,8 +750,16 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
   font-size: 11px;
   font-weight: 700;
 }
-.editor-playpos .hand-pill.is-R { background: var(--grip-r); color: #1F4334; }
-.editor-playpos .hand-pill.is-L { background: var(--grip-l); color: #6B2344; }
+.editor-playpos .hand-pill.is-R {
+  background: var(--ed-hand-r);
+  color: var(--ed-hand-ink);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-r-line);
+}
+.editor-playpos .hand-pill.is-L {
+  background: var(--ed-hand-l);
+  color: var(--ed-hand-ink);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
+}
 .editor-play-btn {
   appearance: none;
   margin-left: auto;
@@ -781,8 +798,16 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
   font-size: 11px;
   font-weight: 700;
 }
-.editor-preview-legend .hand-pill.is-R { background: var(--grip-r); color: #1F4334; }
-.editor-preview-legend .hand-pill.is-L { background: var(--grip-l); color: #6B2344; }
+.editor-preview-legend .hand-pill.is-R {
+  background: var(--ed-hand-r);
+  color: var(--ed-hand-ink);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-r-line);
+}
+.editor-preview-legend .hand-pill.is-L {
+  background: var(--ed-hand-l);
+  color: var(--ed-hand-ink);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
+}
 
 .editor.is-readonly .editor-scroll { cursor: default; }
 .editor:not(.is-readonly) .editor-lane { cursor: crosshair; }

@@ -41,6 +41,8 @@
     measures: [],
     chartData: null,
     selection: null, // { type:"range", from, to } | { type:"note", index }
+    expanded: null, // { from, to, panX } zoomed string cluster
+    strings: [], // collapsed string clusters, rebuilt in renderTracks
     drag: null,
     playerViewBox: "0 0 800 860",
     raf: 0,
@@ -110,7 +112,7 @@
     if (ui.chartHint) {
       ui.chartHint.textContent = isReadonly()
         ? (state.mode === "custom" ? "已载入自定义手顺，轨道只读" : "纯自动模式：轨道只读，可在「自动+微调」里改")
-        : "拖选一段可改滚奏或交互 · 单击音符可换手";
+        : "点密串可放大后再换手 · 单击单音可换手 · 拖选一段可改滚奏或交互";
     }
   }
 
@@ -329,124 +331,278 @@
     // Player heading already updated; keep it.
   }
 
+  const TIGHT_GAP = 6;
+  const MIN_LABEL_W = 24;
+  const ZOOM_NOTE_W = 42;
+  const ZOOM_GUTTER = 12;
+  const ZOOM_PAD = 18;
+  const ZOOM_VIEW_PAD = 12;
+
   function warnCaption(type) {
     if (type === "同拍重复") return "拿不准：同一拍有重复音符";
     return "拿不准：这段像滚奏，点选后可改";
   }
 
-  // Horizontal span of a marked cluster: if any hit note sits inside a
-  // merged same-hand capsule, expand to that whole capsule so the mark
-  // is centered on the visible group, not a slice of a label.
-  function expandWarnToCapsules(capsules, hit) {
-    let left = null;
-    let right = null;
+  function rangesOverlap(a, b) {
+    return a.from <= b.to && b.from <= a.to;
+  }
+
+  // Group same-hand capsules that overlap or sit tighter than TIGHT_GAP,
+  // then tag groups that are rolls and/or 待确认. Isolated, well-spaced
+  // notes stay as ordinary L/R capsules.
+  function collectStrings(idxs, capsules, paired, warnings) {
+    const tight = [];
     for (let i = 0; i < capsules.length; i++) {
       const cap = capsules[i];
-      let overlap = false;
-      for (let h = 0; h < hit.length; h++) {
-        if (hit[h] >= cap.from && hit[h] <= cap.to) { overlap = true; break; }
-      }
-      if (!overlap) continue;
-      if (left == null || cap.left < left) left = cap.left;
-      if (right == null || cap.right > right) right = cap.right;
-    }
-    if (left == null) {
-      return { left: 0, right: 32 };
-    }
-    return { left: left, right: right };
-  }
-
-  // Align the mark to the nearest inter-capsule seam of the cluster.
-  // A 2px line plus the 1.5px capsule stroke only "goes through" when
-  // there is a real gutter; if capsules overlap, the line stops at the
-  // capsule row and resumes below, so it never paints over 左/右.
-  const MARK_STROKE = 1.5;
-  const MARK_HALF = 1;
-
-  function lineHitsCapsule(x, cap) {
-    return (x + MARK_HALF) > (cap.left - MARK_STROKE) &&
-      (x - MARK_HALF) < (cap.right + MARK_STROKE);
-  }
-
-  function placeMarkX(mid, capsules, left, right) {
-    const inCluster = [];
-    for (let i = 0; i < capsules.length; i++) {
-      const cap = capsules[i];
-      if (cap.right < left - 1 || cap.left > right + 1) continue;
-      inCluster.push(cap);
-    }
-    inCluster.sort((a, b) => a.left - b.left);
-    const seams = [];
-    for (let i = 0; i < inCluster.length - 1; i++) {
-      seams.push((inCluster[i].right + inCluster[i + 1].left) / 2);
-    }
-    if (!seams.length) return { x: mid, through: false };
-    let best = seams[0];
-    let bestDist = Math.abs(mid - best);
-    for (let i = 1; i < seams.length; i++) {
-      const d = Math.abs(mid - seams[i]);
-      if (d < bestDist) { best = seams[i]; bestDist = d; }
-    }
-    let through = true;
-    for (let i = 0; i < inCluster.length; i++) {
-      if (lineHitsCapsule(best, inCluster[i])) { through = false; break; }
-    }
-    return { x: best, through: through };
-  }
-
-  function placeClusterMark(gap, handsEl, capsules, mark, neighbors) {
-    const mid = (mark.left + mark.right) / 2;
-    const kind = mark.kind;
-    const isRoll = kind === "roll" || kind === "both";
-    const isWarn = kind === "warn" || kind === "both";
-    const placed = placeMarkX(mid, capsules, mark.left, mark.right);
-    const x = placed.x;
-    const through = placed.through;
-    // Flip labels to the left when the line sits in the right half, so the
-    // long 待确认 caption stays inside the measure.
-    const flip = x > 200;
-    const cls = "editor-mark is-" + kind + (flip ? " is-flip" : "") + (through ? " is-through" : "");
-
-    const top = document.createElement("div");
-    top.className = cls;
-    top.style.left = x + "px";
-    const line = document.createElement("i");
-    line.className = "editor-mark-line";
-    top.appendChild(line);
-    if (isRoll) {
-      const tag = document.createElement("span");
-      tag.className = "editor-roll-tag";
-      tag.textContent = "滚奏";
-      top.appendChild(tag);
-    }
-    gap.appendChild(top);
-
-    const bot = document.createElement("div");
-    bot.className = cls;
-    bot.style.left = x + "px";
-    const line2 = document.createElement("i");
-    line2.className = "editor-mark-line" + (through ? "" : " is-below");
-    bot.appendChild(line2);
-    if (isWarn) {
-      const tip = document.createElement("div");
-      tip.className = "editor-warn-tip";
-      tip.textContent = warnCaption(mark.typ);
-      const nextLeft = neighbors && neighbors.nextLeft;
-      const prevRight = neighbors && neighbors.prevRight;
-      const handsRight = MEASURE_W - LANE_MARGIN * 2;
-      let limit;
-      if (flip) {
-        const leftBound = Math.max(prevRight != null ? prevRight + 8 : 0, 0);
-        limit = (x - 6) - leftBound;
+      const last = tight[tight.length - 1];
+      if (last && cap.left < last.right + TIGHT_GAP) {
+        last.to = cap.to;
+        last.right = Math.max(last.right, cap.right);
+        last.caps.push(cap);
       } else {
-        const rightBound = Math.min(nextLeft != null ? nextLeft - 8 : handsRight, handsRight);
-        limit = rightBound - (x + 6);
+        tight.push({
+          from: cap.from,
+          to: cap.to,
+          left: cap.left,
+          right: cap.right,
+          caps: [cap],
+        });
       }
-      // Keep the caption on about two lines, but never cross the next cluster.
-      if (limit > 0) tip.style.maxWidth = Math.round(Math.min(limit, 128)) + "px";
-      bot.appendChild(tip);
     }
-    handsEl.appendChild(bot);
+
+    const rollSpans = [];
+    let r = 0;
+    while (r < idxs.length) {
+      if (!paired[idxs[r]]) { r += 1; continue; }
+      let s = r;
+      while (s + 1 < idxs.length && paired[idxs[s + 1]]) s += 1;
+      rollSpans.push({ from: idxs[r], to: idxs[s] });
+      r = s + 1;
+    }
+
+    const warnSpans = [];
+    for (let w = 0; w < (warnings || []).length; w++) {
+      const item = warnings[w];
+      const hit = idxs.filter((i) => i >= item[0] && i <= item[1]);
+      if (!hit.length) continue;
+      warnSpans.push({ from: hit[0], to: hit[hit.length - 1], typ: item[2] });
+    }
+
+    function tagGroup(g) {
+      let kind = null;
+      let typ = null;
+      for (let i = 0; i < rollSpans.length; i++) {
+        if (rangesOverlap(g, rollSpans[i])) kind = "roll";
+      }
+      for (let i = 0; i < warnSpans.length; i++) {
+        if (!rangesOverlap(g, warnSpans[i])) continue;
+        typ = warnSpans[i].typ;
+        kind = kind ? "both" : "warn";
+      }
+      return { kind: kind, typ: typ };
+    }
+
+    const strings = [];
+    const usedRoll = [];
+    const usedWarn = [];
+    for (let i = 0; i < tight.length; i++) {
+      const g = tight[i];
+      const tag = tagGroup(g);
+      const notes = g.to - g.from + 1;
+      const crowded = g.caps.length > 1 || notes > 1 && (g.right - g.left) < notes * 26;
+      if (!tag.kind && !crowded) continue;
+      const kind = tag.kind || "run";
+      strings.push({
+        from: g.from,
+        to: g.to,
+        left: g.left,
+        right: g.right,
+        caps: g.caps,
+        kind: kind,
+        typ: tag.typ,
+      });
+      for (let k = 0; k < rollSpans.length; k++) {
+        if (rangesOverlap(g, rollSpans[k])) usedRoll[k] = true;
+      }
+      for (let k = 0; k < warnSpans.length; k++) {
+        if (rangesOverlap(g, warnSpans[k])) usedWarn[k] = true;
+      }
+    }
+
+    // A roll or warning that did not land in a tight group still becomes
+    // a string, so the stroke can mark it.
+    function leftoverSpan(span, kind, typ) {
+      const caps = capsules.filter((c) => rangesOverlap(c, span));
+      if (!caps.length) return;
+      let left = caps[0].left, right = caps[0].right;
+      for (let i = 1; i < caps.length; i++) {
+        if (caps[i].left < left) left = caps[i].left;
+        if (caps[i].right > right) right = caps[i].right;
+      }
+      strings.push({ from: span.from, to: span.to, left: left, right: right, caps: caps, kind: kind, typ: typ });
+    }
+    for (let i = 0; i < rollSpans.length; i++) {
+      if (usedRoll[i]) continue;
+      leftoverSpan(rollSpans[i], "roll", null);
+    }
+    for (let i = 0; i < warnSpans.length; i++) {
+      if (usedWarn[i]) continue;
+      leftoverSpan(warnSpans[i], "warn", warnSpans[i].typ);
+    }
+
+    strings.sort((a, b) => a.from - b.from);
+    return strings;
+  }
+
+  function noteInString(index) {
+    const list = state.strings || [];
+    for (let i = 0; i < list.length; i++) {
+      if (index >= list[i].from && index <= list[i].to) return list[i];
+    }
+    return null;
+  }
+
+  function stringKey(s) {
+    return s.from + ":" + s.to;
+  }
+
+  function collapseString() {
+    state.expanded = null;
+    if (ui.scroll) ui.scroll.classList.remove("is-zoomed");
+    if (ui.zoomCard) ui.zoomCard.hidden = true;
+  }
+
+  function expandString(s, opts) {
+    if (!s) return;
+    const keepPan = opts && opts.keepPan && state.expanded && state.expanded.from === s.from && state.expanded.to === s.to;
+    state.expanded = {
+      from: s.from,
+      to: s.to,
+      panX: keepPan ? state.expanded.panX : 0,
+    };
+    renderZoomCard();
+  }
+
+  function clampZoomPan(panX, innerW, viewW) {
+    if (innerW <= viewW) return 0;
+    const min = viewW - innerW;
+    if (panX > 0) return 0;
+    if (panX < min) return min;
+    return panX;
+  }
+
+  function panZoom(delta) {
+    if (!state.expanded || !ui.zoomInner || !ui.zoomView) return;
+    const innerW = ui.zoomInner.scrollWidth;
+    const viewW = Math.max(0, ui.zoomView.clientWidth - ZOOM_VIEW_PAD * 2);
+    state.expanded.panX = clampZoomPan((state.expanded.panX || 0) - delta, innerW, viewW);
+    ui.zoomInner.style.transform = "translateX(" + state.expanded.panX + "px)";
+  }
+
+  function ensureZoomCard() {
+    if (ui.zoomCard || !ui.scroll) return;
+    const card = document.createElement("div");
+    card.className = "editor-zoom";
+    card.hidden = true;
+    const view = document.createElement("div");
+    view.className = "editor-zoom-viewport";
+    const inner = document.createElement("div");
+    inner.className = "editor-zoom-inner";
+    view.appendChild(inner);
+    card.appendChild(view);
+    ui.scroll.appendChild(card);
+    ui.zoomCard = card;
+    ui.zoomView = view;
+    ui.zoomInner = inner;
+  }
+
+  function renderZoomCard() {
+    ensureZoomCard();
+    if (!ui.zoomCard || !state.expanded || !ui.scroll) return;
+    const exp = state.expanded;
+    const raw = state.rawNotes || [];
+    const resolved = resolvedNow() || { hands: [] };
+    const hands = resolved.hands || [];
+    const notes = [];
+    for (let i = exp.from; i <= exp.to; i++) {
+      if (raw[i]) notes.push(i);
+    }
+    if (!notes.length) { collapseString(); return; }
+
+    const n = notes.length;
+    const innerW = ZOOM_PAD * 2 + n * ZOOM_NOTE_W + Math.max(0, n - 1) * ZOOM_GUTTER;
+    const first = raw[notes[0]];
+    const mi = state.measures.findIndex((m) => m.index === first.measure);
+    const clusterLeft = noteAbsX(notes[0]) - 14;
+    const clusterRight = noteAbsX(notes[notes.length - 1]) + 14;
+    const clusterMid = (clusterLeft + clusterRight) / 2;
+
+    ui.zoomInner.replaceChildren();
+    const lane = document.createElement("div");
+    lane.className = "editor-zoom-lane";
+    lane.style.width = innerW + "px";
+    for (let k = 0; k < notes.length; k++) {
+      const i = notes[k];
+      const note = raw[i];
+      const btn = document.createElement("button");
+      const isKa = note.type === "ka" || note.type === "bigka";
+      const isBig = note.type === "bigdon" || note.type === "bigka";
+      btn.type = "button";
+      btn.className = "editor-note" + (isKa ? " is-ka" : "") + (isBig ? " is-big" : "");
+      btn.dataset.index = String(i);
+      btn.style.left = (ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER) + ZOOM_NOTE_W / 2) + "px";
+      btn.setAttribute("aria-label", (isBig ? "大" : "") + (isKa ? "咔" : "咚") + " 第 " + (i + 1) + " 音");
+      lane.appendChild(btn);
+    }
+    const handsEl = document.createElement("div");
+    handsEl.className = "editor-zoom-hands";
+    handsEl.style.width = innerW + "px";
+    for (let k = 0; k < notes.length; k++) {
+      const i = notes[k];
+      const hand = hands[i] === "L" ? "L" : "R";
+      const cap = document.createElement("button");
+      cap.type = "button";
+      cap.className = "editor-zoom-cap is-" + hand;
+      cap.dataset.index = String(i);
+      cap.style.left = (ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER)) + "px";
+      cap.style.width = ZOOM_NOTE_W + "px";
+      cap.textContent = hand === "L" ? "左" : "右";
+      cap.setAttribute("aria-label", "第 " + (i + 1) + " 音换手");
+      handsEl.appendChild(cap);
+    }
+    ui.zoomInner.appendChild(lane);
+    ui.zoomInner.appendChild(handsEl);
+    ui.zoomInner.style.width = innerW + "px";
+
+    const host = ui.scroll.getBoundingClientRect();
+    const meas = ui.measuresEl.getBoundingClientRect();
+    // Viewport is a window over the unfolded row, so long clusters can be panned.
+    const viewW = Math.min(
+      innerW,
+      Math.max(200, (clusterRight - clusterLeft) * 1.45 + 40),
+      Math.max(180, host.width - 56)
+    );
+    const outerW = viewW + ZOOM_VIEW_PAD * 2;
+    const leftInMeasures = clusterMid - outerW / 2;
+    const left = meas.left - host.left + ui.scroll.scrollLeft + leftInMeasures;
+    const laneEl = ui.measuresEl.querySelector(".editor-lane");
+    const topBase = laneEl
+      ? (laneEl.getBoundingClientRect().top - host.top + ui.scroll.scrollTop - 14)
+      : 24;
+    ui.zoomCard.style.left = Math.max(8, left) + "px";
+    ui.zoomCard.style.top = Math.max(6, topBase - 8) + "px";
+    ui.zoomCard.style.width = outerW + "px";
+    ui.zoomView.style.width = outerW + "px";
+
+    exp.panX = clampZoomPan(exp.panX || 0, innerW, viewW);
+    ui.zoomInner.style.transform = "translateX(" + exp.panX + "px)";
+    ui.zoomCard.hidden = false;
+    ui.scroll.classList.add("is-zoomed");
+    if (mi >= 0) {
+      const mEl = ui.measuresEl.querySelector('.editor-measure[data-index="' + state.measures[mi].index + '"]');
+      // keep the source measure identifiable; dimming is CSS on .is-zoomed
+      if (mEl) mEl.classList.add("is-source");
+    }
   }
 
   function renderTracks() {
@@ -470,6 +626,7 @@
       notesByMeasure[m].push(i);
     }
 
+    state.strings = [];
     const frag = document.createDocumentFragment();
     measures.forEach((measure, mi) => {
       const el = document.createElement("div");
@@ -515,7 +672,8 @@
       const handsEl = document.createElement("div");
       handsEl.className = "editor-hands";
 
-      // Hand capsules: merge adjacent same-hand notes in this measure.
+      // Same-hand capsules, then fold overlapping / tight / roll groups
+      // into one string capsule each. Isolated notes stay ordinary pills.
       const capsules = [];
       let c = 0;
       while (c < idxs.length) {
@@ -525,76 +683,61 @@
         const left = noteXInMeasure(raw[idxs[start]], measure) - 14;
         const right = noteXInMeasure(raw[idxs[c]], measure) + 14;
         capsules.push({ from: idxs[start], to: idxs[c], left: left, right: right, hand: hand });
-        const cap = document.createElement("div");
-        cap.className = "editor-capsule is-" + hand;
-        cap.style.left = left + "px";
-        cap.style.width = Math.max(28, right - left) + "px";
-        cap.textContent = hand === "L" ? "左" : "右";
-        handsEl.appendChild(cap);
         c += 1;
       }
 
-      // One vertical mark per cluster, centered on the visible capsule
-      // group. Rolls and warnings that cover the same notes share a single
-      // gold line; they never wrap the capsules in a box or halo.
-      const rollSpans = [];
-      let r = 0;
-      while (r < idxs.length) {
-        if (!paired[idxs[r]]) { r += 1; continue; }
-        let s = r;
-        while (s + 1 < idxs.length && paired[idxs[s + 1]]) s += 1;
-        const hit = idxs.slice(r, s + 1);
-        const bounds = expandWarnToCapsules(capsules, hit);
-        rollSpans.push({ from: idxs[r], to: idxs[s], left: bounds.left, right: bounds.right });
-        r = s + 1;
-      }
-
-      const warnSpans = [];
-      for (let w = 0; w < (resolved.warnings || []).length; w++) {
-        const item = resolved.warnings[w];
-        const a = item[0], b = item[1], typ = item[2];
-        const hit = idxs.filter((i) => i >= a && i <= b);
-        if (!hit.length) continue;
-        const bounds = expandWarnToCapsules(capsules, hit);
-        warnSpans.push({
-          from: hit[0],
-          to: hit[hit.length - 1],
-          left: bounds.left,
-          right: bounds.right,
-          typ: typ,
-        });
-      }
-
-      const marks = [];
-      const usedRoll = [];
-      const rangesOverlap = (a, b) => a.from <= b.to && b.from <= a.to;
-      for (let j = 0; j < warnSpans.length; j++) {
-        const ws = warnSpans[j];
-        let left = ws.left;
-        let right = ws.right;
-        let hitRoll = false;
-        for (let i = 0; i < rollSpans.length; i++) {
-          if (!rangesOverlap(ws, rollSpans[i])) continue;
-          usedRoll[i] = true;
-          hitRoll = true;
-          if (rollSpans[i].left < left) left = rollSpans[i].left;
-          if (rollSpans[i].right > right) right = rollSpans[i].right;
+      const strings = collectStrings(idxs, capsules, paired, resolved.warnings || []);
+      const covered = Object.create(null);
+      for (let s = 0; s < strings.length; s++) {
+        const str = strings[s];
+        str.measure = measure.index;
+        for (let i = str.from; i <= str.to; i++) covered[i] = true;
+        const width = Math.max(28, str.right - str.left);
+        const pill = document.createElement("button");
+        pill.type = "button";
+        pill.className = "editor-string is-" + str.kind;
+        pill.style.left = str.left + "px";
+        pill.style.width = width + "px";
+        pill.dataset.from = String(str.from);
+        pill.dataset.to = String(str.to);
+        const kindLabel = str.kind === "warn" || str.kind === "both" ? "待确认密串" : (str.kind === "roll" ? "滚奏密串" : "密串");
+        pill.setAttribute("aria-label", kindLabel + " 第 " + (str.from + 1) + "–" + (str.to + 1) + " 音，点按放大");
+        let crowded = false;
+        for (let k = 1; k < str.caps.length; k++) {
+          if (str.caps[k].left < str.caps[k - 1].right - 1) crowded = true;
         }
-        marks.push({ kind: hitRoll ? "both" : "warn", typ: ws.typ, left: left, right: right });
-      }
-      for (let i = 0; i < rollSpans.length; i++) {
-        if (usedRoll[i]) continue;
-        marks.push({ kind: "roll", left: rollSpans[i].left, right: rollSpans[i].right });
+        const showText = !crowded && str.caps.every((cap) => (cap.right - cap.left) >= MIN_LABEL_W);
+        for (let k = 0; k < str.caps.length; k++) {
+          const cap = str.caps[k];
+          const seg = document.createElement("span");
+          seg.className = "editor-string-seg is-" + cap.hand + (showText ? "" : " is-blank");
+          seg.style.left = (cap.left - str.left) + "px";
+          seg.style.width = Math.max(8, cap.right - cap.left) + "px";
+          if (showText) seg.textContent = cap.hand === "L" ? "左" : "右";
+          pill.appendChild(seg);
+        }
+        handsEl.appendChild(pill);
+
+        if (str.kind === "roll" || str.kind === "both" || str.kind === "warn") {
+          const tag = document.createElement("span");
+          const isWarn = str.kind === "warn" || str.kind === "both";
+          tag.className = "editor-string-tag" + (isWarn ? " is-warn" : "");
+          tag.textContent = isWarn ? "拿不准" : "滚奏";
+          tag.style.left = ((str.left + str.right) / 2) + "px";
+          gap.appendChild(tag);
+        }
+        state.strings.push(str);
       }
 
-      marks.sort((a, b) => a.left - b.left);
-      for (let m = 0; m < marks.length; m++) {
-        const prev = m > 0 ? marks[m - 1] : null;
-        const next = m + 1 < marks.length ? marks[m + 1] : null;
-        placeClusterMark(gap, handsEl, capsules, marks[m], {
-          prevRight: prev ? prev.right : null,
-          nextLeft: next ? next.left : null,
-        });
+      for (let i = 0; i < capsules.length; i++) {
+        const cap = capsules[i];
+        if (covered[cap.from]) continue;
+        const elCap = document.createElement("div");
+        elCap.className = "editor-capsule is-" + cap.hand;
+        elCap.style.left = cap.left + "px";
+        elCap.style.width = Math.max(28, cap.right - cap.left) + "px";
+        elCap.textContent = cap.hand === "L" ? "左" : "右";
+        handsEl.appendChild(elCap);
       }
 
       el.appendChild(handsEl);
@@ -603,6 +746,14 @@
     ui.measuresEl.replaceChildren(frag);
     if (ui.playhead) ui.playhead.hidden = !measures.length;
     paintPlayhead();
+    if (state.expanded) {
+      const still = noteInString(state.expanded.from);
+      if (still && still.to === state.expanded.to) expandString(still, { keepPan: true });
+      else collapseString();
+    } else if (ui.scroll) {
+      ui.scroll.classList.remove("is-zoomed");
+      if (ui.zoomCard) ui.zoomCard.hidden = true;
+    }
     if (state.selection) restoreSelectionVisual();
   }
 
@@ -701,7 +852,12 @@
     if (ui.rangePop) ui.rangePop.hidden = true;
     if (ui.sel) ui.sel.hidden = true;
     ui.measuresEl && ui.measuresEl.querySelectorAll(".editor-note.is-active").forEach((el) => el.classList.remove("is-active"));
-    const btn = ui.measuresEl && ui.measuresEl.querySelector('.editor-note[data-index="' + index + '"]');
+    if (ui.zoomCard) ui.zoomCard.querySelectorAll(".editor-note.is-active, .editor-zoom-cap.is-active").forEach((el) => el.classList.remove("is-active"));
+    const zoomBtn = ui.zoomCard && !ui.zoomCard.hidden && (
+      ui.zoomCard.querySelector('.editor-zoom-cap[data-index="' + index + '"]') ||
+      ui.zoomCard.querySelector('.editor-note[data-index="' + index + '"]')
+    );
+    const btn = zoomBtn || (ui.measuresEl && ui.measuresEl.querySelector('.editor-note[data-index="' + index + '"]'));
     if (btn) btn.classList.add("is-active");
     const resolved = resolvedNow();
     const hand = resolved && resolved.hands[index] === "L" ? "L" : "R";
@@ -1094,6 +1250,8 @@
 
     if (ui.scroll) {
       ui.scroll.addEventListener("mousedown", onPointerDown);
+      ui.scroll.addEventListener("wheel", onZoomWheel, { passive: false });
+      bindZoomTouch();
     }
 
     document.addEventListener("click", (e) => {
@@ -1106,6 +1264,7 @@
       const typing = tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || e.target.isContentEditable;
       if (e.key === "Escape") {
         hidePops();
+        collapseString();
         closeMenus();
         setAdvanced(false);
         return;
@@ -1126,29 +1285,60 @@
     });
   }
 
+  function zoomNoteAtClient(x, y) {
+    const el = document.elementFromPoint(x, y);
+    const hit = el && el.closest && (el.closest(".editor-zoom-cap") || el.closest(".editor-zoom .editor-note"));
+    if (!hit) return null;
+    const i = +hit.dataset.index;
+    return Number.isFinite(i) ? i : null;
+  }
+
   function onPointerDown(e) {
     if (e.button !== 0) return;
     if (e.target.closest(".editor-popover")) return;
-    const t = timeAtClientX(e.clientX);
-    if (t != null && (e.target.closest(".editor-lane") || e.target.closest(".editor-note") || e.target.closest(".editor-hands"))) {
-      seekTo(t);
-    }
-    if (isReadonly()) {
-      hidePops();
+
+    // Clicking a collapsed string (or its tag) expands it; clicking another
+    // string while zoomed switches to that one.
+    const stringBtn = e.target.closest(".editor-string");
+    if (stringBtn) {
+      const from = +stringBtn.dataset.from;
+      const to = +stringBtn.dataset.to;
+      const s = (state.strings || []).find((it) => it.from === from && it.to === to);
+      if (s) {
+        hidePops();
+        state.selection = null;
+        expandString(s);
+      }
+      e.preventDefault();
       return;
     }
-    const hit = e.target.closest(".editor-note");
-    const startIndex = hit ? +hit.dataset.index : noteAtClient(e.clientX, e.clientY);
+
+    const inZoom = e.target.closest(".editor-zoom");
+    const t = timeAtClientX(e.clientX);
+    if (!inZoom && t != null && (e.target.closest(".editor-lane") || e.target.closest(".editor-note") || e.target.closest(".editor-hands"))) {
+      seekTo(t);
+    }
+    if (isReadonly() && !inZoom && !e.target.closest(".editor-note")) {
+      hidePops();
+      if (state.expanded && !e.target.closest(".editor-zoom")) collapseString();
+      return;
+    }
+
+    const zoomHit = inZoom ? zoomNoteAtClient(e.clientX, e.clientY) : null;
+    const hit = e.target.closest(".editor-note") || e.target.closest(".editor-zoom-cap");
+    const startIndex = zoomHit != null ? zoomHit : (hit ? +hit.dataset.index : noteAtClient(e.clientX, e.clientY));
     state.drag = {
       x: e.clientX,
       y: e.clientY,
       index: Number.isFinite(startIndex) ? startIndex : null,
       moved: false,
+      inZoom: !!inZoom,
     };
     const move = (ev) => {
       if (!state.drag) return;
       if (Math.abs(ev.clientX - state.drag.x) + Math.abs(ev.clientY - state.drag.y) > 4) state.drag.moved = true;
       if (!state.drag.moved) return;
+      if (state.drag.inZoom) return;
       const now = noteAtClient(ev.clientX, ev.clientY);
       if (now == null) return;
       if (state.drag.index == null) state.drag.index = now;
@@ -1162,18 +1352,71 @@
       const drag = state.drag;
       state.drag = null;
       if (!drag) return;
+      if (drag.inZoom) {
+        const end = zoomNoteAtClient(ev.clientX, ev.clientY);
+        if (!drag.moved && end != null) {
+          if (!isReadonly()) showSwapPop(end);
+        } else if (!drag.moved && end == null) {
+          // click blank inside the zoom chrome: keep zoom, just close pops
+          hidePops();
+          state.selection = null;
+        }
+        return;
+      }
       const end = noteAtClient(ev.clientX, ev.clientY);
       if (drag.moved && drag.index != null && end != null && end !== drag.index) {
-        showRangePop(drag.index, end);
+        if (!isReadonly()) showRangePop(drag.index, end);
       } else if (!drag.moved && drag.index != null) {
-        showSwapPop(drag.index);
+        const str = noteInString(drag.index);
+        if (str && !(state.expanded && drag.index >= state.expanded.from && drag.index <= state.expanded.to)) {
+          hidePops();
+          state.selection = null;
+          expandString(str);
+        } else if (!isReadonly()) {
+          showSwapPop(drag.index);
+        }
       } else {
         hidePops();
         state.selection = null;
+        if (state.expanded) collapseString();
       }
     };
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
+  }
+
+  function onZoomWheel(e) {
+    if (!state.expanded) return;
+    e.preventDefault();
+    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+    panZoom(delta);
+  }
+
+  function bindZoomTouch() {
+    if (!ui.scroll) return;
+    let startX = 0;
+    let startPan = 0;
+    let active = false;
+    ui.scroll.addEventListener("touchstart", (e) => {
+      if (!state.expanded || !e.touches[0]) return;
+      if (!e.target.closest(".editor-zoom") && !e.target.closest(".editor-scroll")) return;
+      startX = e.touches[0].clientX;
+      startPan = (state.expanded && state.expanded.panX) || 0;
+      active = true;
+    }, { passive: true });
+    ui.scroll.addEventListener("touchmove", (e) => {
+      if (!active || !state.expanded) return;
+      const x = e.touches[0] && e.touches[0].clientX;
+      if (x == null) return;
+      e.preventDefault();
+      const innerW = ui.zoomInner ? ui.zoomInner.scrollWidth : 0;
+      const viewW = ui.zoomView ? Math.max(0, ui.zoomView.clientWidth - ZOOM_VIEW_PAD * 2) : 0;
+      state.expanded.panX = clampZoomPan(startPan + (x - startX), innerW, viewW);
+      if (ui.zoomInner) ui.zoomInner.style.transform = "translateX(" + state.expanded.panX + "px)";
+    }, { passive: false });
+    const end = () => { active = false; };
+    ui.scroll.addEventListener("touchend", end);
+    ui.scroll.addEventListener("touchcancel", end);
   }
 
   function boot() {
@@ -1196,6 +1439,16 @@
     rebuild: rebuild,
     selectRange: (from, to) => { if (state.open) showRangePop(from, to); },
     selectNote: (index) => { if (state.open) showSwapPop(index); },
+    expandString: (from, to) => {
+      const s = (state.strings || []).find((it) => it.from === from && it.to === to) || noteInString(from);
+      if (s) expandString(s);
+    },
+    collapseString: () => collapseString(),
+    setStringPan: (px) => {
+      if (!state.expanded) return;
+      state.expanded.panX = px || 0;
+      panZoom(0);
+    },
     expandAdvanced: (v) => setAdvanced(v !== false),
     importJsonText: importJsonText,
     getState: () => state,

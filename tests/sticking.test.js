@@ -141,6 +141,70 @@ extra("same-beat duplicates warn and do not form a roll pair", function () {
   assert.ok(!zeroSpan, "0-interval must not be a roll pair: " + JSON.stringify(pairs));
 });
 
+function notesAt(pat, step) {
+  return pat.split("").map(function (c, i) {
+    return { beat: +(i * step).toFixed(6), colour: c === "d" ? "don" : "ka", big: false };
+  });
+}
+
+function pairSig(out) {
+  return (out.rollPairs || []).map(function (p) { return p[0] + "-" + p[1]; }).join(",");
+}
+
+function assertStick(name, pat, step, hands, pairs, opts) {
+  const out = sticking.autoSticking(notesAt(pat, step), Object.assign({
+    bpm: 250, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏",
+  }, opts || {}));
+  assert.deepStrictEqual(out.hands, hands.split(""), name + " hands " + out.hands.join("") + " / " + pairSig(out));
+  assert.strictEqual(pairSig(out), pairs, name + " pairs");
+}
+
+extra("16th 3-cycles pair 2-1: xoo oxx xxo oox and same-colour triples", function () {
+  const s16 = 0.25;
+  assertStick("xoo", "kddkdd", s16, "RRLRRL", "0-1,3-4");
+  assertStick("oxx", "dkkdkk", s16, "RRLRRL", "0-1,3-4");
+  assertStick("xxo", "kkdkkd", s16, "RRLRRL", "0-1,3-4");
+  assertStick("oox", "ddkddk", s16, "RRLRRL", "0-1,3-4");
+  assertStick("xoo x3", "kddkddkdd", s16, "RRLRRLRRL", "0-1,3-4,6-7");
+  assertStick("xoo tail", "kddkddkddkd", s16, "RRLRRLRRLRR", "0-1,3-4,6-7,9-10");
+  assertStick("ooo", "ddd", s16, "RRL", "0-1");
+  assertStick("xxx", "kkk", s16, "RRL", "0-1");
+  assertStick("xoo left", "kddkdd", s16, "LLRLLR", "0-1,3-4", { 惯用手: "L" });
+});
+
+extra("16th 4-note figures stay on the old grid, not 2-1", function () {
+  const s16 = 0.25;
+  // oxxo / ooox / xxxo, and the other colour polarity. Not re-cut as a 3-cycle.
+  assertStick("oxxo dkkd", "dkkd", s16, "RRLL", "0-1,2-3");
+  assertStick("ooox dddk", "dddk", s16, "RLLR", "1-2");
+  assertStick("xxxo kkkd", "kkkd", s16, "RRLL", "0-1,2-3");
+  assertStick("xood kddk", "kddk", s16, "RLLR", "1-2");
+  assertStick("dense 8", "dddddddd", s16, "RRLLRRLL", "0-1,2-3,4-5,6-7");
+});
+
+extra("12ths stay beat-aligned 1-2; 24th xoo stays the old 1-2", function () {
+  const s12 = 1 / 3;
+  assertStick("12 xoo", "kddkdd", s12, "RLLRLL", "1-2,4-5");
+  assertStick("12 xxo", "kkdkkd", s12, "RLLRLL", "1-2,4-5");
+  assertStick("12 ooo", "ddd", s12, "RLL", "1-2");
+  assertStick("24 xoo", "kddkdd", 1 / 6, "RLLRLL", "1-2,4-5");
+  assertStick("24 dense", "dddddd", 1 / 6, "RRLLRR", "0-1,2-3,4-5");
+});
+
+extra("mid-phrase 16th pattern change switches to 2-1 and does not lock the rest", function () {
+  const s16 = 0.25;
+  // four dons, then kdd kdd: colour change starts the cell, prefix stays 2-2
+  assertStick("dddd|kddkdd", "ddddkddkdd", s16, "RRLLRRLRRL", "0-1,2-3,4-5,7-8");
+  // xoxo then kdd: the 3-cycle is 2-1, not left on the 2-2 grid
+  assertStick("kdkd|kdd", "kdkdkddkdd", s16, "RRLLRRLRRL", "0-1,2-3,4-5,7-8");
+  // kdd kdd then kkd kkd: second cell is its own 2-1, not locked 1-2
+  assertStick("kdd|kkd", "kddkddkkdkkd", s16, "RRLRRLRRLRRL", "0-1,3-4,6-7,9-10");
+  // kdd kdd then four dons: tail is 2-2, not the opening 1-2 phase
+  assertStick("kdd|dddd", "kddkdddddd", s16, "RRLRRLRRLL", "0-1,3-4,6-7,8-9");
+  // only the earlier ddk phase has two full cells; do not leave it on 2-2
+  assertStick("dd|ddkddk", "ddddkddk", s16, "RRLLRLLR", "0-1,2-3,5-6");
+});
+
 extra("negative interval (out of order already fixed by sort) still maps, no bogus pair on equal beats", function () {
   const notes = [
     { beat: 1, colour: "don", big: false },

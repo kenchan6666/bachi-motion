@@ -131,6 +131,7 @@ npm run render -- --tja 谱.tja --course Oni --measures 119-120 --rate 0.5 --out
 | `--sticking <path>` | 可选，溯月的手顺 JSON；不写则按上面的 1-1 规则自动生成 |
 | `--fps <n>` | 帧率，默认 60 |
 | `--size <1080p\|720p\|WxH>` | 分辨率，默认 1080p（1920×1080）。舞台按比例居中，两侧是米色边 |
+| `--workers <n>` | 并行渲染进程数，默认 `min(6, CPU核心数-2)`；设为 `1` 时走旧版单进程落盘 PNG 路径 |
 | `--audio` | 按音符时间叠打点声（见下） |
 | `--out <path>` | 输出 mp4 路径 |
 
@@ -142,7 +143,7 @@ t = chartStart + (f / fps) * rate
 
 所以 `--rate 0.5 --fps 60` 时，每一帧谱面时间只往前走 `0.5/60` 秒，片子是 1× 的两倍长。
 
-实现：用 puppeteer-core 打开本地静态页（`?export=1`），按帧调用 `window.renderAt`，截整个舞台，再交给 ffmpeg 编成 h264 / yuv420p。找不到浏览器时，设置 `CHROME_PATH` 或 `PUPPETEER_EXECUTABLE_PATH`。
+实现：用 puppeteer-core 打开本地静态页（`?export=1`），按帧调用 `window.renderAt`，截整个舞台。默认开启多路并行（`--workers`），将时间轴分段，每段直接以 JPEG 管道送入 ffmpeg（不写逐帧临时图），最后 `-c copy` 无损拼接成 h264 / yuv420p（`--workers 1` 保留旧版单路 PNG 落盘路径）。找不到浏览器时，设置 `CHROME_PATH` 或 `PUPPETEER_EXECUTABLE_PATH`。
 
 ### 打点声（`--audio`）
 

@@ -360,21 +360,33 @@
       const anchor = btn.getBoundingClientRect();
       const margin = 8;
       const gap = 10;
-      const width = Math.min(preferredWidth, window.innerWidth - margin * 2);
+      const width = Math.min(preferredWidth, Math.max(0, window.innerWidth - margin * 2));
+      // Drop the implicit popover anchor. With one, auto insets resolve to 0
+      // and a margin of 0 pins the hint to the viewport origin.
+      pop.style.setProperty("position-anchor", "none");
+      pop.style.setProperty("position-area", "none");
+      pop.style.position = "fixed";
+      pop.style.margin = "0";
       pop.style.width = width + "px";
-      const height = pop.offsetHeight;
+      // beforetoggle runs while the popover is still display:none.
+      const wasNone = getComputedStyle(pop).display === "none";
+      if (wasNone) pop.style.display = "block";
+      let height = 0;
+      try {
+        height = pop.offsetHeight;
+      } finally {
+        if (wasNone) pop.style.display = "";
+      }
       const spaceBelow = window.innerHeight - anchor.bottom - margin;
       const spaceAbove = anchor.top - margin;
-      const above = spaceBelow < height + gap && spaceAbove > spaceBelow;
+      const above = height > 0 && spaceBelow < height + gap && spaceAbove > spaceBelow;
       let top = above ? anchor.top - gap - height : anchor.bottom + gap;
       let left = anchor.left + anchor.width / 2 - 22;
       left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
       top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
-      pop.style.position = "fixed";
-      pop.style.inset = "auto";
-      pop.style.margin = "0";
-      pop.style.left = left + "px";
-      pop.style.top = top + "px";
+      // One shorthand write. `inset: auto` then top/left leaves the origin in
+      // place when the shorthand wins, which is the viewport corner here.
+      pop.style.inset = top + "px auto auto " + left + "px";
       const arrow = anchor.left + anchor.width / 2 - left;
       pop.style.setProperty("--arrow-x", Math.max(14, Math.min(width - 14, arrow)) + "px");
       pop.classList.toggle("is-above", above);
@@ -400,11 +412,16 @@
     }
 
     if (supportsPopover) {
+      // `toggle` is queued for a later task. Until it runs, the UA inset
+      // (0) plus margin 0 paints the hint at the viewport origin. Place
+      // while it is still hidden, before that first paint.
       pop.addEventListener("beforetoggle", (e) => {
-        if (e.newState === "open") pop.style.visibility = "hidden";
+        if (e.newState === "closed") return;
+        pop.style.visibility = "hidden";
+        place();
       });
-      pop.addEventListener("toggle", (e) => {
-        const open = e.newState === "open";
+      pop.addEventListener("toggle", () => {
+        const open = pop.matches(":popover-open");
         btn.setAttribute("aria-expanded", String(open));
         if (!open) {
           pop.style.visibility = "";

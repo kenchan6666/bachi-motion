@@ -18,7 +18,10 @@ const path = require("node:path");
 const os = require("node:os");
 const { spawn, spawnSync } = require("node:child_process");
 
-const TaikoParser = require("./js/parser.js");
+const jobs = require("./js/render-jobs.js");
+const audio = require("./js/audio-mux.js");
+const batch = require("./js/batch-queue.js");
+const { startRenderServer } = require("./js/render-server.js");
 
 const ROOT = __dirname;
 const MIME = {
@@ -38,89 +41,9 @@ const MIME = {
   ".woff2": "font/woff2",
 };
 
-function defaultWorkers() {
-  return Math.max(1, Math.min(6, os.cpus().length - 2));
-}
-
-const HELP = `bachi-motion — render a 手元 (first-person hand-cam) mp4
-
-Usage:
-  node render.js --tja 谱.tja --course Oni --measures 119-120 --rate 0.5 --out 手元.mp4
-  npm run render -- --tja 谱.tja --out 手元.mp4
-
-Flags:
-  --tja <path>         Input TJA chart (read from local disk only; do not commit user charts)
-  --course <name>      COURSE/difficulty to render if the TJA has several (default: first / only)
-  --measures <A-B>     Inclusive 1-based measure range (default: whole chart)
-  --rate <n>           Slow-motion factor applied to the video timeline (default 1).
-                       0.5 → video is 2× longer. renderAt still receives real chart time.
-  --sticking <path>    Optional 手顺 JSON. If omitted, autoSticking is used.
-  --technique <name>   手法: 全换 (default) / 半换A / 半换B / 炒菜. Ignored when --sticking is set.
-  --hand <R|L>         惯用手 (default R). Ignored when --sticking is set.
-  --roll <mode>        滚奏: 不滚奏 / 自动滚奏 (default) / 24分滚奏. Ignored when --sticking is set.
-  --bignote <mode>     Big-note handling: single (default) / both / small
-  --fps <n>            Frames per second (default 60)
-  --size <1080p|720p|WxH>  Output resolution (default 1080p)
-  --workers <n>        Parallel render workers (default: min(6, cpus-2) = ${defaultWorkers()};
-                       1 = legacy single-page PNG-to-disk path)
-  --audio              Mix bundled don/ka hits (assets/sounds/*.wav, synthesized, not official)
-  --out <path>         Output mp4 path (required)
-
-Requires: Node, ffmpeg on PATH, and a Chrome/Chromium that puppeteer-core can launch
-(set CHROME_PATH or PUPPETEER_EXECUTABLE_PATH if it is not found automatically).
-`;
-
 function die(msg, code = 1) {
   console.error(msg);
   process.exit(code);
-}
-
-function parseArgs(argv) {
-  const args = {
-    tja: null,
-    course: null,
-    measures: null,
-    rate: 1,
-    sticking: null,
-    technique: undefined,
-    hand: "R",
-    roll: "自动滚奏",
-    bignote: "single",
-    fps: 60,
-    size: "1080p",
-    workers: defaultWorkers(),
-    audio: false,
-    out: null,
-    help: false,
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    const need = () => {
-      const v = argv[++i];
-      if (v == null || v.startsWith("--")) throw new Error("缺少参数值：" + a);
-      return v;
-    };
-    switch (a) {
-      case "--tja": args.tja = need(); break;
-      case "--course": args.course = need(); break;
-      case "--measures": args.measures = need(); break;
-      case "--rate": args.rate = Number(need()); break;
-      case "--sticking": args.sticking = need(); break;
-      case "--technique": args.technique = need(); break;
-      case "--hand": args.hand = need(); break;
-      case "--roll": args.roll = need(); break;
-      case "--bignote": args.bignote = need(); break;
-      case "--fps": args.fps = Number(need()); break;
-      case "--size": args.size = need(); break;
-      case "--workers": args.workers = Number(need()); break;
-      case "--audio": args.audio = true; break;
-      case "--out": args.out = need(); break;
-      case "--help":
-      case "-h": args.help = true; break;
-      default: throw new Error("未知参数：" + a + "\n" + HELP);
-    }
-  }
-  return args;
 }
 
 function parseSize(s) {
@@ -169,121 +92,6 @@ function startStaticServer(root) {
     server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port }));
     server.on("error", reject);
   });
-}
-
-function readWavPcm(file) {
-  const buf = fs.readFileSync(file);
-  if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
-    throw new Error("不是 WAV：" + file);
-  }
-  let off = 12, sr = 44100, bits = 16, ch = 1, data, dataLen;
-  while (off + 8 <= buf.length) {
-    const id = buf.toString("ascii", off, off + 4);
-    const size = buf.readUInt32LE(off + 4);
-    if (id === "fmt ") {
-      ch = buf.readUInt16LE(off + 10);
-      sr = buf.readUInt32LE(off + 12);
-      bits = buf.readUInt16LE(off + 22);
-    } else if (id === "data") {
-      data = off + 8;
-      dataLen = size;
-      break;
-    }
-    off += 8 + size;
-  }
-  if (data == null || bits !== 16) throw new Error("需要 16-bit PCM WAV：" + file);
-  const samples = new Int16Array(dataLen / 2);
-  for (let i = 0; i < samples.length; i++) samples[i] = buf.readInt16LE(data + i * 2);
-  return { sampleRate: sr, channels: ch, samples };
-}
-
-function writeWavPcm(file, sampleRate, samples) {
-  const n = samples.length;
-  const buf = Buffer.alloc(44 + n * 2);
-  buf.write("RIFF", 0);
-  buf.writeUInt32LE(36 + n * 2, 4);
-  buf.write("WAVE", 8);
-  buf.write("fmt ", 12);
-  buf.writeUInt32LE(16, 16);
-  buf.writeUInt16LE(1, 20);
-  buf.writeUInt16LE(1, 22);
-  buf.writeUInt32LE(sampleRate, 24);
-  buf.writeUInt32LE(sampleRate * 2, 28);
-  buf.writeUInt16LE(2, 32);
-  buf.writeUInt16LE(16, 34);
-  buf.write("data", 36);
-  buf.writeUInt32LE(n * 2, 40);
-  for (let i = 0; i < n; i++) buf.writeInt16LE(samples[i], 44 + i * 2);
-  fs.writeFileSync(file, buf);
-}
-
-function mixHitAudio(events, { start, end, rate, don, ka, bigBoost = 1.25 }) {
-  const sr = don.sampleRate;
-  if (ka.sampleRate !== sr) throw new Error("don.wav 和 ka.wav 的采样率不一致");
-  const videoDur = (end - start) / rate;
-  const total = Math.max(1, Math.ceil(videoDur * sr) + Math.max(don.samples.length, ka.samples.length));
-  const mix = new Float64Array(total);
-  const seen = new Set();
-  for (const e of events) {
-    const key = e.t.toFixed(6) + ":" + e.face;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    const videoT = (e.t - start) / rate;
-    if (videoT < -0.05 || videoT > videoDur + 0.05) continue;
-    const clip = e.face === "ka" ? ka.samples : don.samples;
-    const gain = e.big ? bigBoost : 1;
-    const at = Math.round(videoT * sr);
-    for (let i = 0; i < clip.length; i++) {
-      const j = at + i;
-      if (j >= 0 && j < mix.length) mix[j] += (clip[i] / 32768) * gain;
-    }
-  }
-  let peak = 1;
-  for (const x of mix) peak = Math.max(peak, Math.abs(x));
-  const out = new Int16Array(Math.ceil(videoDur * sr));
-  const norm = peak > 1 ? 0.95 / peak : 0.95;
-  for (let i = 0; i < out.length; i++) {
-    const x = (mix[i] || 0) * norm;
-    out[i] = Math.max(-32767, Math.min(32767, Math.round(x * 32767)));
-  }
-  return { sampleRate: sr, samples: out };
-}
-
-function buildPayload(args) {
-  const tjaText = fs.readFileSync(path.resolve(args.tja), "utf8");
-  const opts = {
-    course: args.course,
-    measures: args.measures,
-    bigNote: args.bignote,
-    手法: args.technique,
-    惯用手: args.hand,
-    滚奏: args.roll,
-  };
-  if (args.technique != null && String(args.technique).trim() !== "") {
-    opts.titleTechnique = args.technique;
-  }
-  if (args.sticking) {
-    const jsonText = fs.readFileSync(path.resolve(args.sticking), "utf8");
-    if (typeof TaikoParser.chartFromTjaAndHands === "function") {
-      return TaikoParser.chartFromTjaAndHands(tjaText, jsonText, opts);
-    }
-    const base = TaikoParser.eventsFromTja(tjaText, opts);
-    const hands = TaikoParser.loadHandJson(jsonText, {
-      measures: args.measures,
-      rangeStart: base.rangeStart,
-      rangeEnd: base.rangeEnd,
-      timeShift: base.timeShift || 0,
-      chartMeasures: base.chartMeasures,
-      bigNote: args.bignote,
-    });
-    return Object.assign({}, base, hands, {
-      rangeStart: base.rangeStart,
-      rangeEnd: base.rangeEnd,
-      timeShift: base.timeShift || 0,
-      source: "hand-json",
-    });
-  }
-  return TaikoParser.eventsFromTja(tjaText, opts);
 }
 
 function runFfmpeg(argv) {
@@ -356,23 +164,27 @@ function spawnFfmpegPipe(argv) {
   return { proc, done, write, end, kill };
 }
 
-function buildAudioWavIfNeeded(args, data, chartStart, chartEnd, work) {
-  if (!args.audio) return null;
-  const donPath = path.join(ROOT, "assets/sounds/don.wav");
-  const kaPath = path.join(ROOT, "assets/sounds/ka.wav");
-  if (!fs.existsSync(donPath) || !fs.existsSync(kaPath)) {
-    throw new Error("缺少 assets/sounds/don.wav 或 ka.wav");
+async function prepareExportAudio(args, data, chartStart, chartEnd, work) {
+  let hits = null;
+  if (args.audio) {
+    const donPath = path.join(ROOT, "assets/sounds/don.wav");
+    const kaPath = path.join(ROOT, "assets/sounds/ka.wav");
+    if (!fs.existsSync(donPath) || !fs.existsSync(kaPath)) {
+      throw new Error("缺少 assets/sounds/don.wav 或 ka.wav");
+    }
+    hits = {
+      events: data.events || [],
+      don: audio.readWavPcm(donPath),
+      ka: audio.readWavPcm(kaPath),
+    };
   }
-  const mixed = mixHitAudio(data.events || [], {
-    start: chartStart,
-    end: chartEnd,
+  return audio.prepareExportWav({
+    song: args.song || null,
+    audio: !!args.audio,
     rate: args.rate,
-    don: readWavPcm(donPath),
-    ka: readWavPcm(kaPath),
-  });
-  const wavPath = path.join(work, "hits.wav");
-  writeWavPcm(wavPath, mixed.sampleRate, mixed.samples);
-  return wavPath;
+    timeShift: data.timeShift || 0,
+    hits: hits,
+  }, chartStart, chartEnd, work);
 }
 
 async function setupExportPage(page, url, size, data, rate, preloadAssets) {
@@ -440,7 +252,12 @@ function logJobHeader(args, data, chartStart, chartEnd, chartLen, videoDur, fram
     (workerCount > 1 ? "  workers " + workerCount + " (jpeg pipe)" : "  workers 1 (png)"));
 }
 
-async function renderSingleWorker(browser, url, size, data, args, work, outPath) {
+function noteFrame(hooks, frame, frameCount) {
+  if (!hooks || typeof hooks.onFrame !== "function") return;
+  if (frame === 1 || frame === frameCount || frame % 5 === 0) hooks.onFrame(frame, frameCount);
+}
+
+async function renderSingleWorker(browser, url, size, data, args, work, outPath, hooks) {
   const page = await browser.newPage();
   await setupExportPage(page, url, size, data, args.rate, false);
 
@@ -463,6 +280,7 @@ async function renderSingleWorker(browser, url, size, data, args, work, outPath)
     await page.evaluate((t) => window.renderAt(t), t);
     const framePath = path.join(work, "frame_" + String(f).padStart(pad, "0") + ".png");
     await page.screenshot({ path: framePath, type: "png", captureBeyondViewport: false });
+    noteFrame(hooks, f + 1, frameCount);
     if (f === 0 || f + 1 === frameCount || (f + 1) % Math.max(1, Math.round(args.fps)) === 0) {
       console.log("[bachi-motion] frame " + (f + 1) + "/" + frameCount + "  t=" + t.toFixed(3) + "s");
     }
@@ -476,7 +294,7 @@ async function renderSingleWorker(browser, url, size, data, args, work, outPath)
     "-framerate", String(args.fps),
     "-i", pattern,
   ];
-  const wavPath = buildAudioWavIfNeeded(args, data, chartStart, chartEnd, work);
+  const wavPath = await prepareExportAudio(args, data, chartStart, chartEnd, work);
   if (wavPath) {
     ff.push("-i", wavPath, "-c:a", "aac", "-shortest");
   }
@@ -490,7 +308,7 @@ async function renderSingleWorker(browser, url, size, data, args, work, outPath)
   await runFfmpeg(ff);
 }
 
-async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath) {
+async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath, hooks) {
   const browsers = [];
   let timing;
   let segments;
@@ -585,6 +403,7 @@ async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, arg
         });
         await pipe.write(Buffer.from(buf));
         completed++;
+        noteFrame(hooks, completed, frameCount);
         if (completed === 1 || completed === frameCount || completed % logEvery === 0) {
           console.log("[bachi-motion] progress " + completed + "/" + frameCount +
             "  (worker " + idx + " frame " + (f + 1) + " t=" + t.toFixed(3) + "s)");
@@ -612,7 +431,7 @@ async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, arg
     "-safe", "0",
     "-i", concatListPath,
   ];
-  const wavPath = buildAudioWavIfNeeded(args, data, timing.start, timing.end, work);
+  const wavPath = await prepareExportAudio(args, data, timing.start, timing.end, work);
   if (wavPath) {
     ff.push("-i", wavPath, "-c:a", "aac", "-shortest");
   }
@@ -625,23 +444,42 @@ async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, arg
   await runFfmpeg(ff);
 }
 
-async function main() {
-  let args;
-  try { args = parseArgs(process.argv.slice(2)); }
-  catch (err) { die(err.message); }
-  if (args.help) { process.stdout.write(HELP); return; }
-  if (!args.tja) die("请用 --tja 指定谱面文件。\n" + HELP);
-  if (!args.out) die("请用 --out 指定输出 mp4 路径。\n" + HELP);
-  if (!isFinite(args.rate) || args.rate <= 0) die("--rate 必须是正数");
-  if (!isFinite(args.fps) || args.fps <= 0) die("--fps 必须是正数");
-  if (!Number.isInteger(args.workers) || args.workers < 1) die("--workers 必须是正整数");
+function singleJobFromArgs(args) {
+  return {
+    tja: path.resolve(args.tja),
+    song: args.song ? path.resolve(args.song) : null,
+    out: path.resolve(args.out),
+    course: args.course,
+    measures: args.measures,
+    rate: args.rate,
+    sticking: args.sticking ? path.resolve(args.sticking) : null,
+    technique: args.technique,
+    hand: args.hand,
+    roll: args.roll,
+    bignote: args.bignote,
+    fps: args.fps,
+    size: args.size,
+    workers: args.workers,
+    audio: args.audio,
+    label: path.basename(args.tja),
+  };
+}
+
+async function renderOne(args, ctx) {
+  ctx = ctx || {};
+  if (!args.tja) throw new Error("请用 --tja 指定谱面文件。");
+  if (!args.out) throw new Error("请用 --out 指定输出 mp4 路径。");
+  if (!isFinite(args.rate) || args.rate <= 0) throw new Error("--rate 必须是正数");
+  if (!isFinite(args.fps) || args.fps <= 0) throw new Error("--fps 必须是正数");
+  if (!Number.isInteger(args.workers) || args.workers < 1) throw new Error("--workers 必须是正整数");
   const size = parseSize(args.size);
-  if (!fs.existsSync(path.resolve(args.tja))) die("找不到谱面文件：" + args.tja);
+  if (!fs.existsSync(path.resolve(args.tja))) throw new Error("找不到谱面文件：" + args.tja);
+  if (args.song && !fs.existsSync(path.resolve(args.song))) throw new Error("找不到原曲：" + args.song);
   if (args.sticking && !fs.existsSync(path.resolve(args.sticking))) {
-    die("找不到手顺 JSON：" + args.sticking);
+    throw new Error("找不到手顺 JSON：" + args.sticking);
   }
   if (spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).error) {
-    die("找不到 ffmpeg，请先把它安装到 PATH");
+    throw new Error("找不到 ffmpeg，请先把它安装到 PATH");
   }
 
   let puppeteer;
@@ -650,15 +488,15 @@ async function main() {
   } catch {
     try { puppeteer = require("puppeteer"); }
     catch {
-      die("找不到 puppeteer-core。请在项目根目录运行 npm install");
+      throw new Error("找不到 puppeteer-core。请在项目根目录运行 npm install");
     }
   }
   const chrome = findChrome();
   if (!chrome && !puppeteer.executablePath) {
-    die("找不到 Chrome / Chromium。请安装浏览器，或设置环境变量 CHROME_PATH");
+    throw new Error("找不到 Chrome / Chromium。请安装浏览器，或设置环境变量 CHROME_PATH");
   }
 
-  const data = buildPayload(args);
+  const data = jobs.buildPayload(args);
   const outPath = path.resolve(args.out);
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
@@ -666,6 +504,13 @@ async function main() {
   // Pass --rate so the page's rate-dependent roll blur (扇形模糊 at rate==1) stays off during slow-mo.
   const url = "http://127.0.0.1:" + port + "/index.html?export=1&rate=" + encodeURIComponent(String(args.rate));
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "bachi-frames-"));
+  const hooks = {
+    onFrame(frame, frameCount) {
+      if (typeof ctx.onItemProgress === "function") {
+        ctx.onItemProgress(frameCount ? frame / frameCount : 0, { frame: frame, frameCount: frameCount });
+      }
+    },
+  };
   let singleBrowser = null;
   try {
     const launchOpts = {
@@ -679,7 +524,7 @@ async function main() {
         "--hide-scrollbars",
       ],
     };
-        if (chrome) launchOpts.executablePath = chrome;
+    if (chrome) launchOpts.executablePath = chrome;
 
     if (args.workers === 1) {
       try {
@@ -690,14 +535,15 @@ async function main() {
           "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
         );
       }
-      await renderSingleWorker(singleBrowser, url, size, data, args, work, outPath);
+      await renderSingleWorker(singleBrowser, url, size, data, args, work, outPath, hooks);
       singleBrowser = null;
     } else {
-      await renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath);
+      await renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath, hooks);
     }
 
     const stat = fs.statSync(outPath);
     console.log("[bachi-motion] wrote " + outPath + "  (" + Math.round(stat.size / 1024) + " KB)");
+    return outPath;
   } finally {
     if (singleBrowser) {
       try { await singleBrowser.close(); } catch { /* ignore */ }
@@ -705,6 +551,51 @@ async function main() {
     server.close();
     try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* ignore */ }
   }
+}
+
+async function main() {
+  let args;
+  try { args = jobs.parseArgs(process.argv.slice(2)); }
+  catch (err) { die(err.message); }
+  if (args.help) { process.stdout.write(jobs.HELP); return; }
+
+  if (args.serve) {
+    if (!Number.isInteger(args.port) || args.port < 0 || args.port > 65535) die("--port 无效");
+    const server = await startRenderServer({
+      port: args.port,
+      root: ROOT,
+      renderJob: (job, ctx) => renderOne(job, ctx),
+    });
+    console.log("[bachi-motion] 本机批量出片 http://127.0.0.1:" + server.port + "/");
+    console.log("[bachi-motion] 渲染在这台电脑上。GitHub Pages 不能出片。按 Ctrl+C 停止。");
+    return;
+  }
+
+  if (args.batch) {
+    let list;
+    try { list = jobs.loadBatchFile(args.batch); }
+    catch (err) { die(err.message); }
+    let lastLog = 0;
+    const result = await batch.runBatch(list, {
+      renderJob: (job, ctx) => renderOne(job, ctx),
+      onProgress(snap) {
+        const now = Date.now();
+        const edge = snap.done || snap.itemFraction === 0 || snap.itemFraction === 1;
+        if (!edge && now - lastLog < 250) return;
+        lastLog = now;
+        const text = batch.formatProgress(snap);
+        console.log("[bachi-motion] " + batch.bar(snap.overallFraction) + " " + text.overall + "  " + text.item);
+      },
+    });
+    if (result.failed) {
+      die("批量出片有 " + result.failed + " 条失败");
+    }
+    return;
+  }
+
+  if (!args.tja) die("请用 --tja 指定谱面文件。\n" + jobs.HELP);
+  if (!args.out) die("请用 --out 指定输出 mp4 路径。\n" + jobs.HELP);
+  await renderOne(singleJobFromArgs(args));
 }
 
 main().catch((err) => {

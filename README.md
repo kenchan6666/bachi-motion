@@ -133,6 +133,9 @@ npm run render -- --tja 谱.tja --course Oni --measures 119-120 --rate 0.5 --out
 | `--size <1080p\|720p\|WxH>` | 分辨率，默认 1080p（1920×1080）。舞台按比例居中，两侧是米色边 |
 | `--workers <n>` | 并行渲染进程数，默认 `min(6, CPU核心数-2)`；设为 `1` 时走旧版单进程落盘 PNG 路径 |
 | `--audio` | 按音符时间叠打点声（见下） |
+| `--song <path>` | 可选，把用户自己的原曲（wav/ogg/mp3 等）按下面的公式混进成片。不写则**不含原曲** |
+| `--batch <queue.json>` | 按队列连续出多条。每条自己决定有没有 `song` |
+| `--serve` | 在本机打开网页并批量出片（只监听 127.0.0.1）。GitHub Pages 不能渲染 |
 | `--out <path>` | 输出 mp4 路径 |
 
 `--rate` 的时间约定：`renderAt(t)` 始终吃**真实谱面时间**。视频时长 = `(chartDuration - chartStart) / rate`。第 `f` 帧（从 0 起）画在：
@@ -148,6 +151,35 @@ t = chartStart + (f / fps) * rate
 ### 打点声（`--audio`）
 
 `assets/sounds/don.wav` 和 `ka.wav` 是本项目里合成的短促打击声（16-bit PCM），**不是南梦宫官方或游戏里的采样**，可以一起发布。咚略低、咔略亮。大音符会稍稍加大音量。同一时刻同一面只响一次。声音出现在视频时间 `(event.t - chartStart) / rate` 上。
+
+### 原曲（`--song`）
+
+如果除了 TJA 还提供了用户自己的音频文件，成片会把这段原曲混进去。对齐公式：
+
+```
+chartStart = firstNoteTime - 0.7
+```
+
+`firstNoteTime` 是解析之后的第一个音。解析时已经按 TJA 惯例减去过一次 `OFFSET`，所以这里**不再减 OFFSET**，也不按 OFFSET 单独裁切。视频窗口仍是原来的约定：入场 `LEAD_IN = 0.7`，收尾 `TAIL_TIME = 0.5`（整段从第一个音所在的导出范围起算）。已有的 `--measures` 会把谱面时间平移，原曲用 `chartStart + timeShift` 对回绝对音频时间。
+
+只有 TJA、没有 `--song` 时，成片**不含原曲**。`--audio` 仍然只叠合成的 don/ka。仓库里不要放官方音频、官方谱或官方视频。
+
+网页上可以在「批量出片」里加入多张谱，并为每一首选择原曲。进度条会显示当前这一条和整批的进度。渲染只在运行 `node render.js --serve` 的那台电脑上进行。
+
+队列文件示例（路径相对 JSON 所在目录）：
+
+```json
+{
+  "fps": 60,
+  "size": "1080p",
+  "jobs": [
+    { "tja": "a.tja", "song": "a.wav", "out": "a.mp4", "technique": "全换", "hand": "R", "roll": "自动滚奏" },
+    { "tja": "b.tja", "out": "b.mp4" }
+  ]
+}
+```
+
+第二条没有 `song`，所以不含原曲。已加载的手顺 JSON（`sticking`）仍然原样跟随。
 
 ## 本地开发
 

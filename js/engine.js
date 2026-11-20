@@ -36,9 +36,18 @@ const CONFIG = {
   NOD_PX: 1.5,          // 旧滚奏点头（像素）；新滚奏手腕用 LIFT_PX * ROLL_BOB_SCALE
   SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
-  LIFT_PX: 95,          // 单击全幅度（≥8 分）抬起高度；16 分及更密仍用 LIFT_SCALE_* 去乘
-  ROLL_LIFT_PX: 70,     // 滚奏手腕点头仍按上一轮 70px 的 1/3 算，不随单击 LIFT_PX 变
-  LIFT_OUT_PX: 12,      // 举起时棒尖略向外（保持八字），不要横着甩成外刷
+  LIFT_PX: 95,          // 咚全幅度（≥8 分）抬起高度；16 分及更密仍用 LIFT_SCALE_* 去乘
+  KA_LIFT_PX: 40,       // 咔在落点之上的过冲（落点已在上沿，重点是外移+竖直；太大棒尖会插进谱面轨道）
+  ROLL_LIFT_PX: 70,     // 滚奏手腕点头仍按 70px 的 1/3 算，不随单击 LIFT_PX 变
+  LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
+  KA_STICK_OUT_DEG: 10, // 咔棒几乎竖直，只往外倒 5–10°（手在外侧，宽站位；倒角方向让握点外移，不能把手收到中间）
+  KA_TIP_OUT_PX: 36,    // 咔棒头伸出鼓边黑线外（接触点仍在黑线上）
+  WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
+  WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
+  WINDUP: 0.03,         // 单击从放低的闲置姿势抬到最高，再在 RISE 里落下；短到另一只手打中时这只还没抬
+  SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
+  SCENE_CLIP_PAD_TOP: 110, // 卡片上沿额外留白，允许棒尖略画出框
+  KA_GLOW_GROW: 12,     // 青光画在鼓边外侧（不是鼓面上）
   // 同手相邻击的间隔 → 抬起高度（8 分及更疏 = 满幅，16 分起收小，32/48 分贴住）
   LIFT_DT_FULL: 0.18,   // ≥ 约 8 分（@160 ≈ 0.1875s）→ 满幅
   LIFT_DT_16: 0.094,    // 16 分 @160
@@ -86,12 +95,14 @@ const GEOM = {
     // rest：滚奏回弹用的棒尖参考（保持上一轮高度，避免滚奏被单击加大幅度带走）
     // 单击举起高度走 LIFT_PX（从当前落点向上），不再靠这个 rest
     // 第一人称：手从画面底部进来；单击时手+棒是刚体，pivot 只是握点的参考原点
-    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 272 }, kaAng: 235, out: -1, rest: { x: 342, y: 226 } },
-    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 272 }, kaAng: -55, out: 1, rest: { x: 458, y: 226 } },
+    // kaAng：咔在近端鼓边的位置（0=右，-90=上）。右手约 1 点钟 -55°，左手镜像 11 点钟 235°。
+    // 闲置时手在鼓前面放低（idle），不跟着另一只手抬。
+    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 272 }, kaAng: 235, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
+    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 272 }, kaAng: -55, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
   },
 };
-// 咔落点：鼓面边缘往里一点
-for (const h of ["L", "R"]) GEOM.hands[h].ka = ellipsePt(GEOM.hands[h].kaAng, -8);
+// 咔接触点：鼓边黑线上（grow=0）。棒头再沿棒伸出 KA_TIP_OUT_PX。
+for (const h of ["L", "R"]) GEOM.hands[h].ka = ellipsePt(GEOM.hands[h].kaAng, 0);
 
 function ellipsePt(deg, grow = 0) {
   const f = GEOM.face, a = deg * Math.PI / 180;
@@ -185,9 +196,97 @@ function followFromScale(_scale) {
   return 1;
 }
 
-/** 单击举起方向：从落点向上、略向外（八字），幅度 LIFT_PX。 */
-function liftVec(hand) {
-  return { x: GEOM.hands[hand].out * CONFIG.LIFT_OUT_PX, y: -CONFIG.LIFT_PX };
+/** 单击举起方向：从落点向上。咚用 LIFT_PX；咔落点已在上沿，过冲用 KA_LIFT_PX。 */
+function liftVec(hand, face) {
+  const h = face === "ka" ? CONFIG.KA_LIFT_PX : CONFIG.LIFT_PX;
+  const out = face === "ka" ? 0 : CONFIG.LIFT_OUT_PX; // 咔外移靠宽站位，不在举起向量上再横推
+  return { x: GEOM.hands[hand].out * out, y: -h };
+}
+
+function sceneTransform() {
+  const F = GEOM.face, s = CONFIG.SCENE_SCALE;
+  return `translate(${F.cx},${F.cy}) scale(${s}) translate(${-F.cx},${-F.cy})`;
+}
+
+/** 屏幕坐标 → 场景缩放后的本地坐标（卡片裁剪要对齐未缩放的画框，上沿再放宽）。 */
+function sceneInvPt(p) {
+  const F = GEOM.face, s = CONFIG.SCENE_SCALE;
+  return { x: (p.x - F.cx) / s + F.cx, y: (p.y - F.cy) / s + F.cy };
+}
+
+function sceneCardClipRect() {
+  const c = GEOM.card, pad = CONFIG.SCENE_CLIP_PAD_TOP;
+  const tl = sceneInvPt({ x: c.x + 1.5, y: c.y + 1.5 - pad });
+  const br = sceneInvPt({ x: c.x + c.w - 1.5, y: c.y + c.h - 1.5 });
+  return { x: tl.x, y: tl.y, w: br.x - tl.x, h: br.y - tl.y, rx: 29 / CONFIG.SCENE_SCALE };
+}
+
+function targetFace(hand, base) {
+  const H = GEOM.hands[hand];
+  if (!base) return "don";
+  return V.len(V.sub(base, H.ka)) < V.len(V.sub(base, H.don)) ? "ka" : "don";
+}
+
+/** 单击落点姿势（未抬、未后倒）。咚：原来的焊死持棒。咔：棒几乎竖直、往外倒 KA_STICK_OUT_DEG，棒头伸出鼓边，手连棒一起外移。 */
+function singleContactPose(hand, face) {
+  const H = GEOM.hands[hand];
+  const L = stickLen(hand);
+  if (face !== "ka") {
+    const tip = H.don;
+    const back = V.sub(H.pivot, tip);
+    const dirBack = V.len(back) > 1 ? V.norm(back) : { x: 0, y: 1 };
+    const grip = V.add(tip, V.mul(dirBack, L));
+    const d = V.sub(tip, grip);
+    return { tip, grip, deg: Math.atan2(d.y, d.x) * 180 / Math.PI };
+  }
+  const C = H.ka; // 接触点在鼓边黑线上（kaAng 约 1 / 11 点钟）
+  // 棒几乎竖直。倒角让手在外侧（宽站位：整只手连棒外移），比把棒顶再往外倒更优先。
+  const deg = -90 - CONFIG.KA_STICK_OUT_DEG * H.out;
+  const r = deg * Math.PI / 180;
+  const dir = { x: Math.cos(r), y: Math.sin(r) };
+  const tip = V.add(C, V.mul(dir, CONFIG.KA_TIP_OUT_PX));
+  const grip = V.sub(tip, V.mul(dir, L));
+  return { tip, grip, deg };
+}
+
+function singleIdlePose(hand) {
+  const H = GEOM.hands[hand];
+  const L = stickLen(hand);
+  const tip = H.idle;
+  const deg = -90 + 6 * H.out; // 闲置时也接近竖直，略向外
+  const r = deg * Math.PI / 180;
+  const dir = { x: Math.cos(r), y: Math.sin(r) };
+  const grip = V.sub(tip, V.mul(dir, L));
+  return { tip, grip, deg };
+}
+
+function weldSnap(tip, grip, L) {
+  const back = V.sub(grip, tip);
+  const dirBack = V.len(back) > 1 ? V.norm(back) : { x: 0, y: 1 };
+  const gripS = V.add(tip, V.mul(dirBack, L));
+  const d = V.sub(tip, gripS);
+  return { tip, grip: gripS, deg: Math.atan2(d.y, d.x) * 180 / Math.PI };
+}
+
+function lerpPose(a, b, u, L) {
+  return weldSnap(V.lerp(a.tip, b.tip, u), V.lerp(a.grip, b.grip, u), L);
+}
+
+/** 举起时整组绕手腕后倒；棒相对手仍是 0°，握点不滑动。 */
+function applyWristTilt(pose, lift) {
+  if (lift <= 1e-6) return pose;
+  const tiltAmp = CONFIG.WRIST_TILT_DEG * lift;
+  const r = pose.deg * Math.PI / 180;
+  const dir = { x: Math.cos(r), y: Math.sin(r) };
+  const wrist = V.sub(pose.grip, V.mul(dir, CONFIG.WRIST_PX));
+  const tipUp = V.rot(pose.tip, wrist, 1);
+  const sign = tipUp.y < pose.tip.y ? 1 : -1;
+  const tilt = sign * tiltAmp;
+  return {
+    tip: V.rot(pose.tip, wrist, tilt),
+    grip: V.rot(pose.grip, wrist, tilt),
+    deg: pose.deg + tilt,
+  };
 }
 
 /** 鼓棒握点到棒尖的固定长度（以咚的持棒为准，单击过程中不滑动）。 */
@@ -259,13 +358,63 @@ function rollBobBetween(t, ta, tb) {
   return 1;
 }
 
+function easeInOut(s) { const x = clamp01(s); return 1 - (1 - x) * (1 - x); }
+
+/** 单击接近落点：闲置 → 抬到最高 → 打下。没轮到的手一直放低。 */
+function singleApproach(t, b) {
+  const rise = CONFIG.RISE, wind = CONFIG.WINDUP;
+  if (t >= b.t) return { lift: 0, idle: 0 };
+  if (t > b.t - rise) {
+    const s = (b.t - t) / rise;
+    return { lift: easeInOut(s), idle: 0 };
+  }
+  if (t > b.t - rise - wind) {
+    const s = (t - (b.t - rise - wind)) / wind;
+    return { lift: 1, idle: 1 - easeInOut(s) };
+  }
+  return { lift: 0, idle: 1 };
+}
+
+/** 单击打完：打中姿势稍停一拍，再很快放回鼓前面。 */
+function singleDepart(t, a) {
+  const hold = 0.02, drop = Math.min(CONFIG.RISE, 0.12);
+  if (t - a.t < hold) return { lift: 0, idle: 0 };
+  const s = clamp01((t - a.t - hold) / drop);
+  return { lift: 0, idle: easeInOut(s) };
+}
+
+/** 两下单击之间：约 8 分同手（四分间隔）中间放低；更密就按密度走弧。 */
+function singleBetween(t, a, b, scale) {
+  const rise = CONFIG.RISE, wind = CONFIG.WINDUP, drop = Math.min(rise, 0.12);
+  const gap = b.t - a.t;
+  const need = 0.22; // 8 分同手 0.1875 走弧，四分 0.375 中间放低
+  if (gap < need) {
+    return { lift: arcHeight(t, a.t, b.t, CONFIG.FULL_LIFT * scale), idle: 0, base: V.lerp(a.target, b.target, smooth(clamp01((t - a.t) / gap))) };
+  }
+  if (t - a.t < 0.02 + drop) {
+    if (t - a.t < 0.02) return { lift: 0, idle: 0, base: a.target };
+    const s = (t - a.t - 0.02) / drop;
+    return { lift: 0, idle: easeInOut(s), base: a.target };
+  }
+  if (b.t - t < rise) {
+    const s = (b.t - t) / rise;
+    return { lift: easeInOut(s), idle: 0, base: b.target };
+  }
+  if (b.t - t < rise + wind) {
+    const s = 1 - (b.t - rise - t) / wind;
+    return { lift: 1, idle: 1 - easeInOut(s), base: b.target };
+  }
+  return { lift: 0, idle: 1, base: a.target };
+}
+
 function poseAt(hand, track, t, opts = {}) {
   const H = GEOM.hands[hand];
   const { a, b } = findSegment(track, t);
   let lift, base, bend = { x: 0, y: 0 }, grip, wobble = 0, buzz = null;   // buzz = 正在滚奏的那一对（画震动线/残影用）
   let follow = CONFIG.SINGLE_FOLLOW;
   let rollState = null;
-  if (!a && !b) { lift = 1; base = H.don; grip = "single"; }
+  let singleState = null;
+  if (!a && !b) { lift = 0; base = H.don; grip = "single"; singleState = { idle: 1, face: "don" }; }
   else if (isRollContact(a) || isRollContact(b)) {
     const rise = CONFIG.ROLL_RISE;
     if (!a) {
@@ -305,28 +454,22 @@ function poseAt(hand, track, t, opts = {}) {
       if (!isRollContact({ grip })) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * peak);
     }
   } else if (!a) {
-    const s = clamp01((b.t - t) / CONFIG.RISE);
-    const raw = 1 - (1 - s) * (1 - s);
-    const scale = densityScale(b.gap);
-    lift = raw * scale; base = b.target; grip = b.grip;
-    follow = 1;
+    const phase = singleApproach(t, b);
+    lift = phase.lift; base = b.target; grip = "single"; follow = 1;
+    singleState = { idle: phase.idle, face: targetFace(hand, b.target), scale: densityScale(b.gap) };
   } else if (!b) {
-    const s = clamp01((t - a.t) / CONFIG.RISE);
-    const raw = 1 - (1 - s) * (1 - s);
-    const scale = densityScale(a.gap);
-    lift = raw * scale; base = a.target; grip = a.grip;
-    follow = 1;
+    const phase = singleDepart(t, a);
+    lift = phase.lift; base = a.target; grip = "single"; follow = 1;
+    singleState = { idle: phase.idle, face: targetFace(hand, a.target), scale: densityScale(a.gap) };
   } else {
     const u = clamp01((t - a.t) / (b.t - a.t));
     const scale = densityScale(b.t - a.t);
-    const peak = CONFIG.FULL_LIFT * scale;
-    lift = arcHeight(t, a.t, b.t, peak);
-    base = V.lerp(a.target, b.target, smooth(u));
-    grip = u < 0.5 ? a.grip : b.grip;
-    follow = 1;
-    bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * peak);
+    const phase = singleBetween(t, a, b, scale);
+    lift = phase.lift; base = phase.base; grip = "single"; follow = 1;
+    singleState = { idle: phase.idle, face: targetFace(hand, phase.base), scale };
+    if (!phase.idle) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * lift);
   }
-  const p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState);
+  const p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState, singleState);
   p.buzz = buzz; p.wobble = opts.noWobble ? 0 : wobble;
   return p;
 }
@@ -342,21 +485,27 @@ function rollRockSign(gripPt, base, L) {
 }
 
 /** 落点 + 抬起 + 弯曲 + 晃动 → 棒尖、握点、角度。手在鼓下方，从下往上握棒。 */
-function composePose(hand, base, lift, bend, wobble, grip, follow, rollState) {
+function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, singleState) {
   const H = GEOM.hands[hand];
   if (grip === "single") {
-    // 单击：完全固定。follow 永远是 1，握点在棒上的位置和握点→棒尖夹角每帧不变，
-    // 手和棒共用一个变换（handDeg === stickDeg）。密度只缩 lift 高度。
-    // 滚奏不走这条路（见下）：捏点钉在胶带约 1/4 处，棒绕捏点转，不焊死。
-    const tipS = V.add(V.add(base, V.mul(liftVec(hand), lift)), bend);
+    // 单击：完全固定。follow=1，握点在棒上的位置和握点→棒尖夹角不变，handDeg===stickDeg。
+    // 咔：棒几乎竖直、手连棒外移到鼓边；举起时整组绕手腕后倒 4–6°（棒相对手仍是 0°）。
     const L = stickLen(hand);
-    // follow=1：grip 跟着 tip 平移 (tip - grip == base - pivot)；再按固定棒长钉在棒轴上，防止 don↔ka 过渡时拉长。
-    let gripS = V.add(H.pivot, V.sub(tipS, base));
-    const back = V.sub(gripS, tipS);
-    const dirBack = V.len(back) > 1 ? V.norm(back) : V.norm(V.sub(H.pivot, tipS));
-    gripS = V.add(tipS, V.mul(dirBack, L));
-    const d = V.sub(tipS, gripS), deg = Math.atan2(d.y, d.x) * 180 / Math.PI;
-    return { tip: tipS, grip: gripS, gripType: grip, handDeg: deg, stickDeg: deg, lift };
+    const face = (singleState && singleState.face) || targetFace(hand, base);
+    const scale = singleState && isFinite(+singleState.scale) ? +singleState.scale : 1;
+    const idleAmt = singleState && isFinite(+singleState.idle) ? clamp01(+singleState.idle) : 0;
+    const hit = singleContactPose(hand, face);
+    const lv = liftVec(hand, face);
+    const raised = weldSnap(
+      V.add(V.add(hit.tip, V.mul(lv, scale)), bend),
+      V.add(V.add(hit.grip, V.mul(lv, scale)), bend),
+      L
+    );
+    const contact = weldSnap(V.add(hit.tip, bend), V.add(hit.grip, bend), L);
+    let pose = lerpPose(contact, raised, clamp01(lift), L);
+    pose = applyWristTilt(pose, clamp01(lift) * scale);
+    if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand), idleAmt, L);
+    return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }
   // 滚奏：捏点钉在胶带约 1/4、不滑动；拇指+食指是轴。棒绕轴回弹 10–15°（不焊死）。
   // 手腕叠一层小幅上下点头（单击抬起的 1/3）。手的朝向不跟着棒的回弹走。
@@ -465,8 +614,15 @@ function renderStatic() {
   s += `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="30" fill="url(#triPat)" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
   s += `<rect x="170" y="150" width="460" height="470" rx="28" fill="#FBFAF8" opacity=".75"/>`;
   // ---- 鼓：全部平涂色块做立体感（汐月 v2.1 §1），鼓身往下收成圆底（溯溯） ----
+  // 卡片本身不缩；鼓+手整组绕鼓心缩小，棒尖允许略画出框上沿。
   const bodyD = drumBodyD(0);
-  s += `<defs><clipPath id="cardClip"><rect x="${c.x + 1.5}" y="${c.y + 1.5}" width="${c.w - 3}" height="${c.h - 3}" rx="29"/></clipPath></defs>`;
+  const cc = sceneCardClipRect();
+  s += `<defs>
+          <clipPath id="cardClip"><rect x="${c.x + 1.5}" y="${c.y + 1.5}" width="${c.w - 3}" height="${c.h - 3}" rx="29"/></clipPath>
+          <clipPath id="sceneCardClip"><rect x="${f1(cc.x)}" y="${f1(cc.y)}" width="${f1(cc.w)}" height="${f1(cc.h)}" rx="${f1(cc.rx)}"/></clipPath>
+          <clipPath id="sceneFaceClip"><ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}"/></clipPath>
+        </defs>`;
+  s += `<g id="sceneDrum" transform="${sceneTransform()}">`;
   s += `<defs><clipPath id="bodyClip"><path d="${bodyD}"/></clipPath></defs>`;
   s += `<path d="${bodyD}" fill="${COL.bodyDark}"/>`;                       // 底部深红暗带（整块先铺深红）
   s += `<path d="${drumBodyD(-24)}" fill="${COL.body}" clip-path="url(#bodyClip)"/>`; // 上面盖鼓身红，露出底下一条
@@ -483,6 +639,7 @@ function renderStatic() {
   s += `<path d="${bodyD}" fill="none" stroke="${COL.outline}" stroke-width="${OUT}" stroke-linejoin="round"/>`;
   // 米白鼓面 + 左上白色椭圆高光（α0.55）
   s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="${COL.face}" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
+  s += `</g>`;
   return s;
 }
 
@@ -771,7 +928,7 @@ function renderTrail(hand, track, now) {
 /* ---------- 打击效果 ---------- */
 function renderFaceGlow(events, second, now) {
   const g = faceGlow(events, second, now), F = GEOM.face;
-  let s = `<g clip-path="url(#faceClip)">`;
+  let s = `<g clip-path="url(#sceneFaceClip)">`;
   if (g.L > 0) s += `<rect x="${F.cx - F.rx - 5}" y="${F.cy - F.ry - 5}" width="${F.rx + 5}" height="${2 * F.ry + 10}" fill="${COL.don}" opacity="${f1(g.L)}"/>`;
   if (g.R > 0) s += `<rect x="${F.cx}" y="${F.cy - F.ry - 5}" width="${F.rx + 5}" height="${2 * F.ry + 10}" fill="${COL.don}" opacity="${f1(g.R)}"/>`;
   s += `</g>`;
@@ -786,7 +943,7 @@ function renderHitFx(events, second, now) {
   const pulse = rollGlowPulse(events, now);
   if (pulse > 0) {
     const F = GEOM.face;
-    s += `<g clip-path="url(#faceClip)" opacity="${f1(pulse)}">
+    s += `<g clip-path="url(#sceneFaceClip)" opacity="${f1(pulse)}">
             <rect x="${F.cx - F.rx - 5}" y="${F.cy - F.ry - 5}" width="${2 * F.rx + 10}" height="${2 * F.ry + 10}" fill="${COL.don}"/>
           </g>`;
     s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="none" stroke="${COL.ka}" stroke-width="6" opacity="${f1(pulse * 0.7)}" filter="url(#softGlow)"/>`;
@@ -795,9 +952,12 @@ function renderHitFx(events, second, now) {
   for (const { e, age } of activeHits(events, now, maxAge)) {
     if (e.grip === "roll") continue;                  // 滚奏不用单击那种一下一灭的咔光
     const H = GEOM.hands[e.hand], k2 = second.has(e.i) ? CONFIG.SECOND_HIT : 1;
-    if (e.face === "ka" && age <= CONFIG.KA_DUR) {     // 咔：落点同侧近端鼓边的青色柔光，以 kaAng 为中心
-      const k = age / CONFIG.KA_DUR, half = CONFIG.KA_SPAN / 2;
-      const d = ellipseArcD(H.kaAng - half, H.kaAng + half, 7);
+    if (e.face === "ka" && age <= CONFIG.KA_DUR) {
+      // 青光沿鼓边外侧亮一段弧（右手约 12 点到 4 点，左手镜像 8 点到 12 点），亮在鼓外侧、不在鼓面。
+      const k = age / CONFIG.KA_DUR;
+      const a0 = e.hand === "R" ? -90 : 150;
+      const a1 = e.hand === "R" ? 30 : 270;
+      const d = ellipseArcD(a0, a1, CONFIG.KA_GLOW_GROW);
       s += `<path d="${d}" fill="none" stroke="${COL.ka}" stroke-width="${f1(CONFIG.KA_W * k2)}" stroke-linecap="round"
             opacity="${f1(0.9 * (1 - k) * k2)}" filter="url(#softGlow)"/>`;
       s += `<path d="${d}" fill="none" stroke="${COL.ka}" stroke-width="${f1(CONFIG.KA_W * k2 * 0.45)}" stroke-linecap="round"
@@ -807,7 +967,7 @@ function renderHitFx(events, second, now) {
       const k = age / CONFIG.GOLD_DUR;
       const goldHalf = CONFIG.GOLD_KA_SPAN / 2;
       const d = e.face === "ka"
-        ? ellipseArcD(H.kaAng - goldHalf, H.kaAng + goldHalf, 20)
+        ? ellipseArcD(H.kaAng - goldHalf, H.kaAng + goldHalf, CONFIG.KA_GLOW_GROW + 8)
         : (e.hand === "R" ? ellipseArcD(-90, 90, 12) : ellipseArcD(90, 270, 12));
       s += `<path d="${d}" fill="none" stroke="${COL.gold}" stroke-width="${CONFIG.GOLD_W}" stroke-linecap="round"
             opacity="${f1(0.7 * (1 - k))}" filter="url(#softGlow)"/>`;
@@ -914,9 +1074,10 @@ function renderRollFx(hand, pose, track, now, layer) {
 function renderFrame(now) {
   const { events, tracks } = state;
   els.chart.innerHTML = renderChart(events, now, state.scroll);
-  let s = renderFaceGlow(events, tracks.second, now);
+  let s = `<g id="sceneDyn" transform="${sceneTransform()}">`;
+  s += renderFaceGlow(events, tracks.second, now);
   s += renderHitFx(events, tracks.second, now);
-  s += `<g clip-path="url(#cardClip)">`;            // 手从画框底部进来，被卡片边缘裁掉
+  s += `<g clip-path="url(#sceneCardClip)">`;       // 左右下仍齐卡片；上沿放宽，咔棒尖可略画出框
   s += renderTrail("L", tracks.L, now) + renderTrail("R", tracks.R, now);
   s += renderReboundArcs(tracks, now);
   for (const hand of ["L", "R"]) {
@@ -927,7 +1088,7 @@ function renderFrame(now) {
     s += `<g id="hand-${hand}" data-grip="${pose.gripType}">` + (state.hands === "none" ? gripMarker(hand, pose) : state.hands === "img" ? handImg(hand, pose) : handSVG(hand, pose)) + `</g>`;
     s += renderRollFx(hand, pose, tracks[hand], now, "over");
   }
-  s += `</g>`;
+  s += `</g></g>`;
   const c = GEOM.card;   // 卡片边框压在手上面，看起来像被画框裁掉
   s += `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="30" fill="none" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
   if (state.labels) s += renderLabels(events, now);   // R/L 调试标签，默认关
@@ -1048,6 +1209,7 @@ function startEngine(data, meta) {
   window.taikoAnim = {
     state, seek, setPlaying, setRate, setData, startEngine,
     renderAt, signalBachiDone, poseAt, buildHandTracks, stickGeom, checkSingleWeld,
+    singleContactPose, singleIdlePose, CONFIG, GEOM,
     raw: data, meta: info,
   };
   window.renderAt = renderAt;

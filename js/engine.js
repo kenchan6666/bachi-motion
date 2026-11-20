@@ -1333,9 +1333,8 @@ function renderReboundArcs(tracks, now) {
     const a = { x: ox - 14, y: p.y - 2 }, b = { x: ox + 14, y: p.y - 2 };
     const c = { x: ox, y: p.y - 26 };
     const d = `M${f1(a.x)},${f1(a.y)} Q${f1(c.x)},${f1(c.y)} ${f1(b.x)},${f1(b.y)}`;
-    s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity="${f1(0.7 * r.fade)}"/>`;
-    s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="3" stroke-dasharray="6 5" stroke-linecap="round" opacity="${f1(r.fade)}"/>`;  // 方向弧改白（颜色只留在鼓面红圈/青弧）
-    s += `<path d="${d}" fill="none" stroke="${COL.outline}" stroke-width="1" stroke-dasharray="6 5" stroke-linecap="round" opacity="${f1(0.25 * r.fade)}" transform="translate(0,2)"/>`;
+    s += `<path d="${d}" fill="none" stroke="#6B5A4A" stroke-width="6" stroke-linecap="round" opacity="${f1(0.6 * r.fade)}"/>`;  // 暖灰描边，防止白弧被米色鼓皮/高光吃掉（汐月定）
+    s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="${f1(r.fade)}"/>`;  // 方向弧白色实线，颜色只留鼓面红圈/青弧
   }
   return s;
 }

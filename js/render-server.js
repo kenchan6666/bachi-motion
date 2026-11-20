@@ -33,7 +33,7 @@ const MIME = {
 
 const SONG_EXT = {
   ".wav": true, ".mp3": true, ".ogg": true, ".flac": true,
-  ".m4a": true, ".aac": true, ".opus": true,
+  ".m4a": true, ".aac": true, ".opus": true, ".mp4": true,
 };
 
 function sendJson(res, status, body) {

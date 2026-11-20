@@ -45,6 +45,10 @@ echo "== original-audio mux =="
 node tests/audio-mux.test.js
 echo
 
+echo "== original song (高级) =="
+node tests/original-song.test.js
+echo
+
 echo "== batch queue + progress =="
 node tests/batch-queue.test.js
 echo

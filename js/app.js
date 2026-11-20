@@ -9,8 +9,21 @@
   const modeZhuren = $("modeZhuren");
   const modeSuyue = $("modeSuyue");
   const jsonPanel = $("jsonPanel");
-  const titleEl = $("title");
   const songEl = $("song");
+  const settingsEl = $("settings");
+  const chartBtn = $("chartBtn");
+  const chartMenu = $("chartMenu");
+  const chartLabel = $("chartLabel");
+  const chartPicker = $("chartPicker");
+
+  const CHARTS = [
+    { id: "suyue_demo2_8bun16bun", label: "练习谱2" },
+    { id: "suyue_demo", label: "练习谱" },
+    { id: "suyue_division_test", label: "分音测试" },
+    { id: "suyue_roll_demo", label: "滚奏演示" },
+    { id: "custom", label: "自定义…" },
+  ];
+  const DEFAULT_CHART = "suyue_demo2_8bun16bun";
 
   if (pageParams.get("export") === "1") document.body.classList.add("export");
 
@@ -32,19 +45,33 @@
     return modeSuyue.classList.contains("on") ? "suyue" : "zhuren";
   }
 
+  function appendMetaPart(el, text, asStrong) {
+    if (!asStrong && el.childNodes.length) {
+      const sep = document.createElement("span");
+      sep.className = "sep";
+      sep.textContent = "·";
+      el.appendChild(sep);
+    }
+    if (asStrong) {
+      const strong = document.createElement("strong");
+      strong.textContent = text;
+      el.appendChild(strong);
+    } else {
+      el.appendChild(document.createTextNode(text));
+    }
+  }
+
   function updateHeading(data) {
-    document.title = "溯溯的鼓棒";
-    titleEl.textContent = "溯溯的鼓棒";
+    document.title = "bachi-motion";
     if (!songEl) return;
-    if (!data) { songEl.textContent = ""; return; }
+    songEl.replaceChildren();
+    if (!data) return;
     const name = data.song || (data.headers && data.headers.title) || "";
     const bpm = data.bpm;
     const course = data.course || (data.headers && data.headers.course);
-    const bits = [];
-    if (name) bits.push(name);
-    if (course) bits.push(course);
-    if (bpm) bits.push("BPM " + bpm);
-    songEl.textContent = bits.join("　");
+    if (name) appendMetaPart(songEl, name, true);
+    if (course) appendMetaPart(songEl, String(course), false);
+    if (bpm) appendMetaPart(songEl, "BPM " + bpm, false);
   }
 
   function parseOpts() {
@@ -96,6 +123,26 @@
     return data;
   }
 
+  function setChartMenuOpen(open) {
+    if (!chartMenu || !chartBtn) return;
+    chartMenu.hidden = !open;
+    chartBtn.setAttribute("aria-expanded", String(open));
+  }
+
+  function syncChartPicker(id) {
+    const chart = CHARTS.find((c) => c.id === id) || CHARTS.find((c) => c.id === "custom");
+    if (chartLabel) chartLabel.textContent = chart.label;
+    if (chartMenu) {
+      chartMenu.querySelectorAll("[data-chart]").forEach((b) => {
+        b.setAttribute("aria-selected", String(b.dataset.chart === chart.id));
+      });
+    }
+  }
+
+  function openSettings() {
+    if (settingsEl) settingsEl.open = true;
+  }
+
   $("btnGenerate").onclick = () => generate(true);
   modeZhuren.onclick = () => setMode("zhuren");
   modeSuyue.onclick = () => setMode("suyue");
@@ -106,6 +153,8 @@
     reader.onload = () => {
       jsonInput.value = String(reader.result || "");
       setMode("suyue");
+      syncChartPicker("custom");
+      openSettings();
       showError("");
     };
     reader.onerror = () => showError("读取 JSON 文件失败");
@@ -118,6 +167,8 @@
     reader.onload = () => {
       tjaInput.value = String(reader.result || "");
       setMode("zhuren");
+      syncChartPicker("custom");
+      openSettings();
       showError("");
     };
     reader.onerror = () => showError("读取 TJA 文件失败");
@@ -129,7 +180,6 @@
     return /^[A-Za-z0-9_-]+$/.test(base) ? base : null;
   }
 
-  const sampleSelect = $("sampleSelect");
   const PREFILLED_SAMPLES = { suyue_demo2_8bun16bun: true, suyue_demo: true };
 
   async function loadSampleChart(name) {
@@ -151,25 +201,46 @@
       jsonInput.value = "";
       setMode("zhuren");
     }
-    if (sampleSelect) sampleSelect.value = sample;
+    syncChartPicker(CHARTS.some((c) => c.id === sample) ? sample : "custom");
     return sample;
   }
 
-  if (sampleSelect) {
-    sampleSelect.onchange = async (e) => {
+  if (chartBtn && chartMenu && chartPicker) {
+    chartBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      setChartMenuOpen(chartMenu.hidden);
+    });
+    chartMenu.addEventListener("click", async (e) => {
+      const btn = e.target.closest("[data-chart]");
+      if (!btn) return;
+      const id = btn.dataset.chart;
+      setChartMenuOpen(false);
       showError("");
+      if (id === "custom") {
+        syncChartPicker("custom");
+        openSettings();
+        return;
+      }
       try {
-        await loadSampleChart(e.target.value);
+        await loadSampleChart(id);
         generate(true);
       } catch (err) {
-        showError("无法加载示例谱 samples/" + e.target.value + ".tja");
+        showError("无法加载示例谱 samples/" + id + ".tja");
       }
-    };
+    });
+    document.addEventListener("click", (e) => {
+      if (!chartPicker.contains(e.target)) setChartMenuOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") setChartMenuOpen(false);
+    });
   }
 
   async function boot() {
     if (pageParams.get("mode") === "suyue") setMode("suyue");
     else setMode("zhuren");
+
+    syncChartPicker(DEFAULT_CHART);
 
     const sample = safeSampleName(pageParams.get("sample") || "");
     if (sample) {
@@ -187,7 +258,10 @@
     if (rawTja) {
       try { tjaInput.value = decodeURIComponent(rawTja); }
       catch (err) { showError("URL 里的 tja 参数无法解码"); }
+      syncChartPicker("custom");
     }
+
+    if (pageParams.get("settings") === "1") openSettings();
 
     const autoplay = pageParams.get("autoplay") === "1";
     generate(autoplay);

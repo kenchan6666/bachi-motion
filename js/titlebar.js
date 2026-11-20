@@ -36,22 +36,27 @@
       return TaikoParser.displayTechnique(name);
     }
     const s = String(name == null ? "" : name).trim();
-    if (s === "半换A" || s === "半换B" || s === "半换a" || s === "半换b") return "半换";
-    return s || DEFAULT_TECHNIQUE;
+    if (!s) return "";
+    const compact = s.replace(/\s+/g, "");
+    if (compact === "半换A" || compact === "半换a") return "半换 A";
+    if (compact === "半换B" || compact === "半换b") return "半换 B";
+    return s;
   }
 
   function techniqueOf() {
-    let raw = "";
-    if (window.TITLEBAR && window.TITLEBAR.technique) raw = String(window.TITLEBAR.technique);
-    else {
+    let raw;
+    if (window.TITLEBAR && Object.prototype.hasOwnProperty.call(window.TITLEBAR, "technique")) {
+      raw = window.TITLEBAR.technique;
+    } else {
       const api = window.taikoAnim;
-      if (api && api.state && api.state.technique) raw = api.state.technique;
-      else {
+      if (api && api.state && Object.prototype.hasOwnProperty.call(api.state, "technique")) {
+        raw = api.state.technique;
+      } else {
         const data = api && api.raw;
-        if (data && data.technique) raw = String(data.technique);
+        if (data && Object.prototype.hasOwnProperty.call(data, "technique")) raw = data.technique;
       }
     }
-    return displayTechnique(raw || DEFAULT_TECHNIQUE);
+    return displayTechnique(raw);
   }
 
   function rateOf() {

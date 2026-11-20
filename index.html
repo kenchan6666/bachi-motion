@@ -743,10 +743,10 @@
           <div>
             <p class="block-label">手顺模式</p>
             <div class="chips">
-              <button type="button" class="chip on" id="modeZhuren" aria-pressed="true">主人（TJA → 自动手顺）</button>
-              <button type="button" class="chip" id="modeSuyue" aria-pressed="false">溯月（手顺 JSON）</button>
+              <button type="button" class="chip on" id="modeZhuren" aria-pressed="true">自动生成</button>
+              <button type="button" class="chip" id="modeSuyue" aria-pressed="false">导入手顺 JSON</button>
             </div>
-            <p class="hint" style="margin-top:6px">选「滚奏演示」会自动切到溯月模式，并同时载入配套手顺 JSON。</p>
+            <p class="hint" style="margin-top:6px">选『滚奏演示』会自动载入配套的手顺 JSON</p>
           </div>
 
           <div id="autoStickingControls">
@@ -754,16 +754,16 @@
               <p class="block-label">手法</p>
               <select id="techniqueSelect" class="pretty" aria-label="手法">
                 <option value="全换" selected>全换</option>
-                <option value="半换A">半换A</option>
-                <option value="半换B">半换B</option>
+                <option value="半换A">半换 A</option>
+                <option value="半换B">半换 B</option>
                 <option value="炒菜">炒菜</option>
               </select>
             </div>
             <div style="margin-top:12px">
               <p class="block-label">惯用手</p>
-              <div class="chips" id="handChips" role="radiogroup" aria-label="惯用手">
-                <button type="button" class="chip on" data-hand="R" role="radio" aria-checked="true">R</button>
-                <button type="button" class="chip" data-hand="L" role="radio" aria-checked="false">L</button>
+              <div class="seg" id="handSeg" role="radiogroup" aria-label="惯用手">
+                <button type="button" class="on" data-hand="R" role="radio" aria-checked="true">右手</button>
+                <button type="button" data-hand="L" role="radio" aria-checked="false">左手</button>
               </div>
             </div>
             <div style="margin-top:12px">
@@ -774,7 +774,7 @@
               </div>
               <p class="hint" id="rollHint" style="margin-top:6px">12 分 1-2，16／24 分整串 2-2</p>
             </div>
-            <p class="hint" id="autoStickingLock" hidden>已用手顺 JSON</p>
+            <p class="hint" id="autoStickingLock" hidden>已载入手顺 JSON，以上设置不生效</p>
           </div>
 
           <div>

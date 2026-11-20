@@ -108,13 +108,13 @@
   }
 
   function currentHand() {
-    const on = document.querySelector("#handChips [data-hand].on");
+    const on = document.querySelector("#handSeg [data-hand].on");
     return window.TaikoParser ? TaikoParser.normDominant(on && on.dataset.hand) : "R";
   }
 
   function setHandControl(hand) {
     const v = window.TaikoParser ? TaikoParser.normDominant(hand) : (hand || "R");
-    document.querySelectorAll("#handChips [data-hand]").forEach((b) => {
+    document.querySelectorAll("#handSeg [data-hand]").forEach((b) => {
       const on = b.dataset.hand === v;
       b.classList.toggle("on", on);
       b.setAttribute("aria-checked", String(on));
@@ -142,7 +142,9 @@
     const seg = $("rollSeg");
     const lockHint = $("autoStickingLock");
     if (tech) tech.disabled = !!locked;
-    document.querySelectorAll("#handChips [data-hand]").forEach((b) => { b.disabled = !!locked; });
+    document.querySelectorAll("#handSeg [data-hand]").forEach((b) => { b.disabled = !!locked; });
+    const handSeg = $("handSeg");
+    if (handSeg) handSeg.classList.toggle("is-locked", !!locked);
     document.querySelectorAll("#rollSeg [data-roll]").forEach((b) => { b.disabled = !!locked; });
     if (seg) seg.classList.toggle("is-locked", !!locked);
     if (lockHint) lockHint.hidden = !locked;
@@ -156,6 +158,9 @@
     opts.手法 = currentTechnique();
     opts.惯用手 = currentHand();
     opts.滚奏 = currentRoll();
+    // 有 JSON 时标题栏手法只认 ?technique= / JSON 字段，不把下拉框默认值当成来源。
+    const explicit = pageParams.get("technique") || pageParams.get("手法");
+    if (explicit) opts.titleTechnique = explicit;
     return opts;
   }
 
@@ -163,7 +168,7 @@
     const opts = parseOpts();
     if (currentMode() === "suyue") {
       const raw = jsonInput.value.trim();
-      if (!raw) throw new Error("请先贴上溯月的手顺 JSON，或切回「主人」模式用 TJA 自动生成手顺");
+      if (!raw) throw new Error("请先贴上手顺 JSON，或切回「自动生成」用 TJA 生成手顺");
       const tja = tjaInput.value.trim();
       setStickingLocked(true);
       if (typeof TaikoParser.chartFromTjaAndHands === "function") {
@@ -191,7 +196,7 @@
     }
     startEngine(data, { mode: currentMode() });
     if (typeof setTechnique === "function") {
-      setTechnique(data.technique || (data.stickingLocked ? "全换" : (window.TaikoParser ? TaikoParser.displayTechnique(currentTechnique()) : "全换")));
+      setTechnique(Object.prototype.hasOwnProperty.call(data, "technique") ? data.technique : "");
     }
     updateHeading(data);
     seek(state.start);
@@ -339,9 +344,9 @@
       regenerateKeepTime();
     });
   }
-  const handChips = $("handChips");
-  if (handChips) {
-    handChips.addEventListener("click", (e) => {
+  const handSeg = $("handSeg");
+  if (handSeg) {
+    handSeg.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-hand]");
       if (!btn || btn.disabled) return;
       setHandControl(btn.dataset.hand);

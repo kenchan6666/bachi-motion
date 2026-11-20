@@ -52,10 +52,12 @@ extra("no JSON: 滚奏=不滚奏 is singles RLRL, 炒菜+惯用手 L changes han
   // 16ths at 300 are 连音, 炒菜 from L then alternate
   assert.strictEqual(chao.events.map((e) => e.hand).join(""), "LRLRLRLRLRLRLRLR");
   assert.strictEqual(chao.technique, "炒菜");
-  assert.strictEqual(parser.displayTechnique("半换A"), "半换");
-  assert.strictEqual(parser.displayTechnique("半换B"), "半换");
+  assert.strictEqual(parser.displayTechnique("半换A"), "半换 A");
+  assert.strictEqual(parser.displayTechnique("半换B"), "半换 B");
+  assert.strictEqual(parser.displayTechnique("半换 A"), "半换 A");
+  assert.strictEqual(parser.displayTechnique(""), "");
   const ban = parser.eventsFromTja(tja16(), { 手法: "半换B", 滚奏: "不滚奏" });
-  assert.strictEqual(ban.technique, "半换");
+  assert.strictEqual(ban.technique, "半换 B");
   assert.strictEqual(ban.手法, "半换B");
 });
 
@@ -80,7 +82,7 @@ extra("JSON overlay: 手法/惯用手/滚奏 do not change events", function () 
   const hands = a.events.map((e) => e.hand).join("");
   assert.strictEqual(hands, "RRRRRRRRLLLLLLLL");
   assert.ok(a.events.every((e) => e.grip === "single"), "no parens → no roll, even if 滚奏=自动滚奏 was passed");
-  assert.strictEqual(a.technique, "全换");
+  assert.strictEqual(a.technique, "", "JSON without technique and without titleTechnique omits 手法");
 });
 
 extra("JSON with (RR)(LL) keeps those rolls regardless of 滚奏=不滚奏", function () {
@@ -124,6 +126,45 @@ extra("BPM change: beats from Δt × previous BPM / 60 stay on the 16th grid", f
   const dtEarly = sliced.notes[1].t - sliced.notes[0].t;
   const dtLate = sliced.notes[9].t - sliced.notes[8].t;
   assert.ok(dtLate < dtEarly, "later 16ths should be shorter in seconds: " + dtLate + " vs " + dtEarly);
+});
+
+function evs16() {
+  const evs = [];
+  for (let i = 0; i < 16; i++) evs.push({ t: i * 0.05, hand: "R", face: "don", grip: "single", src: "1:" + i });
+  return evs;
+}
+
+extra("JSON technique field wins over titleTechnique / dropdown, hands unchanged", function () {
+  const json = { technique: "炒菜", sticking: "RRRRRRRRLLLLLLLL", events: evs16() };
+  const data = parser.chartFromTjaAndHands(tja16(), json, {
+    titleTechnique: "半换A",
+    手法: "全换",
+    惯用手: "L",
+    滚奏: "自动滚奏",
+  });
+  assert.strictEqual(data.technique, "炒菜");
+  assert.strictEqual(data.events.map((e) => e.hand).join(""), "RRRRRRRRLLLLLLLL");
+  assert.ok(data.stickingLocked);
+});
+
+extra("JSON without technique uses explicit titleTechnique only for the title", function () {
+  const json = { sticking: "RRRRRRRRLLLLLLLL", events: evs16() };
+  const data = parser.chartFromTjaAndHands(tja16(), json, {
+    titleTechnique: "半换B",
+    手法: "炒菜",
+    惯用手: "L",
+    滚奏: "自动滚奏",
+  });
+  assert.strictEqual(data.technique, "半换 B");
+  assert.strictEqual(data.events.map((e) => e.hand).join(""), "RRRRRRRRLLLLLLLL");
+});
+
+extra("JSON without technique or titleTechnique omits 手法 (no default 全换)", function () {
+  const json = { sticking: "RRRRRRRRLLLLLLLL", events: evs16() };
+  const data = parser.chartFromTjaAndHands(tja16(), json, { 手法: "炒菜", 惯用手: "L" });
+  assert.strictEqual(data.technique, "");
+  assert.strictEqual(parser.titleTechniqueFromSources({ locked: true }), "");
+  assert.strictEqual(parser.titleTechniqueFromSources({ locked: false, autoTechnique: "半换A" }), "半换 A");
 });
 
 console.log("auto-sticking-engine: " + passed + " passed, " + failed.length + " failed");

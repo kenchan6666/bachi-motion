@@ -54,7 +54,7 @@ Flags:
   --measures <A-B>     Inclusive 1-based measure range (default: whole chart)
   --rate <n>           Slow-motion factor applied to the video timeline (default 1).
                        0.5 → video is 2× longer. renderAt still receives real chart time.
-  --sticking <path>    Optional 手顺 JSON (溯月 mode). If omitted, autoSticking is used.
+  --sticking <path>    Optional 手顺 JSON. If omitted, autoSticking is used.
   --technique <name>   手法: 全换 (default) / 半换A / 半换B / 炒菜. Ignored when --sticking is set.
   --hand <R|L>         惯用手 (default R). Ignored when --sticking is set.
   --roll <mode>        滚奏: 不滚奏 / 自动滚奏 (default) / 24分滚奏. Ignored when --sticking is set.
@@ -82,7 +82,7 @@ function parseArgs(argv) {
     measures: null,
     rate: 1,
     sticking: null,
-    technique: "全换",
+    technique: undefined,
     hand: "R",
     roll: "自动滚奏",
     bignote: "single",
@@ -259,6 +259,9 @@ function buildPayload(args) {
     惯用手: args.hand,
     滚奏: args.roll,
   };
+  if (args.technique != null && String(args.technique).trim() !== "") {
+    opts.titleTechnique = args.technique;
+  }
   if (args.sticking) {
     const jsonText = fs.readFileSync(path.resolve(args.sticking), "utf8");
     if (typeof TaikoParser.chartFromTjaAndHands === "function") {

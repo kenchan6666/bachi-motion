@@ -535,18 +535,50 @@
 
   function normTechnique(v) {
     const s = String(v == null ? "" : v).trim();
-    if (!s || s === "全换" || s === "quan" || /^quan[-_]?huan$/i.test(s)) return "全换";
-    if (s === "半换A" || s === "半换a" || /^ban[-_]?huan[-_]?a$/i.test(s) || s === "半换-a") return "半换A";
-    if (s === "半换B" || s === "半换b" || /^ban[-_]?huan[-_]?b$/i.test(s) || s === "半换-b") return "半换B";
-    if (s === "半换" || /^ban[-_]?huan$/i.test(s)) return "半换A";
-    if (s === "炒菜" || s === "chao" || /^chao[-_]?cai$/i.test(s)) return "炒菜";
+    const compact = s.replace(/\s+/g, "");
+    if (!s || compact === "全换" || compact.toLowerCase() === "quan" || /^quan[-_]?huan$/i.test(s)) return "全换";
+    if (compact === "半换A" || compact === "半换a" || /^ban[-_]?huan[-_]?a$/i.test(s) || compact === "半换-a") return "半换A";
+    if (compact === "半换B" || compact === "半换b" || /^ban[-_]?huan[-_]?b$/i.test(s) || compact === "半换-b") return "半换B";
+    if (compact === "半换" || /^ban[-_]?huan$/i.test(s)) return "半换A";
+    if (compact === "炒菜" || compact.toLowerCase() === "chao" || /^chao[-_]?cai$/i.test(s)) return "炒菜";
     return "全换";
   }
 
+  /** Title-bar label. Empty input stays empty (do not default to 全换). 半换 A / 半换 B 中间半角空格. */
   function displayTechnique(v) {
+    if (v == null || String(v).trim() === "") return "";
     const t = normTechnique(v);
-    if (t === "半换A" || t === "半换B") return "半换";
+    if (t === "半换A") return "半换 A";
+    if (t === "半换B") return "半换 B";
     return t;
+  }
+
+  function jsonTechniqueOf(input) {
+    try {
+      const data = typeof input === "string" ? JSON.parse(input) : input;
+      if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+      const v = data.technique != null ? data.technique : data.手法;
+      return v == null ? "" : String(v).trim();
+    } catch (err) {
+      return "";
+    }
+  }
+
+  /**
+   * Title-bar 手法 source when a 手顺 JSON is loaded:
+   *   JSON optional top-level "technique" (or 手法)
+   *     > explicit --technique / ?technique= (title text only, does not change sticking)
+   *     > omit (do not default to 全换).
+   * Without JSON, use autoTechnique (the dropdown).
+   */
+  function titleTechniqueFromSources(opts) {
+    opts = opts || {};
+    if (opts.locked) {
+      if (opts.jsonTechnique) return displayTechnique(opts.jsonTechnique);
+      if (opts.titleTechnique) return displayTechnique(opts.titleTechnique);
+      return "";
+    }
+    return displayTechnique(opts.autoTechnique || "全换");
   }
 
   function normDominant(v) {
@@ -720,8 +752,11 @@
         rangeEnd: base.rangeEnd,
         timeShift: base.timeShift || 0,
         source: "hand-json",
-        // JSON 是手顺权威：标题栏手法不跟着三个控件走，保持默认「全换」。
-        technique: "全换",
+        technique: titleTechniqueFromSources({
+          locked: true,
+          jsonTechnique: jsonTechniqueOf(handJson),
+          titleTechnique: opts.titleTechnique,
+        }),
         手法: undefined,
         惯用手: undefined,
         滚奏: undefined,
@@ -732,7 +767,11 @@
       const hands = loadHandJson(handJson, opts);
       return Object.assign({}, hands, {
         source: "hand-json",
-        technique: "全换",
+        technique: titleTechniqueFromSources({
+          locked: true,
+          jsonTechnique: jsonTechniqueOf(handJson),
+          titleTechnique: opts.titleTechnique,
+        }),
         stickingLocked: true,
       });
     }
@@ -1202,6 +1241,8 @@
     normBigMode,
     normTechnique,
     displayTechnique,
+    jsonTechniqueOf,
+    titleTechniqueFromSources,
     normDominant,
     normRoll,
     notesToStickingInput,

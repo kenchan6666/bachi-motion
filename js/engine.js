@@ -2239,6 +2239,70 @@ function swipeDashState(tRel, T) {
   return { u: 1, e, showHead: e < S.headHideErase, phase: "erase" };
 }
 
+/* ---------- 滚奏实心圆（仅 dd 滚红 / kk 滚蓝；与内外刷箭头共位、同时序） ---------- */
+const ROLL_DOT = {
+  midDeg: (SWIPE_ARROW.a0Deg + SWIPE_ARROW.a1Deg) / 2, // -129.1，箭头弧中点（汐月 A 方案）
+  raise: 0.08,          // 再往上挪 0.08×ry，躲开滚红时咚落点红光
+  rFac: 0.11,           // 半径 = 鼓面 rx × 0.11
+  stroke: 2.5,          // 白描边（外圈）
+  opacity: 0.90,
+  popK: 0.30,           // 第一下 0→0.3T：scale 0.6→1
+  popFrom: 0.6,
+  bounceScale: 1.15,    // 第二下跳到 1.15
+  bounceDur: 0.07,      // 跳跃回落到 1 的时长
+  fadeK: 0.5,           // 第二下之后 0.5T 内淡出
+};
+
+/** 圆的圆心：SWIPE_ARROW 辅圆弧中点，左手镜像，再上移 raise×ry。不是击打落点。 */
+function rollDotPos(hand) {
+  const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
+  const left = hand === "L";
+  const C = { x: F.cx + (left ? -S.cxOff : S.cxOff) * F.rx, y: F.cy - S.cyOff * F.ry };
+  let ang = D.midDeg * Math.PI / 180;
+  if (left) ang = Math.PI - ang;
+  const R = S.rFac * F.rx;
+  return { x: C.x + R * Math.cos(ang), y: C.y + R * Math.sin(ang) - D.raise * F.ry };
+}
+
+/**
+ * 一对 (RR)/(LL) 同色滚奏出一个圆：第一下弹出，第二下再跳一下，随后淡出。
+ * 只认 grip===roll 且 rollType 为 dd/kk；single 和 kd/dk 不画。最短可见跟箭头一样 90ms。
+ */
+function renderRollDots(tracks, now) {
+  const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
+  let s = "";
+  for (const hand of ["R", "L"]) {
+    const tr = tracks[hand];
+    for (let k = 0; k + 1 < tr.length; k++) {
+      const a = tr[k], b = tr[k + 1];
+      if (a.stroke !== b.stroke) continue;
+      if (a.grip !== "roll" || b.grip !== "roll") continue;
+      const type = a.rollType;
+      if (type !== "dd" && type !== "kk") continue;
+      const T = Math.max(b.t - a.t, S.minVisible);
+      const fade = D.fadeK * T;
+      const end = a.t + T + fade;
+      if (now < a.t || now > end) continue;
+      const tRel = now - a.t;
+      const { x, y } = rollDotPos(hand);
+      let sc = D.popFrom + (1 - D.popFrom) * clamp01(tRel / (D.popK * T));
+      const dt2 = now - (a.t + T);
+      if (dt2 >= 0 && dt2 < D.bounceDur)
+        sc *= 1 + (D.bounceScale - 1) * (1 - dt2 / D.bounceDur);
+      let op = D.opacity;
+      if (tRel > T) op *= 1 - clamp01((tRel - T) / fade);
+      if (op <= 0.01) continue;
+      const r = D.rFac * F.rx * sc;
+      const fill = type === "dd" ? COL.noteDon : COL.noteKa;
+      s += `<g class="roll-dot" data-hand="${hand}" data-type="${type}" opacity="${f1(op)}" filter="url(#swipeArrowShadow)">`;
+      s += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r + D.stroke)}" fill="#FFFFFF"/>`;
+      s += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r)}" fill="${fill}"/>`;
+      s += `</g>`;
+    }
+  }
+  return s;
+}
+
 function renderSwipeArrows(tracks, now) {
   const items = activeSwipeArrows(tracks, now);
   if (!items.length) return "";
@@ -2496,6 +2560,7 @@ function renderFrame(now) {
   s += `<g clip-path="url(#sceneCardClip)">`;       // 左右下仍齐卡片；上沿放宽，咔棒尖可略画出框
   s += renderTrail("L", tracks.L, now) + renderTrail("R", tracks.R, now);
   s += renderSwipeArrows(tracks, now);
+  s += renderRollDots(tracks, now);
   s += renderReboundArcs(tracks, now);
   for (const hand of ["L", "R"]) {
     const pose = poseAt(hand, tracks[hand], now);

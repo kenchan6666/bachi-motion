@@ -855,6 +855,26 @@
     if (jSmallTag !== "Rd,bothk,bothk,Ld")
       failures.push("溯月 small mode draws small but keeps hand:both\n    got  " + jSmallTag);
 
+    // 休止重置：主人模式超过一拍后下一颗（含大音符）从右手起；溯月模式手完全跟 JSON，不被重置覆盖。
+    // 4/4 @120、8 分：10000003 → t=0 咚、t=1.75 大咚，间隔 1.75s > 一拍 0.5s。
+    const restTja = ["BPM:120", "OFFSET:0", "#START", "10000003,", "#END", ""].join("\n");
+    const restAuto = eventsFromTja(restTja, { bigNote: "single" }).events.map((e) =>
+      e.hand + (e.big ? "*" : "") + "@" + e.t.toFixed(2)).join(",");
+    if (restAuto !== "R@0.00,R*@1.75")
+      failures.push("主人/单手：超过一拍后大音符也从右手起\n    got  " + restAuto);
+    const restJson = { events: [
+      { t: 0, hand: "R", face: "don", big: false, src: "1:0" },
+      { t: 1.75, hand: "L", face: "don", big: true, src: "1:7" },
+    ]};
+    const restSuyue = loadHandJson(restJson, { bigNote: "single" }).events.map((e) =>
+      e.hand + (e.big ? "*" : "")).join(",");
+    if (restSuyue !== "R,L*")
+      failures.push("溯月模式：超过一拍后仍跟 JSON 的左手，不重置成右手\n    got  " + restSuyue);
+    const restSuyueSmall = loadHandJson(restJson, { bigNote: "small" }).events.map((e) =>
+      e.hand + (e.big ? "*" : "")).join(",");
+    if (restSuyueSmall !== "R,L")
+      failures.push("溯月+当小音符：手仍跟 JSON 的左手，只把大画成小\n    got  " + restSuyueSmall);
+
     if (failures.length) {
       throw new Error("parser self-check failed:\n- " + failures.join("\n- "));
     }
@@ -873,6 +893,7 @@
         "sticking (RR)(LL) marks pinch-pair rolls and hands",
         "bigNote=single / both (no reset) / small + default single",
         "hand:both expands; 溯月 switch only changes drawn size",
+        "主人超过一拍后大音符从右手起；溯月手跟 JSON 不重置",
         "sticking without parentheses produces no rolls",
       ],
     }

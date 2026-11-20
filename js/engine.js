@@ -45,12 +45,12 @@ const CONFIG = {
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
   // 棒尖比击中位置高出的像素（按同一手上一下间隔查表）
   LIFT_PX_DENSE: 15,    // 密串/纯 16 分滚串 ≲0.1s
-  LIFT_PX_LIGHT: 75,    // 8+16 复合轻点兜底（实际按同组重音 × 0.4）
+  LIFT_PX_LIGHT: 122,   // 8+16 复合轻点兜底（实际按同组重音 × 0.65 ≈ 122px）
   LIFT_PX_8TH: 70,      // 纯 8 分连串 ~0.1–0.2s（后面不接 16 分对）
   LIFT_PX_SPARSE: 115,  // 普通散音 ~0.2–0.4s
   LIFT_PX_LONG: 180,    // 长散音 / 休息后第一下 ≳0.4s
   LIFT_PX_COMPOUND_HEAVY: 188, // 复合重音（8 分后紧跟 16 分密对），旧版幅度 185–190
-  LIFT_COMPOUND_LIGHT_RATIO: 0.4, // 复合轻点 = 同组重音 × 0.4 ≈ 75px，重轻比 ≈ 2.3
+  LIFT_COMPOUND_LIGHT_RATIO: 0.65, // 复合轻点 = 同组重音 × 0.65 ≈ 122px，重轻比 ≈ 1.54
   LIFT_PX_SLOW: 115,    // 兼容旧调用：等于普通散音
   LIFT_PX_FAST: 15,     // 兼容旧调用：等于密串
   LIFT_PX_FAST_MIN: 15,
@@ -908,7 +908,7 @@ function liftHeightPx(contact) {
   const acc = compoundRole(contact);
   if (acc && acc.role === "heavy") return Math.max(liftHeightFromGap(chartPrevGapOf(contact)), CONFIG.LIFT_PX_COMPOUND_HEAVY || 188);
   if (acc && acc.role === "light") {
-    const ratio = CONFIG.LIFT_COMPOUND_LIGHT_RATIO || 0.4;
+    const ratio = CONFIG.LIFT_COMPOUND_LIGHT_RATIO || 0.65;
     return compoundHeavyHeight(acc.heavy) * ratio;
   }
   return liftHeightFromGap(chartPrevGapOf(contact));

@@ -102,9 +102,9 @@ function startStaticServer(root) {
       }
       const cfg = CONFIG;
       note(cfg.LIFT_PX_SPARSE === 130, "LIFT_PX_SPARSE changed: " + cfg.LIFT_PX_SPARSE);
-      note(cfg.LIFT_PX_LONG === 185, "LIFT_PX_LONG changed: " + cfg.LIFT_PX_LONG);
-      note(cfg.LIFT_PX_DENSE === 36, "LIFT_PX_DENSE changed: " + cfg.LIFT_PX_DENSE);
-      note(cfg.LIFT_PX_8TH === 85, "LIFT_PX_8TH changed: " + cfg.LIFT_PX_8TH);
+      note(cfg.LIFT_PX_LONG === 200, "LIFT_PX_LONG changed: " + cfg.LIFT_PX_LONG);
+      note(cfg.LIFT_PX_DENSE === 52, "LIFT_PX_DENSE changed: " + cfg.LIFT_PX_DENSE);
+      note(cfg.LIFT_PX_8TH === 105, "LIFT_PX_8TH changed: " + cfg.LIFT_PX_8TH);
       note(Math.abs((cfg.LIFT_COMPOUND_LIGHT_RATIO || 0) - 0.75) < 1e-9, "light ratio changed");
       note(cfg.LIFT_PX_COMPOUND_HEAVY === 188, "heavy lift changed: " + cfg.LIFT_PX_COMPOUND_HEAVY);
       note((cfg.LIFT_DT_DENSE || 0) === 0.10, "dense threshold changed");

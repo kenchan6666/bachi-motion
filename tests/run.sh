@@ -37,6 +37,10 @@ echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo
 
+echo "== section trim (preview / export) =="
+node tests/section-trim.test.js
+echo
+
 echo "== original-audio mux =="
 node tests/audio-mux.test.js
 echo

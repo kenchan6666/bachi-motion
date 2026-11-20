@@ -461,6 +461,8 @@ function singleJobFromArgs(args) {
     size: args.size,
     workers: args.workers,
     audio: args.audio,
+    sectionStart: args.sectionStart,
+    sectionEnd: args.sectionEnd,
     label: path.basename(args.tja),
   };
 }

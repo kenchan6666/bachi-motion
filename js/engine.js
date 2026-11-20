@@ -2683,8 +2683,10 @@ const params = new URLSearchParams(location.search);
 const state = {
   events: [], tracks: { R: [], L: [], second: new Set() },
   now: 0, start: 0, end: 1,
-  // Section loop on the progress bar. Defaults to the whole song.
-  // Does not change start/end — those stay the export/render window.
+  // start/end stay the full song so the progress bar can still reach both edges.
+  // fullStart/fullEnd are that same song window. The caps (loopStart/loopEnd)
+  // select the clip; chartStart / playback read it from there.
+  fullStart: 0, fullEnd: 1,
   loopStart: 0, loopEnd: 1,
   measures: [], bpmTimeline: [],
   playing: false,   // app.js starts playback when ?autoplay=1, after the chart is loaded
@@ -2799,7 +2801,7 @@ function renderFrame(now) {
   const clockEl = $("clock");
   if (clockEl) clockEl.textContent = `t = ${Math.max(0, now).toFixed(3)} s`;
   const clockEnd = $("clockEnd");
-  if (clockEnd) clockEnd.textContent = `${Math.max(0, state.end).toFixed(2)} s`;
+  if (clockEnd) clockEnd.textContent = `${Math.max(0, currentClip().end).toFixed(2)} s`;
   const srcEl = $("src");
   if (srcEl) srcEl.textContent = cur ? `上一个音：#${cur.i + 1} ${cur.src} ${cur.both ? "双手" : cur.hand} ${cur.face === "don" ? (cur.big ? "大咚" : "咚") : (cur.big ? "大咔" : "咔")} ${cur.grip === "roll" ? "滚奏(捏)" : "单击(握)"}${cur.inserted ? " ★插音" : ""}` : "";
   $("scrub").value = String((now - state.start) / (state.end - state.start));
@@ -2809,14 +2811,17 @@ function renderFrame(now) {
 function tick(ts) {
   if (state.lastTs !== null && state.playing) {
     const realDt = Math.min(0.1, (ts - state.lastTs) / 1000);
-    // 唯一的时钟累加（实时播放）。循环开着时只在进度条选区内走，不改导出用的 start/end。
+    // 唯一的时钟累加（实时播放）。进度条选段是预览窗口；循环跳回左帽，不再垫 0.7 秒。
+    const clip = currentClip();
     const step = LoopRange.advancePlayback(state.now, realDt, {
       rate: state.rate,
       loop: state.loop,
       loopStart: state.loopStart,
       loopEnd: state.loopEnd,
-      songStart: state.start,
-      songEnd: state.end,
+      songStart: state.fullStart,
+      songEnd: state.fullEnd,
+      clipStart: clip.start,
+      clipEnd: clip.end,
     });
     state.now = step.now;
     if (!step.playing) {
@@ -2848,28 +2853,30 @@ function renderAt(t) {
 function signalBachiDone(detail) {
   if (window.__BACHI_DONE__) return;
   window.__BACHI_DONE__ = true;
+  const clip = currentClip();
   const payload = Object.assign({
     ok: true,
     t: state.now,
-    start: state.start,
-    end: state.end,
-    duration: state.end,
+    start: clip.start,
+    end: clip.end,
+    duration: clip.end,
   }, detail || {});
   document.dispatchEvent(new CustomEvent("bachimotion:done", { detail: payload }));
 }
 
 function signalBachiReady() {
   window.__BACHI_READY__ = true;
+  const clip = currentClip();
   document.dispatchEvent(new CustomEvent("bachimotion:ready", {
-    detail: { start: state.start, end: state.end, duration: state.end, events: state.events.length },
+    detail: { start: clip.start, end: clip.end, duration: clip.end, events: state.events.length },
   }));
 }
 
 window.__BACHI_DONE__ = false;
 window.__BACHI_READY__ = false;
 window.renderAt = renderAt;
-Object.defineProperty(window, "chartDuration", { get() { return state.end; }, configurable: true });
-Object.defineProperty(window, "chartStart", { get() { return state.start; }, configurable: true });
+Object.defineProperty(window, "chartDuration", { get() { return currentClip().end; }, configurable: true });
+Object.defineProperty(window, "chartStart", { get() { return currentClip().start; }, configurable: true });
 
 function setPlaying(p) {
   state.playing = p;
@@ -2918,14 +2925,53 @@ function setData(data) {
   // crop to a measure range, including leading/trailing rests in those bars.
   const rangeStart = data && isFinite(+data.rangeStart) ? +data.rangeStart : first;
   const rangeEnd = data && isFinite(+data.rangeEnd) ? +data.rangeEnd : last;
-  state.start = rangeStart - CONFIG.LEAD_IN;
-  state.end = rangeEnd + CONFIG.TAIL_TIME;
+  const win = LoopRange.mediaWindow(Object.assign({}, data, {
+    events: state.events,
+    rangeStart: rangeStart,
+    rangeEnd: rangeEnd,
+  }), CONFIG.LEAD_IN, CONFIG.TAIL_TIME);
+  // The bar keeps the whole song. A section only moves the caps and the clip.
+  state.fullStart = win.songStart;
+  state.fullEnd = win.songEnd;
+  state.start = win.songStart;
+  state.end = win.songEnd;
   state.measures = data && Array.isArray(data.measures) ? data.measures : [];
   state.bpmTimeline = data && Array.isArray(data.bpmTimeline) ? data.bpmTimeline : [];
-  const whole = LoopRange.defaultLoopRange(state.start, state.end);
-  state.loopStart = whole.start;
-  state.loopEnd = whole.end;
+  state.loopStart = win.loopStart;
+  state.loopEnd = win.loopEnd;
   syncLoopUi(true);
+}
+
+function currentClip() {
+  const songStart = isFinite(state.fullStart) ? state.fullStart : state.start;
+  const songEnd = isFinite(state.fullEnd) ? state.fullEnd : state.end;
+  return LoopRange.sectionClip({
+    events: state.events,
+    songStart: songStart,
+    songEnd: songEnd,
+    selStart: state.loopStart,
+    selEnd: state.loopEnd,
+    leadIn: CONFIG.LEAD_IN,
+  });
+}
+
+function previewClip() {
+  const clip = currentClip();
+  return {
+    start: clip.start,
+    end: clip.end,
+    loopStart: clip.loopStart,
+    loopEnd: clip.loopEnd,
+    trimmed: clip.trimmed,
+    firstNote: clip.firstNote,
+  };
+}
+
+/** Handles to send with “把当前谱面加入队列”. Null when the range is still the whole song. */
+function exportSection() {
+  const clip = currentClip();
+  if (!clip.trimmed) return null;
+  return { sectionStart: clip.loopStart, sectionEnd: clip.loopEnd };
 }
 
 function loopGrid() {
@@ -2985,10 +3031,8 @@ function applyLoopDrag(which, time) {
   );
   state.loopStart = next.start;
   state.loopEnd = next.end;
-  if (state.loop && (state.now < state.loopStart || state.now > state.loopEnd)) {
-    state.now = state.loopStart;
-  }
-  renderFrame(state.now);
+  const clip = currentClip();
+  seek(which === "start" ? clip.start : clip.end);
 }
 
 function bindLoopCap(el, which) {
@@ -3052,10 +3096,12 @@ function bindScrubSeek() {
 function bindControls() {
   $("btnPlay").onclick = () => setPlaying(!state.playing);
   $("btnRestart").onclick = () => {
+    const clip = currentClip();
     seek(LoopRange.restartTime({
       loop: state.loop,
-      songStart: state.start,
+      songStart: state.fullStart,
       loopStart: state.loopStart,
+      clipStart: clip.start,
     }));
     setPlaying(true);
   };
@@ -3065,8 +3111,10 @@ function bindControls() {
     loopBtn.classList.toggle("on", state.loop);
     loopBtn.setAttribute("aria-pressed", String(state.loop));
     loopBtn.setAttribute("aria-label", state.loop ? "循环（开）" : "循环（关）");
-    if (state.loop && (state.now < state.loopStart || state.now > state.loopEnd)) {
-      seek(state.loopStart);
+    if (state.loop) {
+      const clip = currentClip();
+      if (state.now > state.loopEnd + 1e-9) seek(state.loopStart);
+      else if (state.now < clip.start - 1e-9) seek(clip.start);
     }
   };
   document.querySelectorAll("[data-rate]").forEach((b) => b.onclick = () => setRate(LoopRange.rateFromSpeedButton(b.dataset.rate, state.rate)));
@@ -3092,7 +3140,8 @@ function startEngine(data, meta) {
   window.__BACHI_READY__ = false;
   clearPoseStepCache();
   setData(data || { events: [] });
-  state.now = params.has("t") ? pickNum(params.get("t"), state.start, state.start, state.end) : state.start;
+  const opened = currentClip();
+  state.now = params.has("t") ? pickNum(params.get("t"), opened.start, state.start, state.end) : opened.start;
   syncLoopUi(false);
   if (els.stat && !els.stat.innerHTML) els.stat.innerHTML = renderStatic();
   if (!engineStarted) {
@@ -3108,6 +3157,7 @@ function startEngine(data, meta) {
   window.taikoAnim = {
     state, seek, setPlaying, setRate, setTechnique, setData, startEngine,
     renderAt, signalBachiDone, poseAt, buildHandTracks, stickGeom, checkSingleWeld,
+    previewClip, exportSection,
     singleContactPose, singleIdlePose, rollPairType, rollLanding, rollTypeRoute, CONFIG, GEOM,
     rollDotPos, rollDotPosUncached, ellipseMinDist, ellipseMinDistUncached, clearRollGeomCache,
     ROLL_DOT, SWIPE_ARROW,

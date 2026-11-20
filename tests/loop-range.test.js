@@ -1,6 +1,7 @@
 /**
  * Section loop + slow-motion playback.
- * The loop range lives on the progress bar. It never crops TJA, audio, or video.
+ * Dragging the caps does not rewrite the chart. The media window those caps
+ * select is covered in tests/section-trim.test.js.
  * Charts here are homemade snippets — no official charts.
  *
  *   node tests/loop-range.test.js

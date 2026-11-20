@@ -6,6 +6,7 @@ const path = require("path");
 
 const TaikoParser = require("./parser.js");
 const audio = require("./audio-mux.js");
+const LoopRange = require("./loop-range.js");
 
 function defaultWorkers() {
   return Math.max(1, Math.min(6, os.cpus().length - 2));
@@ -38,14 +39,19 @@ Flags:
   --workers <n>        Parallel render workers (default: min(6, cpus-2) = ${defaultWorkers()};
                        1 = legacy single-page PNG-to-disk path)
   --audio              Mix bundled don/ka hits (assets/sounds/*.wav, synthesized, not official)
+  --section <a,b>      Trim preview/export to the same range as the progress-bar caps,
+                       in chart seconds (event.t). Start is the earlier of <a> and
+                       (first note in range − 0.7). End is <b>. Omit for the whole chart.
+                       OFFSET is already in the note times; it is not subtracted again.
   --out <path>         Output mp4 path (required for a single job)
-  --batch <queue.json> Render every job in a queue file. Each job may set its own song.
+  --batch <queue.json> Render every job in a queue file. Each job may set its own song
+                       and its own sectionStart/sectionEnd. A queue-level section is ignored.
   --serve              Local website + batch renderer on 127.0.0.1 (not for GitHub Pages)
   --port <n>           Port for --serve (default 8756)
 
 Queue file (paths are relative to the JSON file). No song field → no original audio:
   { "fps": 60, "size": "1080p", "jobs": [
-      { "tja": "a.tja", "song": "a.wav", "out": "a.mp4" },
+      { "tja": "a.tja", "song": "a.wav", "out": "a.mp4", "sectionStart": 2, "sectionEnd": 6 },
       { "tja": "b.tja", "out": "b.mp4" }
   ]}
 
@@ -70,6 +76,8 @@ function parseArgs(argv) {
     size: "1080p",
     workers: defaultWorkers(),
     audio: false,
+    sectionStart: null,
+    sectionEnd: null,
     out: null,
     batch: null,
     serve: false,
@@ -98,6 +106,15 @@ function parseArgs(argv) {
       case "--size": args.size = need(); break;
       case "--workers": args.workers = Number(need()); break;
       case "--audio": args.audio = true; break;
+      case "--section": {
+        const raw = String(need());
+        const m = raw.match(/^(-?\d+(?:\.\d+)?)\s*[,:]\s*(-?\d+(?:\.\d+)?)$/);
+        if (!m) throw new Error("--section 应为 起点,终点（秒），例如 2,6");
+        args.sectionStart = Number(m[1]);
+        args.sectionEnd = Number(m[2]);
+        if (!(args.sectionEnd > args.sectionStart)) throw new Error("--section 终点必须晚于起点");
+        break;
+      }
       case "--out": args.out = need(); break;
       case "--batch": args.batch = need(); break;
       case "--serve": args.serve = true; break;
@@ -108,6 +125,12 @@ function parseArgs(argv) {
     }
   }
   return args;
+}
+
+function optionalSeconds(value) {
+  if (value == null || value === "") return null;
+  const n = +value;
+  return Number.isFinite(n) ? n : null;
 }
 
 function buildPayload(args) {
@@ -123,33 +146,43 @@ function buildPayload(args) {
   if (args.technique != null && String(args.technique).trim() !== "") {
     opts.titleTechnique = args.technique;
   }
+  let data;
   if (args.sticking) {
     const jsonText = fs.readFileSync(path.resolve(args.sticking), "utf8");
     if (typeof TaikoParser.chartFromTjaAndHands === "function") {
-      return TaikoParser.chartFromTjaAndHands(tjaText, jsonText, opts);
+      data = TaikoParser.chartFromTjaAndHands(tjaText, jsonText, opts);
+    } else {
+      const base = TaikoParser.eventsFromTja(tjaText, opts);
+      const hands = TaikoParser.loadHandJson(jsonText, {
+        measures: args.measures,
+        rangeStart: base.rangeStart,
+        rangeEnd: base.rangeEnd,
+        timeShift: base.timeShift || 0,
+        chartMeasures: base.chartMeasures,
+        bigNote: args.bignote,
+      });
+      data = Object.assign({}, base, hands, {
+        rangeStart: base.rangeStart,
+        rangeEnd: base.rangeEnd,
+        timeShift: base.timeShift || 0,
+        source: "hand-json",
+      });
     }
-    const base = TaikoParser.eventsFromTja(tjaText, opts);
-    const hands = TaikoParser.loadHandJson(jsonText, {
-      measures: args.measures,
-      rangeStart: base.rangeStart,
-      rangeEnd: base.rangeEnd,
-      timeShift: base.timeShift || 0,
-      chartMeasures: base.chartMeasures,
-      bigNote: args.bignote,
-    });
-    return Object.assign({}, base, hands, {
-      rangeStart: base.rangeStart,
-      rangeEnd: base.rangeEnd,
-      timeShift: base.timeShift || 0,
-      source: "hand-json",
-    });
+  } else {
+    data = TaikoParser.eventsFromTja(tjaText, opts);
   }
-  return TaikoParser.eventsFromTja(tjaText, opts);
+  const sectionStart = optionalSeconds(args.sectionStart);
+  const sectionEnd = optionalSeconds(args.sectionEnd);
+  if (sectionStart != null && sectionEnd != null) {
+    data.sectionStart = sectionStart;
+    data.sectionEnd = sectionEnd;
+  }
+  return data;
 }
 
 function planForJob(job) {
   const data = buildPayload(job);
-  const win = audio.exportWindow(data);
+  const win = LoopRange.mediaWindow(data);
   const plan = audio.originalAudioPlan({
     chartStart: win.chartStart,
     chartEnd: win.chartEnd,
@@ -192,6 +225,8 @@ function loadBatchFile(file) {
       size: job.size != null ? job.size : (spec.size || "1080p"),
       workers: job.workers != null ? Number(job.workers) : (spec.workers != null ? Number(spec.workers) : defaultWorkers()),
       audio: job.audio != null ? !!job.audio : !!spec.audio,
+      sectionStart: optionalSeconds(job.sectionStart),
+      sectionEnd: optionalSeconds(job.sectionEnd),
     };
   });
 }

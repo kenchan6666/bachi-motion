@@ -1,9 +1,17 @@
 /**
- * Section loop on the existing playback clock.
+ * Section range on the existing playback clock.
  *
- * The progress bar selects a time range. When 循环 is on, playback and
- * 重来 stay inside that range. The chart's own rangeStart/rangeEnd — what
- * export and renderAt use — is never rewritten. This does not trim files.
+ * The progress bar's two caps are the only range. They loop when 循环 is
+ * on, and they are also the preview / export clip.
+ *
+ * Full song (caps on the song edges): the window is unchanged —
+ *   start = rangeStart − 0.7, end = rangeEnd + 0.5.
+ * Trimmed: the media start is the earlier of the left cap and
+ *   (first note inside the caps − 0.7). event.t is already OFFSET-adjusted;
+ *   do not subtract OFFSET again. A negative start is left negative so the
+ *   song mux can pad silence. The media end is the right cap.
+ * Loop wrap and 重来-while-looping return to the left cap, not to that
+ * 0.7s prep. Dragging does not rewrite the chart file.
  *
  * Snap: a nearby measure boundary wins over a closer beat; otherwise the
  * nearest beat. The song edges stay available so the range can return to
@@ -207,9 +215,92 @@
   }
 
   /**
+   * Media window for preview and export.
+   * Caps default to the whole song. The chart file is not rewritten.
+   * `leadIn` defaults to 0.7, the same prep the engine and song mux use.
+   */
+  function sectionClip(opts) {
+    opts = opts || {};
+    var leadIn = opts.leadIn == null ? 0.7 : +opts.leadIn;
+    var songStart = +opts.songStart;
+    var songEnd = +opts.songEnd;
+    var selStart = opts.selStart == null ? songStart : +opts.selStart;
+    var selEnd = opts.selEnd == null ? songEnd : +opts.selEnd;
+    if (!isFinite(selStart)) selStart = songStart;
+    if (!isFinite(selEnd)) selEnd = songEnd;
+    if (selStart < songStart) selStart = songStart;
+    if (selEnd > songEnd) selEnd = songEnd;
+    if (!(selEnd > selStart)) selEnd = Math.min(songEnd, selStart + 1e-3);
+
+    var first = null;
+    var events = opts.events || [];
+    for (var i = 0; i < events.length; i++) {
+      var t = +events[i].t;
+      if (!isFinite(t)) continue;
+      if (t < selStart - 1e-6 || t > selEnd + 1e-6) continue;
+      if (first == null || t < first) first = t;
+    }
+    var start = selStart;
+    if (first != null) {
+      var prep = first - leadIn;
+      if (prep < start) start = prep;
+    }
+    var end = selEnd;
+    if (!(end > start)) end = start + 1e-3;
+    var trimmed = Math.abs(selStart - songStart) > 1e-4 || Math.abs(selEnd - songEnd) > 1e-4;
+    return {
+      start: start,
+      end: end,
+      loopStart: selStart,
+      loopEnd: selEnd,
+      trimmed: trimmed,
+      firstNote: first,
+    };
+  }
+
+  /**
+   * Song window plus an optional section on `data` (sectionStart / sectionEnd,
+   * same seconds as the progress-bar caps and as event.t).
+   * No section → today's chartStart / chartEnd.
+   */
+  function mediaWindow(data, leadIn, tail) {
+    var lead = leadIn == null ? 0.7 : +leadIn;
+    var tailTime = tail == null ? 0.5 : +tail;
+    var events = (data && data.events) || [];
+    var firstEv = events.length ? +events[0].t : 0;
+    var lastEv = events.length ? +events[events.length - 1].t : 0;
+    var rangeStart = data && isFinite(+data.rangeStart) ? +data.rangeStart : firstEv;
+    var rangeEnd = data && isFinite(+data.rangeEnd) ? +data.rangeEnd : lastEv;
+    var songStart = rangeStart - lead;
+    var songEnd = rangeEnd + tailTime;
+    var has = !!(data && data.sectionStart != null && data.sectionEnd != null
+      && isFinite(+data.sectionStart) && isFinite(+data.sectionEnd));
+    var clip = sectionClip({
+      events: events,
+      songStart: songStart,
+      songEnd: songEnd,
+      selStart: has ? +data.sectionStart : songStart,
+      selEnd: has ? +data.sectionEnd : songEnd,
+      leadIn: lead,
+    });
+    return {
+      songStart: songStart,
+      songEnd: songEnd,
+      chartStart: clip.start,
+      chartEnd: clip.end,
+      loopStart: clip.loopStart,
+      loopEnd: clip.loopEnd,
+      trimmed: has ? clip.trimmed : false,
+      firstNote: clip.firstNote,
+    };
+  }
+
+  /**
    * One realtime step. `realDt` is wall-clock seconds (the caller caps it).
-   * Loop on: stay inside [loopStart, loopEnd] and keep playing.
-   * Loop off: the full song, stop at songEnd.
+   * Loop on: the opening may play [clipStart, loopStart) once; crossing
+   * loopEnd jumps to the left cap, not back through the 0.7s prep.
+   * Loop off: play the clip and stop at its end. With no clip, that is the
+   * whole song, matching the previous clock.
    */
   function advancePlayback(now, realDt, opts) {
     var rate = isFinite(+opts.rate) ? +opts.rate : 1;
@@ -221,23 +312,31 @@
       var a = +opts.loopStart;
       var b = +opts.loopEnd;
       var span = b - a;
+      var clipStart = opts.clipStart == null ? a : +opts.clipStart;
       if (!(span > 1e-9)) return { now: a, playing: true, done: false };
-      if (next < a) next = a;
-      else if (next > b) {
+      if (next > b) {
         var rel = (next - a) % span;
         if (rel < 0) rel += span;
         next = rel === 0 ? a : a + rel;
+      } else if (next < clipStart) {
+        next = clipStart;
       }
       return { now: next, playing: true, done: false };
     }
-    if (next > songEnd) return { now: songEnd, playing: false, done: true };
-    if (next < songStart) return { now: songStart, playing: true, done: false };
+    var freeStart = opts.clipStart == null ? songStart : +opts.clipStart;
+    var freeEnd = opts.clipEnd == null ? songEnd : +opts.clipEnd;
+    if (next > freeEnd) return { now: freeEnd, playing: false, done: true };
+    if (next < freeStart) return { now: freeStart, playing: true, done: false };
     return { now: next, playing: true, done: false };
   }
 
-  /** 重来. Loop on → range start. Loop off → song start. */
+  /**
+   * 重来. Loop on → left cap (no extra 0.7). Loop off → clip start,
+   * which is the song start when the range is still the whole song.
+   */
   function restartTime(opts) {
     if (opts.loop) return +opts.loopStart;
+    if (opts.clipStart != null && isFinite(+opts.clipStart)) return +opts.clipStart;
     return +opts.songStart;
   }
 
@@ -259,6 +358,8 @@
     localBeatDur: localBeatDur,
     snapLoopTime: snapLoopTime,
     dragLoopHandle: dragLoopHandle,
+    sectionClip: sectionClip,
+    mediaWindow: mediaWindow,
     advancePlayback: advancePlayback,
     restartTime: restartTime,
     timeFromClientX: timeFromClientX,

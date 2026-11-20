@@ -33,6 +33,10 @@ echo "== title-bar BPM range =="
 node tests/titlebar-bpm.test.js
 echo
 
+echo "== roll-dot cache (cached 720-sample pos must match uncached) =="
+node tests/roll-dot-cache.test.js
+echo
+
 echo "== weld check (grip→tip cluster span must be 0.0000) =="
 WELD_OUT="$(mktemp)"
 cleanup() { rm -rf "${TMPDIR:-}" "$WELD_OUT"; }

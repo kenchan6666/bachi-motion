@@ -456,46 +456,52 @@ body.editor-mode .editor {
   color: var(--ed-hand-ink);
 }
 
-/* Cluster mark: a single vertical line at the group's midpoint, never a
-   box or halo over the capsules. Roll = tape purple; warn / both = gold. */
-.editor-mark {
+/* One pill per tight/roll cluster. Stroke is the mark; no box or vertical line. */
+.editor-string {
+  position: absolute;
+  top: 4px;
+  height: 34px;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 10px;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 2px solid var(--ed-tape-line);
+  background: var(--ed-hand-r);
+  cursor: pointer;
+  z-index: 1;
+  pointer-events: auto;
+}
+.editor-string.is-run {
+  border-color: var(--ed-hand-r-line);
+}
+.editor-string.is-warn,
+.editor-string.is-both {
+  border-color: var(--ed-gold-line);
+}
+.editor-string-seg {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 0;
-  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ed-hand-ink);
   pointer-events: none;
 }
-.editor-mark-line {
+.editor-string-seg.is-R { background: var(--ed-hand-r); }
+.editor-string-seg.is-L { background: var(--ed-hand-l); }
+.editor-string-seg.is-blank { font-size: 0; color: transparent; }
+.editor-string-tag {
   position: absolute;
-  left: 0;
-  top: 2px;
-  bottom: 0;
-  width: 2px;
-  margin-left: -1px;
-  background: var(--ed-tape-line);
-  border-radius: 1px;
-}
-.editor-mark.is-warn .editor-mark-line,
-.editor-mark.is-both .editor-mark-line {
-  background: var(--ed-gold-line);
-}
-.editor-hands .editor-mark-line {
-  top: 0;
-  bottom: 0;
-}
-.editor-hands .editor-mark-line.is-below {
-  /* Just under the capsules (below the 1.5px stroke), toward the caption. */
-  top: 40px;
-  bottom: -6px;
-  height: auto;
-}
-.editor-roll-tag {
-  position: absolute;
-  left: 6px;
-  top: 50%;
-  transform: translateY(-50%);
+  top: 4px;
   z-index: 3;
+  transform: translateX(-50%);
   font-size: 10px;
   font-weight: 700;
   color: #5C4A96;
@@ -507,31 +513,72 @@ body.editor-mode .editor {
   white-space: nowrap;
   pointer-events: none;
 }
-.editor-mark.is-flip .editor-roll-tag {
-  left: auto;
-  right: 6px;
-}
-.editor-warn-tip {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 6px;
-  z-index: 4;
-  font-size: 12px;
-  line-height: 1.35;
-  color: var(--ink-deep);
+.editor-string-tag.is-warn {
+  color: #7A5A10;
   background: #FFF8E0;
-  border: 1px solid var(--ed-gold-stroke);
-  border-radius: 8px;
-  padding: 3px 8px;
-  white-space: normal;
-  width: max-content;
-  box-sizing: border-box;
-  pointer-events: none;
-  box-shadow: 0 2px 6px rgba(62, 50, 40, 0.08);
+  border-color: var(--ed-gold-stroke);
 }
-.editor-mark.is-flip .editor-warn-tip {
-  left: auto;
-  right: 6px;
+
+.editor-scroll.is-zoomed .editor-measures {
+  opacity: 0.38;
+  filter: grayscale(0.12);
+  transition: opacity 0.18s ease, filter 0.18s ease;
+}
+.editor-zoom {
+  position: absolute;
+  z-index: 10;
+  pointer-events: auto;
+  transform: translateY(-6px);
+}
+.editor-zoom-viewport {
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--paper);
+  box-shadow: 0 12px 32px rgba(62, 50, 40, 0.18), 0 0 0 1.5px var(--line-strong);
+  padding: 12px 12px 14px;
+  box-sizing: border-box;
+}
+.editor-zoom-inner {
+  position: relative;
+  will-change: transform;
+}
+.editor-zoom-lane {
+  position: relative;
+  height: 64px;
+  margin: 0 0 0;
+  background: var(--ed-lane);
+  border-radius: 999px;
+  box-shadow: 0 0 0 3px var(--ed-outline);
+}
+.editor-zoom-hands {
+  position: relative;
+  height: 46px;
+  margin-top: 10px;
+}
+.editor-zoom-cap {
+  position: absolute;
+  top: 6px;
+  height: 36px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ed-hand-ink);
+  cursor: pointer;
+  box-sizing: border-box;
+  padding: 0;
+}
+.editor-zoom-cap.is-R {
+  background: var(--ed-hand-r);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-r-line);
+}
+.editor-zoom-cap.is-L {
+  background: var(--ed-hand-l);
+  box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
+}
+.editor-zoom-cap.is-active,
+.editor-zoom .editor-note.is-active {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 5px var(--ed-hand-l-line);
 }
 
 .editor-playhead {
@@ -682,19 +729,22 @@ body.editor-mode .editor {
   box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
 }
 .editor-swatch.is-roll i {
-  width: 2px;
-  height: 12px;
-  border-radius: 1px;
-  background: var(--ed-tape-line);
+  width: 16px;
+  height: 10px;
+  border-radius: 6px;
+  background: var(--ed-hand-l);
   box-shadow: none;
+  border: 2px solid var(--ed-tape-line);
+  box-sizing: border-box;
 }
 .editor-swatch.is-warn i {
-  width: 2px;
-  height: 12px;
-  border-radius: 1px;
-  background: var(--ed-gold-line);
+  width: 16px;
+  height: 10px;
+  border-radius: 6px;
+  background: var(--ed-hand-r);
   box-shadow: none;
-  border: none;
+  border: 2px solid var(--ed-gold-line);
+  box-sizing: border-box;
 }
 
 .editor-preview {

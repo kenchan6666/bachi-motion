@@ -37,6 +37,10 @@ echo "== title-bar placement (webpage above track, export left of track) =="
 node tests/titlebar-layout.test.js
 echo
 
+echo "== settings hint popovers anchor to their buttons =="
+node tests/hint-popover.test.js
+echo
+
 echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo

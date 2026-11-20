@@ -62,7 +62,7 @@ const CONFIG = {
   ROLL_LIFT_PX: 150,    // 滚奏大抬回：任意一帧都能看出一只手低（在打）、一只手高（抬起）
   LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
   KA_STICK_OUT_DEG: 10, // 咔棒近竖直，只外倾一点（不再靠长棒斜着从画面下方够鼓边）
-  KA_GRIP_Y: 536,       // 咔接触时握点高度：至少抬到鼓下缘（bodyBottom=548）附近
+  KA_GRIP_Y: 536,       // 咔接触时握点高度。手和棒锁定，不跟鼓身下缘一起挪
   KA_TIP_OUT_PX: 14,    // 咔接触点相对 H.ka 沿棒伸出的距离：校准后接触点落在 1/11 点钟鼓边黑线上
   KA_TIP_PAST_RATIO: 0.20, // 棒尖再沿棒伸出接触点，长度为可见棒身（黑环→接触点）的约 1/5；冲击光仍用接触点
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
@@ -184,8 +184,8 @@ const CONFIG = {
 };
 
 const GEOM = {
-  face: { cx: 400, cy: 300, rx: 190, ry: 118 },   // 近白椭圆鼓面
-  bodyBottom: 548,                                 // 鼓身往下收成圆底的最低点
+  face: { cx: 400, cy: 344, rx: 190, ry: 162 },   // 近白椭圆鼓面（更正面，ry/rx ≈ 0.85；上沿仍在 cy−ry = 182）
+  bodyBottom: 636,                                 // 鼓身圆底。鼓面下沿 cy+ry=506，露出约 130px 正面橘身
   lane: { y: 70, judgeX: 92, x0: 30, x1: 775 },
   card: { x: 40, y: 128, w: 720, h: 720 },
   hands: {
@@ -2222,9 +2222,9 @@ function tipTrailSilhouette(pose, fill) {
 const SWIPE_ARROW = {
   a0Deg: -84.1,             // 右手内刷箭尾（atan2、y 向下、0° 朝右）
   a1Deg: -174.1,            // 右手内刷箭头
-  cxOff: 0.653,             // 辅圆圆心相对 F.cx 的 rx 倍数（右手 +，左手 −）
-  cyOff: 0.102,             // 辅圆圆心相对 F.cy 的 ry 倍数（向上）
-  rFac: 0.544,              // 正圆半径（只用 F.rx，不按鼓面椭圆压扁）
+  cxOff: 0.696,             // 辅圆圆心相对 F.cx 的 rx 倍数（右手 +，左手 −）
+  cyOff: 0.164,             // 辅圆圆心相对 F.cy 的 ry 倍数（向上）。鼓面改圆后重配，rimInset 仍贴新沿
+  rFac: 0.620,              // 正圆半径（只用 F.rx，不按鼓面椭圆压扁）
   tipExtend: 0.04,          // 外刷箭头沿切线再往外送（× F.rx）
   strokeFac: 0.0662,        // 杆宽
   outlineFac: 0.0132,       // 外描边宽

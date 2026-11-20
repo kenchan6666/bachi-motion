@@ -16,6 +16,8 @@
  *     resets the next note to R. A gap of exactly one beat does not.
  *   Big notes (3/4) are both hands at once; the following note also starts on R.
  *   All auto-assigned notes use the full-grip single hit.
+ *   Rolls are NEVER auto-guessed from the TJA — they come only from
+ *   `(xx)` pinch-pairs in 溯溯's 手顺 JSON (see loadHandJson / parseSticking).
  */
 (function (root, factory) {
   if (typeof module === "object" && module.exports) module.exports = factory();
@@ -472,6 +474,50 @@
   }
 
   /**
+   * Parse 溯溯's sticking string.
+   * `(RR)(LL)` is a roll pinch-pair (same hand twice, then switch).
+   * Bare `R`/`L` are single hits. Other characters are ignored.
+   */
+  function parseSticking(str) {
+    const out = [];
+    const s = String(str == null ? "" : str);
+    for (let i = 0; i < s.length; ) {
+      const c = s[i];
+      if (c === "(") {
+        const j = s.indexOf(")", i + 1);
+        if (j < 0) throw new Error("手顺 sticking 里有未闭合的 '('");
+        const inside = s.slice(i + 1, j);
+        for (let k = 0; k < inside.length; k++) {
+          const ch = inside[k];
+          if (ch === "R" || ch === "r") out.push({ hand: "R", roll: true });
+          else if (ch === "L" || ch === "l") out.push({ hand: "L", roll: true });
+        }
+        i = j + 1;
+      } else if (c === "R" || c === "r") {
+        out.push({ hand: "R", roll: false }); i++;
+      } else if (c === "L" || c === "l") {
+        out.push({ hand: "L", roll: false }); i++;
+      } else i++;
+    }
+    return out;
+  }
+
+  function applySticking(events, tokens, forceSingle) {
+    let k = 0;
+    return events.map((e) => {
+      const ev = Object.assign({}, e);
+      if (k < tokens.length) {
+        const tok = tokens[k++];
+        ev.hand = tok.hand; // sticking is the authority for 手顺
+        ev.grip = tok.roll && !forceSingle ? "roll" : "single";
+      } else if (forceSingle) {
+        ev.grip = "single";
+      }
+      return ev;
+    });
+  }
+
+  /**
    * 溯月 mode hook: a 手顺 JSON written by 溯溯 overrides the auto 1-1 order.
    * Accepted shapes:
    *   { events: [ { t, hand, face, grip, inserted, src, both, big } ] }
@@ -491,6 +537,13 @@
     let events = Array.isArray(data) ? data : data.events;
     if (!Array.isArray(events) || !events.length) {
       throw new Error("手顺 JSON 里没有 events 数组");
+    }
+    const stickingStr = data.sticking || data.handorder || data.pattern;
+    if (typeof stickingStr === "string" && stickingStr.trim()) {
+      const tokens = parseSticking(stickingStr);
+      const anyParen = stickingStr.indexOf("(") >= 0;
+      // 没有括号就绝不当滚奏（滚奏只来自 (xx) 对，不会从密度猜）。
+      events = applySticking(events, tokens, !anyParen);
     }
     const range = parseMeasuresOpt(opts && opts.measures);
     const shift = opts && isFinite(+opts.timeShift) ? +opts.timeShift : 0;
@@ -691,6 +744,25 @@
     });
     expect("sticking src-align follows mid-measure #BPMCHANGE slot times", midAligned.events.map((e) => e.t), [0, 0.5, 1, 2]);
 
+    // Auto 1-1 never emits rolls; (RR)(LL) in hand JSON marks pinch-pairs; no parens → no roll.
+    const tja16 = ["BPM:300", "OFFSET:0", "COURSE:Oni", "#START", "11111111,", "#END", ""].join("\n");
+    const auto16 = eventsFromTja(tja16);
+    if (auto16.events.some((e) => e.grip === "roll")) {
+      failures.push("assignHands must never emit grip:roll (rolls come only from JSON parentheses)");
+    }
+    const evs8 = [];
+    for (let i = 0; i < 8; i++) evs8.push({ t: i * 0.05, hand: "R", face: "don", grip: "single", src: "1:" + i });
+    const paired = loadHandJson({ sticking: "(RR)(LL)(RR)(LL)", events: evs8 });
+    const pairedGrip = paired.events.map((e) => e.grip + e.hand).join(",");
+    const wantGrip = "rollR,rollR,rollL,rollL,rollR,rollR,rollL,rollL";
+    if (pairedGrip !== wantGrip) {
+      failures.push("sticking (RR)(LL) marks pinch-pair rolls and hands\n    got  " + pairedGrip + "\n    want " + wantGrip);
+    }
+    const bare = loadHandJson({ sticking: "RLRLRLRL", events: evs8.map((e) => Object.assign({}, e, { grip: "roll" })) });
+    if (bare.events.some((e) => e.grip === "roll")) {
+      failures.push("sticking without parentheses must not produce rolls, even if events said grip:roll");
+    }
+
     if (failures.length) {
       throw new Error("parser self-check failed:\n- " + failures.join("\n- "));
     }
@@ -705,6 +777,9 @@
         "sticking src-align --measures 119-120 (passage-relative, first t≈0 not -94)",
         "sticking without --measures keeps JSON t",
         "sticking src-align follows mid-measure #BPMCHANGE",
+        "assignHands never emits roll",
+        "sticking (RR)(LL) marks pinch-pair rolls and hands",
+        "sticking without parentheses produces no rolls",
       ],
     }
   }
@@ -723,6 +798,7 @@
     assignHands,
     eventsFromTja,
     loadHandJson,
+    parseSticking,
     parseSrc,
     slotTimeAbs,
     selfCheck,

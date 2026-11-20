@@ -3,7 +3,8 @@
  *   left edge on the highway's painted left edge,
  *   16px gap (20px when the viewport is at least 1920 wide),
  *   stage pushed down when that gap would clip the title,
- *   12px right of the header monogram when the two would overlap.
+ *   12px right of the header brand (monogram + “bachi-motion” wordmark)
+ *   when the two would overlap.
  * body.export keeps the left-of-track plate when the beige margin is wide.
  *
  *   node tests/titlebar-layout.test.js
@@ -155,8 +156,18 @@ function assertBox(box, expected, label) {
         const bar = document.getElementById("titlebar").getBoundingClientRect();
         const well = document.querySelector(".stage-well").getBoundingClientRect();
         const frame = document.querySelector(".stage-frame").getBoundingClientRect();
-        const logoEl = document.querySelector(".brand .mon");
-        const logo = logoEl ? logoEl.getBoundingClientRect() : null;
+        const monEl = document.querySelector(".brand .mon");
+        const wordEl = document.getElementById("title");
+        const brandNodes = [monEl, wordEl];
+        const brandRects = brandNodes.map((el) => el && el.getBoundingClientRect()).filter((r) => r && r.width > 1 && r.height > 1);
+        const logo = brandRects.length ? {
+          left: Math.min.apply(null, brandRects.map((r) => r.left)),
+          right: Math.max.apply(null, brandRects.map((r) => r.right)),
+          top: Math.min.apply(null, brandRects.map((r) => r.top)),
+          bottom: Math.max.apply(null, brandRects.map((r) => r.bottom)),
+        } : null;
+        const mon = monEl ? monEl.getBoundingClientRect() : null;
+        const word = wordEl ? wordEl.getBoundingClientRect() : null;
         const pad = getComputedStyle(document.getElementById("titlebar")).padding;
         return {
           exporting: document.body.classList.contains("export"),
@@ -165,7 +176,16 @@ function assertBox(box, expected, label) {
           bar: { left: bar.left, top: bar.top, width: bar.width, height: bar.height, right: bar.right, bottom: bar.bottom },
           well: { left: well.left, top: well.top, width: well.width, height: well.height, right: well.right },
           frame: { left: frame.left, top: frame.top, width: frame.width, height: frame.height, right: frame.right, bottom: frame.bottom },
-          logo: logo ? { left: logo.left, top: logo.top, width: logo.width, height: logo.height, right: logo.right, bottom: logo.bottom } : null,
+          logo: logo ? {
+            left: logo.left,
+            top: logo.top,
+            right: logo.right,
+            bottom: logo.bottom,
+            width: logo.right - logo.left,
+            height: logo.bottom - logo.top,
+          } : null,
+          monRight: mon ? mon.right : 0,
+          wordRight: word ? word.right : 0,
           padding: pad,
           innerWidth: window.innerWidth,
           innerHeight: window.innerHeight,
@@ -173,11 +193,12 @@ function assertBox(box, expected, label) {
       });
     }
 
-    // 1080x860 is a desktop width where the highway-aligned title would cover
-    // the header monogram, so the 12px logo clearance has to kick in.
+    // 1280x900 and 1080x860 are desktop sizes where the highway-aligned title
+    // would cover the “bachi-motion” wordmark, so the 12px brand clearance applies.
     const webSizes = [[1920, 1080], [1600, 900], [1440, 900], [1280, 900], [1280, 800], [1080, 860], [840, 900], [400, 800]];
     let sawPush = false;
     let sawLogoShift = false;
+    let saw1280Wordmark = false;
     for (const [w, h] of webSizes) {
       await page.setViewport({ width: w, height: h, deviceScaleFactor: 1 });
       const m = await measure();
@@ -207,11 +228,16 @@ function assertBox(box, expected, label) {
       };
       const logoHit = m.logo && overlaps(aligned, m.logo);
       if (logoHit) {
-        near(m.bar.left, m.logo.right + LOGO_CLEAR, 1.25, "webpage " + w + "x" + h + " logo clearance");
+        if (!(m.wordRight > m.monRight + 8)) {
+          throw new Error("webpage " + w + "x" + h + " brand box is only the monogram");
+        }
+        near(m.logo.right, m.wordRight, 0.6, "webpage " + w + "x" + h + " clearance edge is the wordmark");
+        near(m.bar.left, m.logo.right + LOGO_CLEAR, 1.25, "webpage " + w + "x" + h + " wordmark clearance");
         if (overlaps(m.bar, m.logo)) {
-          throw new Error("webpage " + w + "x" + h + " title still overlaps the logo");
+          throw new Error("webpage " + w + "x" + h + " title still overlaps the brand wordmark");
         }
         sawLogoShift = true;
+        if (w === 1280 && h === 900) saw1280Wordmark = true;
       } else {
         near(m.bar.left, lane.left, 1.25, "webpage " + w + "x" + h + " left edge");
       }
@@ -243,7 +269,8 @@ function assertBox(box, expected, label) {
       console.log("ok webpage " + w + "x" + h + " title above track gap " + gap.toFixed(1));
     }
     if (!sawPush) throw new Error("no webpage size required the stage to move down");
-    if (!sawLogoShift) throw new Error("no webpage size required the logo clearance");
+    if (!sawLogoShift) throw new Error("no webpage size required the wordmark clearance");
+    if (!saw1280Wordmark) throw new Error("1280x900 did not clear the bachi-motion wordmark");
 
     await page.evaluate(() => document.body.classList.add("export"));
 

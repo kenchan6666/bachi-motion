@@ -4,8 +4,9 @@
  * painted left edge (lane x=30, 3px stroke centered). Gap is 16px, or 20px
  * when the viewport is at least 1920 wide. If the title plus that gap would
  * clip the viewport, the stage moves down — the gap is not reduced. If that
- * left edge would cover the header monogram, the bar shifts to 12px right of
- * the logo (汐月's 8–12px clearance; 12px is the value used).
+ * left edge would cover the header brand (monogram plus the “bachi-motion”
+ * wordmark), the bar shifts to 12px right of that wordmark (汐月's 8–12px
+ * clearance; 12px is the value used).
  * Export (body.export): left beige letterbox, top-aligned with the chart
  * track when there is room beside the stage. Positioning formulas unchanged.
  * Fields: title, BPM, playback rate, technique (手法).
@@ -266,12 +267,27 @@
       && Math.abs(a.top - b.top) < 0.3;
   }
 
-  function logoBox() {
-    const logo = document.querySelector(".brand .mon");
-    if (!logo) return null;
-    const r = logo.getBoundingClientRect();
-    if (r.width < 1 || r.height < 1) return null;
-    return r;
+  // Header brand mark: the circular monogram and the “bachi-motion” wordmark.
+  // Clearance is to the right of that whole mark, not the monogram alone.
+  function brandMarkBox() {
+    const nodes = [document.querySelector(".brand .mon"), document.getElementById("title")];
+    const rects = [];
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width > 1 && r.height > 1) rects.push(r);
+    }
+    if (!rects.length) return null;
+    let left = rects[0].left, right = rects[0].right, top = rects[0].top, bottom = rects[0].bottom;
+    for (let i = 1; i < rects.length; i++) {
+      const r = rects[i];
+      if (r.left < left) left = r.left;
+      if (r.right > right) right = r.right;
+      if (r.top < top) top = r.top;
+      if (r.bottom > bottom) bottom = r.bottom;
+    }
+    return { left: left, right: right, top: top, bottom: bottom };
   }
 
   function boxesOverlap(a, b) {
@@ -339,15 +355,15 @@
     }
 
     let left = lane.left;
-    const logo = logoBox();
-    if (logo) {
+    const brand = brandMarkBox();
+    if (brand) {
       const candidate = {
         left: left,
         top: top,
         right: left + metrics.width,
         bottom: top + metrics.height,
       };
-      if (boxesOverlap(candidate, logo)) left = logo.right + LOGO_CLEAR;
+      if (boxesOverlap(candidate, brand)) left = brand.right + LOGO_CLEAR;
     }
     bar.style.left = px(left) + "px";
     bar.style.top = px(top) + "px";

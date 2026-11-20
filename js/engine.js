@@ -961,6 +961,9 @@ function renderStatic() {
           <clipPath id="cardClip"><rect x="${c.x + 1.5}" y="${c.y + 1.5}" width="${c.w - 3}" height="${c.h - 3}" rx="29"/></clipPath>
           <clipPath id="sceneCardClip"><rect x="${f1(cc.x)}" y="${f1(cc.y)}" width="${f1(cc.w)}" height="${f1(cc.h)}" rx="${f1(cc.rx)}"/></clipPath>
           <clipPath id="sceneFaceClip"><ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}"/></clipPath>
+          <filter id="swipeArrowShadow" x="-40%" y="-40%" width="180%" height="180%">
+            <feDropShadow dx="0.8" dy="1.8" stdDeviation="1.8" flood-color="#3E3228" flood-opacity="0.28"/>
+          </filter>
         </defs>`;
   s += `<g id="sceneDrum" transform="${sceneTransform()}">`;
   s += `<defs><clipPath id="bodyClip"><path d="${bodyD}"/></clipPath></defs>`;
@@ -1267,6 +1270,188 @@ function tipTrailSilhouette(pose, fill) {
   return `<path d="M${f1(a.x)},${f1(a.y)} L${f1(c.x)},${f1(c.y)} A${f1(r)},${f1(r)} 0 0 0 ${f1(d.x)},${f1(d.y)} L${f1(b.x)},${f1(b.y)} Z" fill="${fill}" stroke="${fill}" stroke-width="1.6" filter="url(#softGlow)"/>`;
 }
 
+
+/* ---------- 内外刷方向箭头（替换原 kd/dk 细白方向弧；A 版手色 + 白描边） ---------- */
+const SWIPE_ARROW = {
+  a0Deg: -84.1,             // 右手内刷箭尾（atan2、y 向下、0° 朝右）
+  a1Deg: -174.1,            // 右手内刷箭头
+  cxOff: 0.653,             // 辅圆圆心相对 F.cx 的 rx 倍数（右手 +，左手 −）
+  cyOff: 0.102,             // 辅圆圆心相对 F.cy 的 ry 倍数（向上）
+  rFac: 0.544,              // 正圆半径（只用 F.rx，不按鼓面椭圆压扁）
+  tipExtend: 0.04,          // 外刷箭头沿切线再往外送（× F.rx）
+  strokeFac: 0.0662,        // 杆宽
+  outlineFac: 0.0132,       // 外描边宽
+  headLenFac: 3.05,         // 头长 × strokeWidth
+  headWidFac: 2.45,         // 头宽 × strokeWidth
+  shaftBack: 0.64,          // 杆终点沿弧从尖往回，盖住圆头
+  opacity: 0.90,
+  minVisible: 0.09,         // 最短可见 90ms（BPM 高时一对只有几十毫秒）
+  drawK: 0.45,              // 0 → 0.45T 起笔
+  holdK: 0.55,              // 0.45T → 0.55T 停在满箭头
+  headHideErase: 0.92,      // 擦到 e≈0.92 时箭头头跟最后一截一起消失
+};
+const _swipeLenCache = new Map();
+let _swipeLenProbe = null;
+
+function prefersReducedMotion() {
+  return typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function swipePathLength(d, fallback) {
+  if (_swipeLenCache.has(d)) return _swipeLenCache.get(d);
+  let L = fallback;
+  try {
+    if (typeof document !== "undefined") {
+      if (!_swipeLenProbe)
+        _swipeLenProbe = document.createElementNS("http://www.w3.org/2000/svg", "path");
+      _swipeLenProbe.setAttribute("d", d);
+      const got = _swipeLenProbe.getTotalLength();
+      if (isFinite(got) && got > 0) L = got;
+    }
+  } catch (err) { /* 无 DOM / 脱离文档的 path 时退回弧长公式 */ }
+  _swipeLenCache.set(d, L);
+  return L;
+}
+
+/**
+ * 一只手、一种刷（kd 内刷 / dk 外刷）的正圆弧几何。
+ * 左手：圆心镜像到竖中线左侧，角度改成 180°−a，扫向取反。
+ */
+function swipeArrowGeom(hand, type) {
+  const F = GEOM.face, S = SWIPE_ARROW;
+  const left = hand === "L";
+  const inner = type === "kd";
+  const C = { x: F.cx + (left ? -S.cxOff : S.cxOff) * F.rx, y: F.cy - S.cyOff * F.ry };
+  const r = S.rFac * F.rx;
+  const ang = (deg) => {
+    const a = deg * Math.PI / 180;
+    return left ? Math.PI - a : a;
+  };
+  const a0 = ang(S.a0Deg), a1 = ang(S.a1Deg);
+  // 右手内刷 a0→a1 逆时针 sweep=0；外刷反过来 sweep=1。左手扫向取反。
+  const sweep = inner ? (left ? 1 : 0) : (left ? 0 : 1);
+  const aTail = inner ? a0 : a1;
+  const aHead = inner ? a1 : a0;
+  const pt = (a) => ({ x: C.x + r * Math.cos(a), y: C.y + r * Math.sin(a) });
+  // 沿行进方向的单位切线：sweep=1 随角度增大（顺时针），sweep=0 随角度减小。
+  const tangAt = (a) => {
+    const s = sweep === 1 ? 1 : -1;
+    return { x: s * -Math.sin(a), y: s * Math.cos(a) };
+  };
+  const strokeWidth = S.strokeFac * F.rx;
+  const outlineWidth = S.outlineFac * F.rx;
+  const headLength = S.headLenFac * strokeWidth;
+  const headWidth = S.headWidFac * strokeWidth;
+  const back = S.shaftBack * headLength;
+  const tail = pt(aTail);
+  const headOnArc = pt(aHead);
+  const tHead = tangAt(aHead);
+  let tip, shaftEnd;
+  if (inner) {
+    tip = headOnArc;
+    const dAng = back / r;
+    shaftEnd = pt(aHead + (sweep === 1 ? -dAng : dAng));
+  } else {
+    const ext = S.tipExtend * F.rx;
+    tip = { x: headOnArc.x + tHead.x * ext, y: headOnArc.y + tHead.y * ext };
+    if (back <= ext) {
+      shaftEnd = { x: tip.x - tHead.x * back, y: tip.y - tHead.y * back };
+    } else {
+      const dAng = (back - ext) / r;
+      shaftEnd = pt(aHead + (sweep === 1 ? -dAng : dAng));
+    }
+  }
+  const f2 = (n) => (+n).toFixed(2);
+  const d = `M${f2(tail.x)},${f2(tail.y)} A${f2(r)},${f2(r)} 0 0 ${sweep} ${f2(shaftEnd.x)},${f2(shaftEnd.y)}`;
+  // 杆弧长：圆心角（短弧）× r。外刷杆端仍在原圆上（回退大于外送）。
+  const aEnd = Math.atan2(shaftEnd.y - C.y, shaftEnd.x - C.x);
+  let dAng = aEnd - aTail;
+  while (dAng > Math.PI) dAng -= 2 * Math.PI;
+  while (dAng < -Math.PI) dAng += 2 * Math.PI;
+  const fallbackLen = Math.abs(dAng) * r;
+  const dir = V.norm({ x: tip.x - shaftEnd.x, y: tip.y - shaftEnd.y });
+  const n = { x: -dir.y, y: dir.x };
+  const headBack = V.sub(tip, V.mul(dir, headLength));
+  const indent = V.add(headBack, V.mul(dir, headLength * 0.10));
+  const leftPt = V.add(headBack, V.mul(n, headWidth / 2));
+  const rightPt = V.add(headBack, V.mul(n, -headWidth / 2));
+  const headD = `M${f2(tip.x)},${f2(tip.y)} L${f2(rightPt.x)},${f2(rightPt.y)} L${f2(indent.x)},${f2(indent.y)} L${f2(leftPt.x)},${f2(leftPt.y)} Z`;
+  return {
+    d, headD, sweep, r, strokeWidth, outlineWidth,
+    length: swipePathLength(d, fallbackLen),
+    fill: left ? COL.L : COL.R,
+    outline: "#FFFFFF",
+  };
+}
+
+/** 每一对 (RR)/(LL) 一支：第一下开始画，第二下（不足 90ms 则补足）擦完。 */
+function activeSwipeArrows(tracks, now) {
+  const out = [];
+  for (const hand of ["R", "L"]) {
+    const tr = tracks[hand];
+    for (let k = 0; k + 1 < tr.length; k++) {
+      const a = tr[k], b = tr[k + 1];
+      if (a.stroke !== b.stroke) continue;
+      const type = a.rollType;
+      if (type !== "kd" && type !== "dk") continue;
+      const T = Math.max(b.t - a.t, SWIPE_ARROW.minVisible);
+      if (now < a.t || now > a.t + T) continue;
+      out.push({ hand, type, tRel: now - a.t, T });
+    }
+  }
+  return out;
+}
+
+function swipeDashState(tRel, T) {
+  const S = SWIPE_ARROW;
+  const drawEnd = S.drawK * T, holdEnd = S.holdK * T;
+  if (tRel <= drawEnd) {
+    const u = drawEnd > 0 ? clamp01(tRel / drawEnd) : 1;
+    return { u, e: 0, showHead: false, phase: "draw" };
+  }
+  if (tRel <= holdEnd) return { u: 1, e: 0, showHead: true, phase: "hold" };
+  const e = clamp01((tRel - holdEnd) / (S.drawK * T)); // (tRel - 0.55T) / 0.45T
+  return { u: 1, e, showHead: e < S.headHideErase, phase: "erase" };
+}
+
+function renderSwipeArrows(tracks, now) {
+  const items = activeSwipeArrows(tracks, now);
+  if (!items.length) return "";
+  const reduced = prefersReducedMotion();
+  let s = "";
+  for (const it of items) {
+    const g = swipeArrowGeom(it.hand, it.type);
+    const L = g.length;
+    const ow = g.strokeWidth + 2 * g.outlineWidth;
+    let opacity = SWIPE_ARROW.opacity;
+    let dash = "";
+    let showHead = true;
+    if (reduced) {
+      // 不做 dash：组的时段内直接显满箭头，组末淡出
+      const fadeStart = 0.80 * it.T;
+      if (it.tRel > fadeStart)
+        opacity *= 1 - clamp01((it.tRel - fadeStart) / (it.T - fadeStart));
+    } else {
+      const st = swipeDashState(it.tRel, it.T);
+      showHead = st.showHead;
+      if (st.phase === "draw")
+        dash = ` stroke-dasharray="${f1(st.u * L)} ${f1(2 * L)}" stroke-dashoffset="0"`;
+      else if (st.phase === "erase")
+        dash = ` stroke-dasharray="${f1((1 - st.e) * L)} ${f1(2 * L)}" stroke-dashoffset="${f1(-st.e * L)}"`;
+    }
+    if (opacity <= 0.01) continue;
+    s += `<g class="swipe-arrow" data-hand="${it.hand}" data-type="${it.type}" opacity="${f1(opacity)}" filter="url(#swipeArrowShadow)">`;
+    s += `<path d="${g.d}" fill="none" stroke="${g.outline}" stroke-width="${f1(ow)}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
+    s += `<path d="${g.d}" fill="none" stroke="${g.fill}" stroke-width="${f1(g.strokeWidth)}" stroke-linecap="round" stroke-linejoin="round"${dash}/>`;
+    if (showHead) {
+      s += `<path d="${g.headD}" fill="${g.outline}" stroke="${g.outline}" stroke-width="${f1(g.outlineWidth * 2.2)}" stroke-linejoin="round" stroke-linecap="round"/>`;
+      s += `<path d="${g.headD}" fill="${g.fill}" stroke="${g.fill}" stroke-width="${f1(g.outlineWidth * 0.4)}" stroke-linejoin="round" stroke-linecap="round"/>`;
+    }
+    s += `</g>`;
+  }
+  return s;
+}
+
 function renderTrail(hand, track, now) {
   const col = CONFIG.TRAIL_COLOR || "#FFFFFF";
   const p0 = poseAt(hand, track, now);
@@ -1275,7 +1460,6 @@ function renderTrail(hand, track, now) {
   const alphas = rolling ? CONFIG.ROLL_TRAIL_ALPHA : CONFIG.TRAIL_ALPHA;
   const seg = findSegment(track, now);
   const hit = seg.a || seg.b;
-  const type = hit && hit.rollType;
   // 滚奏残影回溯一对之内，避免把上一对的大抬回画进弧里；内刷/外甩才能看出往鼓心/鼓外的方向。
   const pairSpan = hit && hit.pairDt ? hit.pairDt * 1.25 : CONFIG.ROLL_TRAIL_ARC_SPAN;
   const span = rolling ? Math.max(count * CONFIG.TRAIL_STEP, Math.min(CONFIG.ROLL_TRAIL_ARC_SPAN, pairSpan)) : count * CONFIG.TRAIL_STEP;
@@ -1285,17 +1469,6 @@ function renderTrail(hand, track, now) {
   for (let k = count; k >= 1; k--) {                              // 越早越淡；只留棒尖短截
     const p = poseAt(hand, track, now - k * span / count);
     s += `<g opacity="${alphas[k - 1]}">${tipTrailSilhouette(p, col)}</g>`;
-  }
-  // kd 内收 / dk 外甩：用一对时长（ROLL_TRAIL_ARC_SPAN 为上限）画白色弧，终点就是当前棒尖，不向外伸箭头。
-  if (type === "kd" || type === "dk") {
-    const A = poseAt(hand, track, now - span, { noWobble: true }).tip;
-    const M = poseAt(hand, track, now - span / 2, { noWobble: true }).tip;
-    const B = poseAt(hand, track, now, { noWobble: true }).tip;
-    if (V.len(V.sub(B, A)) + V.len(V.sub(M, A)) >= 8) {
-      const Q = V.sub(V.mul(M, 2), V.mul(V.add(A, B), 0.5));
-      const d = `M${f1(A.x)},${f1(A.y)} Q${f1(Q.x)},${f1(Q.y)} ${f1(B.x)},${f1(B.y)}`;
-      s += `<path d="${d}" fill="none" stroke="${col}" stroke-width="6" stroke-linecap="round" opacity=".35"/>`;
-    }
   }
   return s;
 }
@@ -1497,6 +1670,7 @@ function renderFrame(now) {
   s += `<g id="sceneDyn" transform="${sceneTransform()}">`;
   s += `<g clip-path="url(#sceneCardClip)">`;       // 左右下仍齐卡片；上沿放宽，咔棒尖可略画出框
   s += renderTrail("L", tracks.L, now) + renderTrail("R", tracks.R, now);
+  s += renderSwipeArrows(tracks, now);
   s += renderReboundArcs(tracks, now);
   for (const hand of ["L", "R"]) {
     const pose = poseAt(hand, tracks[hand], now);

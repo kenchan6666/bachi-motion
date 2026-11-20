@@ -15,6 +15,12 @@
     }
   }
 })(function () {
+  function optionalSeconds(value) {
+    if (value == null || value === "") return null;
+    const n = +value;
+    return Number.isFinite(n) ? n : null;
+  }
+
   function serializeJob(job) {
     const song = job && job.songBase64 ? String(job.songBase64) : null;
     return {
@@ -32,6 +38,8 @@
       roll: job.roll || "自动滚奏",
       bignote: job.bignote || "single",
       rate: job.rate == null ? 1 : job.rate,
+      sectionStart: optionalSeconds(job.sectionStart),
+      sectionEnd: optionalSeconds(job.sectionEnd),
     };
   }
 
@@ -169,6 +177,8 @@
         roll: settings.roll,
         bignote: settings.bignote,
         rate: settings.rate,
+        sectionStart: row.sectionStart,
+        sectionEnd: row.sectionEnd,
       });
       renderList();
     }
@@ -195,8 +205,17 @@
         const app = window.BachiApp;
         const text = app && app.getTja ? app.getTja() : "";
         if (!String(text || "").trim()) { setStatus("当前没有谱面"); return; }
-        pushRow({ name: "当前谱面.tja", tjaText: text, songFile: defaultSong });
-        setStatus("已把当前谱面放进队列");
+        const section = window.taikoAnim && typeof window.taikoAnim.exportSection === "function"
+          ? window.taikoAnim.exportSection()
+          : null;
+        pushRow({
+          name: "当前谱面.tja",
+          tjaText: text,
+          songFile: defaultSong,
+          sectionStart: section && section.sectionStart,
+          sectionEnd: section && section.sectionEnd,
+        });
+        setStatus(section ? "已把当前谱面放进队列（按当前选段）" : "已把当前谱面放进队列");
       });
     }
 
@@ -250,6 +269,8 @@
             roll: row.roll,
             bignote: row.bignote,
             rate: row.rate,
+            sectionStart: row.sectionStart,
+            sectionEnd: row.sectionEnd,
           });
         });
       })).then(function (payload) {

@@ -11,6 +11,7 @@ npm test
 1. `node js/parser.js`（parser 自检，约 14 项）
 2. `node tests/titlebar-bpm.test.js`（标题栏 BPM 区间：过滤短于 4 拍的段，自制谱）
 2b. `node tests/audio-mux.test.js`（原曲对齐：chartStart = 已减 OFFSET 的第一个音 − 0.7，不再减一次；只有 TJA 时不含原曲）
+2d. `node tests/section-trim.test.js`（进度条选段：整首仍是原来的入场/收尾；收窄后预览和导出从选段内第一个音 − 0.7 起到右帽，循环跳回左帽不再垫 0.7）
 2c. `node tests/batch-queue.test.js`（批量进度、队列里缺省原曲、本机出片接口）
 3. `node tests/sticking.test.js`（自动手顺 55 条，fixtures 来自 suyue@ebd21a0；另含入口排序/同拍警告）
 4. `node tests/auto-sticking-engine.test.js`（无 JSON 走 autoSticking；有 JSON 时三个控件无效；变速按秒换算拍）

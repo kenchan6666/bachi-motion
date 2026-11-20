@@ -64,6 +64,12 @@ function readBody(req, limit) {
   });
 }
 
+function optionalSeconds(value) {
+  if (value == null || value === "") return null;
+  const n = +value;
+  return Number.isFinite(n) ? n : null;
+}
+
 function songExt(name) {
   const ext = path.extname(String(name || "")).toLowerCase();
   return SONG_EXT[ext] ? ext : ".bin";
@@ -103,6 +109,8 @@ function materializeJobs(specJobs, dir) {
       fps: job.fps == null ? 60 : Number(job.fps),
       size: job.size || "1080p",
       workers: job.workers == null ? jobs.defaultWorkers() : Number(job.workers),
+      sectionStart: optionalSeconds(job.sectionStart),
+      sectionEnd: optionalSeconds(job.sectionEnd),
     };
   });
 }

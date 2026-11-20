@@ -10,7 +10,7 @@ const COL = {
   don: "#E8503A", ka: "#4FE0E6", gold: "#F5C542",
   R: "#5FC99A",                        // 右手（正手）袖口 + 握把粉/绿标记
   L: "#F49AC1",                        // 左手（逆手）袖口 + 握把粉/绿标记（v2.3 起，避开浅紫胶带）
-  face: "#FFFDF8", studBand: "#FFF3A0", body: "#FF4F19", bodyDark: "#D63A10", stud: "#81351F",
+  face: "#FFFDF8", studBand: "#F3D08A", body: "#FF4F19", bodyDark: "#D63A10", stud: "#8A3A28",
   noteDon: "#E8503A", noteKa: "#3FB6E8",   // 谱面音符颜色（和谱面图一致）
 };
 const OUT = 3;   // 全局描边宽度（鼓以外）

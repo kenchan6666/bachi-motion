@@ -217,6 +217,117 @@ extra("negative interval (out of order already fixed by sort) still maps, no bog
   assert.deepStrictEqual(out.hands, ["R", "L"]);
 });
 
+// Five 16ths roll to RRLLR (dominant R), so continuing the phrase would
+// start the next cluster on L. A gap after beat 1.0 is the inbound of the cluster.
+function afterFive(startBeat, pat, opts) {
+  const notes = [];
+  for (let i = 0; i < 5; i++) notes.push({ beat: i * 0.25, colour: "don", big: false });
+  pat.split("").forEach(function (c, i) {
+    notes.push({
+      beat: +(startBeat + i * 0.25).toFixed(6),
+      colour: c === "d" ? "don" : "ka",
+      big: false,
+    });
+  });
+  return sticking.autoSticking(notes, Object.assign({
+    bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏",
+  }, opts || {}));
+}
+
+function tailOf(out, from) {
+  const pairs = (out.rollPairs || []).filter(function (p) { return p[0] >= from; });
+  return {
+    hands: out.hands.slice(from).join(""),
+    pairs: pairs.map(function (p) { return (p[0] - from) + "-" + (p[1] - from); }).join(","),
+    warn: (out.warnings || []).some(function (w) { return w[2] === "逆手起" && w[0] >= from; }),
+  };
+}
+
+extra("rest longer than one beat: 三连 四连 五连 and 鱼蛋 start on the dominant hand", function () {
+  // 间隔 1.5 拍（1.0 → 2.5）是新乐句。旧滚奏层会接着上一句的逆手。
+  const gap = 2.5;
+  let t = tailOf(afterFive(gap, "ddd"), 5);
+  assert.strictEqual(t.hands, "RRL", "三连 " + t.hands);
+  assert.strictEqual(t.pairs, "0-1");
+  assert.strictEqual(t.warn, false);
+
+  t = tailOf(afterFive(gap, "dddd"), 5);
+  assert.strictEqual(t.hands, "RRLL", "四连 " + t.hands);
+  assert.strictEqual(t.pairs, "0-1,2-3");
+  assert.strictEqual(t.warn, false);
+
+  t = tailOf(afterFive(gap, "ddddd"), 5);
+  assert.strictEqual(t.hands, "RRLLR", "五连 " + t.hands);
+  assert.strictEqual(t.pairs, "0-1,2-3");
+  assert.strictEqual(t.warn, false);
+
+  // 鱼蛋 xoxo：仍是默认 2-2 内刷，只是必须正手起。
+  t = tailOf(afterFive(gap, "kdkd"), 5);
+  assert.strictEqual(t.hands, "RRLL", "鱼蛋 xoxo " + t.hands);
+  assert.strictEqual(t.pairs, "0-1,2-3");
+  assert.strictEqual(t.warn, false);
+
+  t = tailOf(afterFive(gap, "ddd", { 惯用手: "L" }), 5);
+  assert.strictEqual(t.hands, "LLR", "惯用手 L " + t.hands);
+  assert.strictEqual(t.pairs, "0-1");
+  assert.strictEqual(t.warn, false);
+});
+
+extra("exactly one beat after a non-rest keeps 全换; 炒菜 segment still starts dominant", function () {
+  // quan-huan-eq1-no-reset：前音不是休息段时，恰好 1 拍不新开乐句。
+  let t = tailOf(afterFive(2.0, "ddd"), 5);
+  assert.strictEqual(t.hands, "LLR", "全换 continues " + t.hands);
+  assert.strictEqual(t.pairs, "0-1");
+  assert.strictEqual(t.warn, true);
+  // 炒菜的连音段本来就从惯用手起；滚奏层不能把段首改回上一串的逆手。
+  t = tailOf(afterFive(2.0, "ddd", { 手法: "炒菜" }), 5);
+  assert.strictEqual(t.hands, "RRL", "炒菜 segment " + t.hands);
+  assert.strictEqual(t.pairs, "0-1");
+  assert.strictEqual(t.warn, false);
+});
+
+extra("dense 16ths keep mid-stream 2-1, including the phrase after a rest", function () {
+  // 六颗同色 2-2 之后下一只是逆手；两轮 kdd 仍按 2-1，不在格子中间重置正手。
+  const pat = "ddddddkddkdd";
+  const whole = sticking.autoSticking(notesAt(pat, 0.25), {
+    bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏",
+  });
+  assert.strictEqual(whole.hands.join(""), "RRLLRRLLRLLR");
+  assert.strictEqual(pairSig(whole), "0-1,2-3,4-5,6-7,9-10");
+
+  const t = tailOf(afterFive(2.5, pat), 5);
+  assert.strictEqual(t.hands, "RRLLRRLLRLLR", "after rest " + t.hands);
+  assert.strictEqual(t.pairs, "0-1,2-3,4-5,6-7,9-10");
+  assert.strictEqual(t.warn, false);
+});
+
+extra("BPM 270 eighths alternate from the dominant hand; BPM 269 eighths stay dominant", function () {
+  function eighthsAfter(bpm) {
+    const notes = [];
+    for (let i = 0; i < 5; i++) notes.push({ beat: i * 0.25, colour: "don", big: false });
+    for (let i = 0; i < 4; i++) notes.push({ beat: 2.5 + i * 0.5, colour: "don", big: false });
+    return tailOf(sticking.autoSticking(notes, {
+      bpm: bpm, 手法: "炒菜", 惯用手: "R", 滚奏: "自动滚奏",
+    }), 5);
+  }
+  const hi = eighthsAfter(270);
+  assert.strictEqual(hi.hands, "RLRL", "270 " + hi.hands + " pairs " + hi.pairs);
+  assert.strictEqual(hi.pairs, "");
+  const lo = eighthsAfter(269);
+  assert.strictEqual(lo.hands, "RRRR", "269 " + lo.hands);
+  assert.strictEqual(lo.pairs, "");
+});
+
+extra("24分滚奏 keeps the original pairing", function () {
+  // 32 分 2-2，24 分从段首 1-2，16 分和 12 分不滚。
+  assertStick("32 is 2-2", "dddddddd", 0.125, "RRLLRRLL", "0-1,2-3,4-5,6-7", { 滚奏: "24分滚奏" });
+  assertStick("24 is 1-2", "dddddd", 1 / 6, "RLLRLL", "1-2,4-5", { 滚奏: "24分滚奏" });
+  assertStick("24 left", "dddddd", 1 / 6, "LRRLRR", "1-2,4-5", { 滚奏: "24分滚奏", 惯用手: "L" });
+  assertStick("16 stays singles", "dddddddd", 0.25, "RLRLRLRL", "", { 滚奏: "24分滚奏" });
+  assertStick("16 left stays singles", "dddddddd", 0.25, "LRLRLRLR", "", { 滚奏: "24分滚奏", 惯用手: "L" });
+  assertStick("12 stays unrolled", "kddkdd", 1 / 3, "RLRLRL", "", { 滚奏: "24分滚奏" });
+});
+
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);
 if (failed.length) process.exit(1);
 console.log("sticking: all passed (" + passed + ")");

@@ -162,6 +162,21 @@
     for (var i = start; i <= end; i++) hands[i] = h;
   }
 
+  // Phrase starts always reset to 惯用手. 炒菜 also resets at every 连音/散音
+  // segment, including a gap of exactly one beat. 全换 does not: a gap of
+  // exactly one beat stays in the phrase when the previous note is not a 休息段.
+  function freshStarts(notes, phrases, 手法, globalBpm) {
+    var fresh = Object.create(null);
+    for (var p = 0; p < phrases.length; p++) {
+      var ph = phrases[p];
+      fresh[ph.start] = true;
+      if (ph.rest || 手法 !== "炒菜") continue;
+      var segs = segmentsInPhrase(notes, ph.start, ph.end, globalBpm);
+      for (var s = 0; s < segs.length; s++) fresh[segs[s].start] = true;
+    }
+    return fresh;
+  }
+
   function assignTechnique(notes, rest, phrases, 手法, dominant, globalBpm) {
     var hands = new Array(notes.length);
     for (var p = 0; p < phrases.length; p++) {
@@ -699,7 +714,7 @@
     return toAbsPairs(auto22, start);
   }
 
-  function applyRollLayer(notes, hands, runs, dominant, mode) {
+  function applyRollLayer(notes, hands, runs, dominant, mode, fresh) {
     var allPairs = [];
     if (mode === "不滚奏") return allPairs;
     var nextStartHand = null;
@@ -707,8 +722,11 @@
     for (var r = 0; r < runs.length; r++) {
       var run = runs[r];
       var startHand;
-      // Hands continue across adjacent roll-runs in the same phrase (no rest / phrase cut between).
-      if (nextStartHand && run.start === prevEnd + 1) startHand = nextStartHand;
+      // Adjacent roll-runs keep the hand after the previous pair, unless this
+      // note is a fresh start (new phrase, or a new 炒菜 segment). Those
+      // already have 惯用手 written into hands[] by assignTechnique; do not
+      // carry the previous phrase's off-hand onto a 鱼蛋 / 三连 / 四连 / 五连.
+      if (nextStartHand && run.start === prevEnd + 1 && !(fresh && fresh[run.start])) startHand = nextStartHand;
       else startHand = hands[run.start];
       var pairs = chooseAutoPairs(notes, run.start, run.end, startHand, dominant, mode);
       var after = applyPairsToHands(hands, run.start, run.end, startHand, pairs);
@@ -804,7 +822,8 @@
     var phrases = splitPhrases(notes, rest);
     var hands = assignTechnique(notes, rest, phrases, 手法, dominant, globalBpm);
     var runs = collectRollRuns(notes, rest, phrases, globalBpm);
-    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏);
+    var fresh = freshStarts(notes, phrases, 手法, globalBpm);
+    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh);
     var warnings = collectWarnings(hands, runs, rollPairs, dominant);
     return { hands: hands, rollPairs: rollPairs, warnings: warnings };
   }

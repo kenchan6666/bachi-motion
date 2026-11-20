@@ -12,7 +12,6 @@ const parser = require(path.join(__dirname, "..", "js", "parser.js"));
 const bpm = require(path.join(__dirname, "..", "js", "titlebar-bpm.js"));
 
 let passed = 0;
-const names = [];
 
 function tja(body, headerBpm) {
   return "TITLE:test\nBPM:" + (headerBpm == null ? "120" : headerBpm) + "\n#START\n" + body + "\n#END\n";
@@ -25,7 +24,6 @@ function parse(body, headerBpm) {
 function check(name, fn) {
   fn();
   passed += 1;
-  names.push(name);
   console.log("  ✓ " + name);
 }
 
@@ -52,12 +50,12 @@ check("constant BPM over several measures → single number", function () {
   assert.strictEqual(bpm.formatDisplayBpm(data), "BPM 160");
   const info = bpm.displayBpmFromPieces(data.bpmTimeline);
   assert.strictEqual(info.kept.length, 1);
-  nearly(info.kept[0].measureUnits, 4);
+  nearly(info.kept[0].quarterBeats, 16);
 });
 
-check("短暂低速被过滤：mid-measure 40 for two beats, rest is 160", function () {
+check("短暂低速被过滤：mid-measure 40 只有两拍，其余是 160", function () {
   // 4/4: two full measures at 160, then "11" at 160 + #BPMCHANGE 40 + "11,"
-  // (two beats at 40 = 0.5 measures) then back to 160 for two measures.
+  // (two quarter beats at 40) then back to 160 for two measures.
   const data = parse(
     "1111,\n1111,\n11\n#BPMCHANGE 40\n11,\n#BPMCHANGE 160\n1111,\n1111,",
     160
@@ -65,16 +63,14 @@ check("短暂低速被过滤：mid-measure 40 for two beats, rest is 160", funct
   const info = bpm.displayBpmFromPieces(data.bpmTimeline);
   assert.ok(info.dropped.length >= 1, "expected the short 40 segment to be dropped");
   assert.ok(info.dropped.some(function (s) { return Math.abs(s.bpm - 40) < 0.05; }),
-    "dropped should include BPM 40, got " + JSON.stringify(info.dropped.map(function (s) { return s; })));
+    "dropped should include BPM 40");
   assert.ok(info.kept.every(function (s) { return Math.abs(s.bpm - 160) < 0.05; }));
   assert.strictEqual(info.text, "BPM 160");
-  assert.strictEqual(bpm.formatDisplayBpm(data), "BPM 160");
-  // two beats at 40 in 4/4: measureUnits = 0.5
   const slow = info.dropped.find(function (s) { return Math.abs(s.bpm - 40) < 0.05; });
-  nearly(slow.measureUnits, 0.5);
+  nearly(slow.quarterBeats, 2);
 });
 
-check("100 和 300 来回变，每段都够一小节 → BPM 100–300", function () {
+check("100 和 300 来回变，每段都够 4 拍 → BPM 100–300", function () {
   const body = [
     "#BPMCHANGE 100", "1111,", "1111,", "1111,", "1111,",
     "#BPMCHANGE 300", "1111,", "1111,", "1111,", "1111,",
@@ -91,7 +87,7 @@ check("100 和 300 来回变，每段都够一小节 → BPM 100–300", functio
 
 check("全是乱变全被过滤：每拍换 BPM，回退到总时长最长的 BPM", function () {
   // 4/4, one #BPMCHANGE per quarter: 90, 180, 240, 300, repeated 8 measures.
-  // Each segment is 1 beat = 0.25 measures, so everything is dropped.
+  // Each segment is 1 beat, so everything is dropped.
   // Wall-clock per beat is 60/bpm, so 90 has the longest total duration.
   const cycle = "1\n#BPMCHANGE 180\n1\n#BPMCHANGE 240\n1\n#BPMCHANGE 300\n1,";
   let body = "#BPMCHANGE 90\n";
@@ -101,17 +97,15 @@ check("全是乱变全被过滤：每拍换 BPM，回退到总时长最长的 BP
   }
   const data = parse(body, 90);
   const info = bpm.displayBpmFromPieces(data.bpmTimeline);
-  assert.ok(info.kept.length === 0, "every piece should be shorter than one measure");
+  assert.ok(info.kept.length === 0, "every piece should be shorter than 4 beats");
   assert.ok(info.fallback, "should fall back to longest total duration");
   assert.strictEqual(info.text, "BPM 90");
-  assert.strictEqual(bpm.formatDisplayBpm(data), "BPM 90");
-  // Sanity: 90 really is the longest bucket.
   const longest = bpm.longestTotalBpm(info.segments);
   nearly(longest, 90);
 });
 
 check("同一个 BPM 被拆成好几段：中间短 200 被过滤 → 只显示 160", function () {
-  // 160 for 2 measures, 200 for two mid-measure beats, 160 for 2 measures.
+  // 160 for 2 measures (8 beats), 200 for two mid-measure beats, 160 for 2 measures.
   const data = parse(
     "1111,\n1111,\n11\n#BPMCHANGE 200\n11,\n#BPMCHANGE 160\n1111,\n1111,",
     160
@@ -134,10 +128,10 @@ check("同一个 BPM 被拆成好几段：两端 160 与中间 200 都够长 →
   assert.strictEqual(info.text, "BPM 160–200");
 });
 
-check("段内拍号从 1/4 换成 4/4：按各自拍号折算小节数，短 120 段仍保留", function () {
-  // Two 1/4 measures at 120 (= 2 measure-units, but only 1.0s wall-clock).
-  // A naïve "always use 4/4" threshold would be 2s and would drop this
-  // segment, leaving only 60. Piecewise units keep both → BPM 60–120.
+check("#MEASURE 不再参与过滤：两个 1/4 小节只有 2 拍，120 被丢掉", function () {
+  // Two 1/4 measures at 120 = 2 quarter-note beats (would have been 2
+  // measure-units under the old rule, and kept). The following 4/4 bar
+  // at 60 is 4 beats and stays. Display is a single 60.
   const data = parse(
     "#MEASURE 1/4\n#BPMCHANGE 120\n1,\n1,\n#BPMCHANGE 60\n#MEASURE 4/4\n1111,",
     120
@@ -145,28 +139,61 @@ check("段内拍号从 1/4 换成 4/4：按各自拍号折算小节数，短 120
   const info = bpm.displayBpmFromPieces(data.bpmTimeline);
   const seg120 = info.segments.find(function (s) { return Math.abs(s.bpm - 120) < 0.05; });
   assert.ok(seg120, "expected a 120 segment");
-  nearly(seg120.measureUnits, 2);
-  nearly(seg120.duration, 1.0);
-  assert.ok(info.kept.some(function (s) { return Math.abs(s.bpm - 120) < 0.05; }),
-    "120 should be kept by piecewise measure-units, dropped=" +
-    JSON.stringify(info.dropped.map(function (s) { return { bpm: s.bpm, units: s.measureUnits, dur: s.duration }; })));
+  nearly(seg120.quarterBeats, 2);
+  assert.ok(info.dropped.some(function (s) { return Math.abs(s.bpm - 120) < 0.05; }));
   assert.ok(info.kept.some(function (s) { return Math.abs(s.bpm - 60) < 0.05; }));
-  assert.strictEqual(info.text, "BPM 60–120");
+  assert.ok(!info.kept.some(function (s) { return Math.abs(s.bpm - 120) < 0.05; }));
+  assert.strictEqual(info.text, "BPM 60");
 });
 
-check("刚好满一小节的段要保留（阈值是 ≥ 1，不是 > 1）", function () {
+check("#MEASURE 1/64 + 极低 BPM 的短段被过滤", function () {
+  // IR-style gimmick: a 1/64 bar at BPM 5 lasts 0.75s but is only
+  // 0.0625 quarter-note beats, so it must not enter the range.
+  const data = parse(
+    "1111,\n#MEASURE 1/64\n#BPMCHANGE 5\n1,\n#MEASURE 4/4\n#BPMCHANGE 120\n1111,",
+    120
+  );
+  const info = bpm.displayBpmFromPieces(data.bpmTimeline);
+  const slow = info.dropped.find(function (s) { return Math.abs(s.bpm - 5) < 0.05; });
+  assert.ok(slow, "BPM 5 should be dropped, dropped=" +
+    JSON.stringify(info.dropped.map(function (s) { return { bpm: s.bpm, beats: s.quarterBeats }; })));
+  nearly(slow.quarterBeats, 0.0625);
+  assert.ok(info.kept.every(function (s) { return Math.abs(s.bpm - 120) < 0.05; }));
+  assert.strictEqual(info.text, "BPM 120");
+});
+
+check("#MEASURE 1/4 的一拍段被过滤", function () {
+  const data = parse(
+    "1111,\n#MEASURE 1/4\n#BPMCHANGE 200\n1,\n#MEASURE 4/4\n#BPMCHANGE 160\n1111,",
+    160
+  );
+  const info = bpm.displayBpmFromPieces(data.bpmTimeline);
+  const short = info.dropped.find(function (s) { return Math.abs(s.bpm - 200) < 0.05; });
+  assert.ok(short, "BPM 200 (one 1/4 bar) should be dropped");
+  nearly(short.quarterBeats, 1);
+  assert.ok(info.kept.every(function (s) { return Math.abs(s.bpm - 160) < 0.05; }));
+  assert.strictEqual(info.text, "BPM 160");
+});
+
+check("恰好 4 拍的段要保留（阈值是 ≥ 4，不是 > 4）", function () {
   const data = parse("1111,", 120);
   const info = bpm.displayBpmFromPieces(data.bpmTimeline);
-  nearly(info.segments[0].measureUnits, 1);
+  nearly(info.segments[0].quarterBeats, 4);
   assert.strictEqual(info.kept.length, 1);
   assert.strictEqual(info.text, "BPM 120");
+
+  // Same boundary as raw pieces, not framed as "one 4/4 measure".
+  const pieces = [{ t: 0, duration: 1.5, bpm: 160, beats: 2 }];
+  const fromPieces = bpm.displayBpmFromPieces(pieces);
+  nearly(fromPieces.kept[0].quarterBeats, 4);
+  assert.strictEqual(fromPieces.text, "BPM 160");
 });
 
 check("相邻且 BPM 相同的 #BPMCHANGE 会合并成一段", function () {
   const data = parse("#BPMCHANGE 180\n1111,\n#BPMCHANGE 180\n1111,", 180);
   const segs = bpm.mergeBpmSegments(data.bpmTimeline);
   assert.strictEqual(segs.length, 1);
-  nearly(segs[0].measureUnits, 2);
+  nearly(segs[0].quarterBeats, 8);
   assert.strictEqual(bpm.formatDisplayBpm(data), "BPM 180");
 });
 
@@ -185,17 +212,15 @@ check("--measures 裁切后时间线跟着裁，标题 BPM 只看选中的段", 
 });
 
 check("纯函数：手写 pieces 与 TJA 解析结果一致（短暂低速）", function () {
-  // 4/4 @160: 2 measures (3s), 2 beats @40 (3s wall / 0.5 measures), 2 measures @160 (3s).
+  // 4/4 @160: 2 measures (8 beats / 3s), 2 beats @40 (3s wall), 2 measures @160.
   const pieces = [
     { t: 0, duration: 3, bpm: 160, beats: 4 },
     { t: 3, duration: 3, bpm: 40, beats: 4 },
     { t: 6, duration: 3, bpm: 160, beats: 4 },
   ];
-  // wait: 2 measures at 160 is 2 * 4 * 60/160 = 3s yes.
-  // 2 beats at 40 is 2 * 60/40 = 3s, units = 2/4 = 0.5 yes.
   const info = bpm.displayBpmFromPieces(pieces);
   assert.strictEqual(info.text, "BPM 160");
-  nearly(info.dropped[0].measureUnits, 0.5);
+  nearly(info.dropped[0].quarterBeats, 2);
 });
 
 console.log("titlebar-bpm: " + passed + " passed");

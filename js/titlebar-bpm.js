@@ -6,22 +6,19 @@
  *      A segment may span many measures. Adjacent #BPMCHANGE with the
  *      same value are merged. Mid-measure changes are their own pieces;
  *      we never count TJA lines.
- *   2. Drop any segment whose duration is shorter than one measure at
- *      that segment's own BPM and #MEASURE.
- *   3. If #MEASURE changes inside a constant-BPM segment, convert each
- *      piece to measure-units (duration / (beats × 60 / BPM)) and sum
- *      them. Keep the segment when the sum is ≥ 1. Do not use a single
- *      "last" or "longest" time signature as a one-shot threshold.
- *   4. Of the segments that remain, show min–max. One distinct value
+ *   2. Keep a segment only if it lasts at least 4 quarter-note beats:
+ *        quarterBeats = duration × BPM / 60
+ *      A quarter note is one beat. #MEASURE does not enter this.
+ *   3. Of the segments that remain, show min–max. One distinct value
  *      (even if that BPM appears in several non-adjacent segments)
  *      is written as a single number.
- *   5. If nothing remains, use the BPM whose total duration (summed
+ *   4. If nothing remains, use the BPM whose total duration (summed
  *      across non-adjacent pieces, before the filter) is longest. Ties
  *      go to the one that appears first.
  *
  * Input pieces come from the parser's `bpmTimeline`:
- *   { t, duration, bpm, beats }  where `beats` is quarter-note beats in
- *   the current time signature, i.e. (MEASURE.num / MEASURE.den) × 4.
+ *   { t, duration, bpm }  (a `beats` time-signature field may also be
+ *   present; the filter ignores it).
  *
  * Works in the browser (window.TitleBarBpm) and in Node (module.exports).
  */
@@ -32,26 +29,24 @@
   "use strict";
 
   const BPM_EQ = 0.05;
-  const UNIT_EPS = 1e-9;
+  const BEAT_EPS = 1e-9;
+  const MIN_BEATS = 4;
 
   function almostEqualBpm(a, b) {
     return Math.abs(a - b) <= BPM_EQ;
   }
 
-  /** duration / (beats × 60 / bpm) */
-  function measureUnits(piece) {
-    const beats = +piece.beats;
+  /** Quarter-note beats in a piece or merged segment: duration × BPM / 60. */
+  function quarterBeats(piece) {
     const bpm = +piece.bpm;
     const dur = +piece.duration;
-    if (!isFinite(beats) || beats <= 0 || !isFinite(bpm) || bpm <= 0 || !isFinite(dur) || dur <= 0) {
-      return 0;
-    }
-    return dur * bpm / (beats * 60);
+    if (!isFinite(bpm) || bpm <= 0 || !isFinite(dur) || dur <= 0) return 0;
+    return dur * bpm / 60;
   }
 
   /**
    * Merge adjacent pieces that share the same BPM (time signature may
-   * change mid-segment; pieces are kept so measure-units can be summed).
+   * change mid-segment; it does not affect the 4-beat filter).
    */
   function mergeBpmSegments(pieces) {
     const src = Array.isArray(pieces) ? pieces : [];
@@ -71,14 +66,14 @@
       if (last && almostEqualBpm(last.bpm, piece.bpm)) {
         last.duration += piece.duration;
         last.pieces.push(piece);
-        last.measureUnits += measureUnits(piece);
+        last.quarterBeats = quarterBeats(last);
       } else {
         segs.push({
           t: piece.t,
           duration: piece.duration,
           bpm: piece.bpm,
           pieces: [piece],
-          measureUnits: measureUnits(piece),
+          quarterBeats: quarterBeats(piece),
         });
       }
     }
@@ -87,7 +82,7 @@
 
   function keepLongEnough(segments) {
     return (segments || []).filter(function (s) {
-      return s.measureUnits >= 1 - UNIT_EPS;
+      return s.quarterBeats >= MIN_BEATS - BEAT_EPS;
     });
   }
 
@@ -135,7 +130,13 @@
     let fallback = false;
     if (!used.length) {
       const bpm = longestTotalBpm(segs);
-      used = [{ t: segs[0].t, duration: segs.reduce(function (n, s) { return n + (almostEqualBpm(s.bpm, bpm) ? s.duration : 0); }, 0), bpm: bpm, pieces: [], measureUnits: 0 }];
+      used = [{
+        t: segs[0].t,
+        duration: segs.reduce(function (n, s) { return n + (almostEqualBpm(s.bpm, bpm) ? s.duration : 0); }, 0),
+        bpm: bpm,
+        pieces: [],
+        quarterBeats: 0,
+      }];
       fallback = true;
     }
     let lo = Infinity, hi = -Infinity;
@@ -171,7 +172,8 @@
 
   return {
     BPM_EQ: BPM_EQ,
-    measureUnits: measureUnits,
+    MIN_BEATS: MIN_BEATS,
+    quarterBeats: quarterBeats,
     mergeBpmSegments: mergeBpmSegments,
     keepLongEnough: keepLongEnough,
     longestTotalBpm: longestTotalBpm,

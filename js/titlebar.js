@@ -31,13 +31,27 @@
     return h.title || data.song || h.titleja || h.titlezh || h.titleen || "";
   }
 
+  function displayTechnique(name) {
+    if (window.TaikoParser && typeof TaikoParser.displayTechnique === "function") {
+      return TaikoParser.displayTechnique(name);
+    }
+    const s = String(name == null ? "" : name).trim();
+    if (s === "半换A" || s === "半换B" || s === "半换a" || s === "半换b") return "半换";
+    return s || DEFAULT_TECHNIQUE;
+  }
+
   function techniqueOf() {
-    if (window.TITLEBAR && window.TITLEBAR.technique) return String(window.TITLEBAR.technique);
-    const api = window.taikoAnim;
-    if (api && api.state && api.state.technique) return api.state.technique;
-    const data = api && api.raw;
-    if (data && data.technique) return String(data.technique);
-    return DEFAULT_TECHNIQUE;
+    let raw = "";
+    if (window.TITLEBAR && window.TITLEBAR.technique) raw = String(window.TITLEBAR.technique);
+    else {
+      const api = window.taikoAnim;
+      if (api && api.state && api.state.technique) raw = api.state.technique;
+      else {
+        const data = api && api.raw;
+        if (data && data.technique) raw = String(data.technique);
+      }
+    }
+    return displayTechnique(raw || DEFAULT_TECHNIQUE);
   }
 
   function rateOf() {

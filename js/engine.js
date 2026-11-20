@@ -2666,7 +2666,7 @@ const state = {
   scroll: pickNum(params.get("scroll"), 1, 0.5, 8),
   route: ["inner", "outer", "straight"].includes(params.get("route")) ? params.get("route") : "data",
   labels: params.get("labels") === "1",                 // R/L 调试标签：?labels=1 打开
-  technique: params.get("technique") || "全换",          // 手法：全换 / 半换A / 半换B / 炒菜（自动手顺 PR 再接真实选择）
+  technique: params.get("technique") || "全换",          // 标题栏：全换 / 半换 / 炒菜（半换 A/B 都写「半换」）
   lastTs: null,
 };
 // 捏点高度随手的模式变（图片手露到手腕，矢量手裁到指关节）
@@ -2854,7 +2854,13 @@ function setRate(r) {
   if (typeof window.updateTitleBar === "function") window.updateTitleBar();
 }
 function setTechnique(name) {
-  state.technique = name || "全换";
+  let v = name || "全换";
+  if (window.TaikoParser && typeof TaikoParser.displayTechnique === "function") {
+    v = TaikoParser.displayTechnique(v);
+  } else if (v === "半换A" || v === "半换B" || v === "半换a" || v === "半换b") {
+    v = "半换";
+  }
+  state.technique = v || "全换";
   if (typeof window.updateTitleBar === "function") window.updateTitleBar();
 }
 function seek(t) { state.now = Math.max(state.start, Math.min(state.end, t)); renderFrame(state.now); }

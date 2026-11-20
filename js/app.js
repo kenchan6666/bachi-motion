@@ -39,6 +39,7 @@
     jsonPanel.hidden = !suyue;
     modeZhuren.setAttribute("aria-pressed", String(!suyue));
     modeSuyue.setAttribute("aria-pressed", String(suyue));
+    setStickingLocked(suyue);
   }
 
   function currentMode() {
@@ -88,39 +89,92 @@
     });
   }
 
+  const ROLL_HINTS = {
+    "不滚奏": "全部单打，按手法左右交替",
+    "自动滚奏": "12 分 1-2，16／24 分整串 2-2",
+    "24分滚奏": "只滚 24 分，每段 1-2；12／16 分照常单打",
+  };
+
+  function currentTechnique() {
+    const el = $("techniqueSelect");
+    return window.TaikoParser ? TaikoParser.normTechnique(el && el.value) : "全换";
+  }
+
+  function setTechniqueControl(name) {
+    const el = $("techniqueSelect");
+    if (!el) return;
+    const v = window.TaikoParser ? TaikoParser.normTechnique(name) : (name || "全换");
+    el.value = v;
+  }
+
+  function currentHand() {
+    const on = document.querySelector("#handChips [data-hand].on");
+    return window.TaikoParser ? TaikoParser.normDominant(on && on.dataset.hand) : "R";
+  }
+
+  function setHandControl(hand) {
+    const v = window.TaikoParser ? TaikoParser.normDominant(hand) : (hand || "R");
+    document.querySelectorAll("#handChips [data-hand]").forEach((b) => {
+      const on = b.dataset.hand === v;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", String(on));
+    });
+  }
+
+  function currentRoll() {
+    const on = document.querySelector("#rollSeg [data-roll].on");
+    return window.TaikoParser ? TaikoParser.normRoll(on && on.dataset.roll) : "自动滚奏";
+  }
+
+  function setRollControl(roll) {
+    const v = window.TaikoParser ? TaikoParser.normRoll(roll) : (roll || "自动滚奏");
+    document.querySelectorAll("#rollSeg [data-roll]").forEach((b) => {
+      const on = b.dataset.roll === v;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", String(on));
+    });
+    const hint = $("rollHint");
+    if (hint) hint.textContent = ROLL_HINTS[v] || ROLL_HINTS["自动滚奏"];
+  }
+
+  function setStickingLocked(locked) {
+    const tech = $("techniqueSelect");
+    const seg = $("rollSeg");
+    const lockHint = $("autoStickingLock");
+    if (tech) tech.disabled = !!locked;
+    document.querySelectorAll("#handChips [data-hand]").forEach((b) => { b.disabled = !!locked; });
+    document.querySelectorAll("#rollSeg [data-roll]").forEach((b) => { b.disabled = !!locked; });
+    if (seg) seg.classList.toggle("is-locked", !!locked);
+    if (lockHint) lockHint.hidden = !locked;
+  }
+
   function parseOpts() {
     const opts = {};
     if (pageParams.get("course")) opts.course = pageParams.get("course");
     if (pageParams.get("measures")) opts.measures = pageParams.get("measures");
     opts.bigNote = currentBigNote();
+    opts.手法 = currentTechnique();
+    opts.惯用手 = currentHand();
+    opts.滚奏 = currentRoll();
     return opts;
   }
 
   function buildData() {
+    const opts = parseOpts();
     if (currentMode() === "suyue") {
       const raw = jsonInput.value.trim();
       if (!raw) throw new Error("请先贴上溯月的手顺 JSON，或切回「主人」模式用 TJA 自动生成手顺");
-      const opts = parseOpts();
       const tja = tjaInput.value.trim();
-      if (tja) {
-        try {
-          const base = TaikoParser.eventsFromTja(tja, opts);
-          opts.chartMeasures = base.chartMeasures;
-          opts.timeShift = base.timeShift || 0;
-          opts.rangeStart = base.rangeStart;
-          opts.rangeEnd = base.rangeEnd;
-          opts.song = base.song;
-          opts.headers = base.headers;
-          opts.bpm = base.bpm;
-          if (base.course) opts.course = base.course;
-          if (base.bpmTimeline) opts.bpmTimeline = base.bpmTimeline;
-        } catch (err) { /* 手顺 can still load without a companion TJA */ }
+      setStickingLocked(true);
+      if (typeof TaikoParser.chartFromTjaAndHands === "function") {
+        return TaikoParser.chartFromTjaAndHands(tja, raw, opts);
       }
       return TaikoParser.loadHandJson(raw, opts);
     }
+    setStickingLocked(false);
     const raw = tjaInput.value.trim();
     if (!raw) throw new Error("请先在输入框里贴一段 TJA 谱面");
-    return TaikoParser.eventsFromTja(raw, parseOpts());
+    return TaikoParser.eventsFromTja(raw, opts);
   }
 
   function generate(play) {
@@ -136,6 +190,9 @@
       return null;
     }
     startEngine(data, { mode: currentMode() });
+    if (typeof setTechnique === "function") {
+      setTechnique(data.technique || (data.stickingLocked ? "全换" : (window.TaikoParser ? TaikoParser.displayTechnique(currentTechnique()) : "全换")));
+    }
     updateHeading(data);
     seek(state.start);
     if (play) setPlaying(true);
@@ -275,11 +332,43 @@
     });
   }
 
+  const techniqueSelect = $("techniqueSelect");
+  if (techniqueSelect) {
+    techniqueSelect.addEventListener("change", () => {
+      if (currentMode() === "suyue") return;
+      regenerateKeepTime();
+    });
+  }
+  const handChips = $("handChips");
+  if (handChips) {
+    handChips.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-hand]");
+      if (!btn || btn.disabled) return;
+      setHandControl(btn.dataset.hand);
+      if (currentMode() === "suyue") return;
+      regenerateKeepTime();
+    });
+  }
+  const rollSeg = $("rollSeg");
+  if (rollSeg) {
+    rollSeg.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-roll]");
+      if (!btn || btn.disabled) return;
+      setRollControl(btn.dataset.roll);
+      if (currentMode() === "suyue") return;
+      regenerateKeepTime();
+    });
+  }
+
   async function boot() {
     if (pageParams.get("mode") === "suyue") setMode("suyue");
     else setMode("zhuren");
 
     setBigNote(pageParams.get("bignote") || "single");
+    setTechniqueControl(pageParams.get("technique") || pageParams.get("手法") || "全换");
+    setHandControl(pageParams.get("hand") || pageParams.get("惯用手") || "R");
+    setRollControl(pageParams.get("roll") || pageParams.get("滚奏") || "自动滚奏");
+    setStickingLocked(currentMode() === "suyue");
 
     syncChartPicker(DEFAULT_CHART);
 

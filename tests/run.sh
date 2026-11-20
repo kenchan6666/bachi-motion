@@ -37,6 +37,10 @@ echo "== auto-sticking (55 cases from suyue@ebd21a0) =="
 node tests/sticking.test.js
 echo
 
+echo "== auto-sticking engine integration =="
+node tests/auto-sticking-engine.test.js
+echo
+
 echo "== roll-dot cache (cached 720-sample pos must match uncached) =="
 node tests/roll-dot-cache.test.js
 echo

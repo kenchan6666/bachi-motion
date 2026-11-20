@@ -449,6 +449,52 @@
     background-repeat: no-repeat;
     background-position: right 12px center;
   }
+  select.pretty:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .chip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+  }
+  .seg {
+    display: flex;
+    width: 100%;
+    border: 1.5px solid var(--line-strong);
+    border-radius: var(--radius-pill);
+    background: var(--btn);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+  .seg button {
+    appearance: none;
+    flex: 1 1 0;
+    border: 0;
+    border-right: 1.5px solid var(--line);
+    background: transparent;
+    color: var(--ink);
+    padding: 6px 8px;
+    font-size: 13px;
+    font-weight: 500;
+    line-height: 1.3;
+    min-width: 0;
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover { background: #F3EBE0; }
+  .seg button.on {
+    background: var(--ink-deep);
+    color: var(--paper);
+    font-weight: 700;
+  }
+  .seg button:disabled {
+    cursor: not-allowed;
+  }
+  .seg.is-locked {
+    opacity: 0.45;
+    pointer-events: none;
+  }
+  #autoStickingLock { margin-top: 6px; }
   textarea {
     width: 100%;
     min-height: 110px;
@@ -697,10 +743,38 @@
           <div>
             <p class="block-label">手顺模式</p>
             <div class="chips">
-              <button type="button" class="chip on" id="modeZhuren" aria-pressed="true">主人（TJA → 1-1）</button>
+              <button type="button" class="chip on" id="modeZhuren" aria-pressed="true">主人（TJA → 自动手顺）</button>
               <button type="button" class="chip" id="modeSuyue" aria-pressed="false">溯月（手顺 JSON）</button>
             </div>
             <p class="hint" style="margin-top:6px">选「滚奏演示」会自动切到溯月模式，并同时载入配套手顺 JSON。</p>
+          </div>
+
+          <div id="autoStickingControls">
+            <div>
+              <p class="block-label">手法</p>
+              <select id="techniqueSelect" class="pretty" aria-label="手法">
+                <option value="全换" selected>全换</option>
+                <option value="半换A">半换A</option>
+                <option value="半换B">半换B</option>
+                <option value="炒菜">炒菜</option>
+              </select>
+            </div>
+            <div style="margin-top:12px">
+              <p class="block-label">惯用手</p>
+              <div class="chips" id="handChips" role="radiogroup" aria-label="惯用手">
+                <button type="button" class="chip on" data-hand="R" role="radio" aria-checked="true">R</button>
+                <button type="button" class="chip" data-hand="L" role="radio" aria-checked="false">L</button>
+              </div>
+            </div>
+            <div style="margin-top:12px">
+              <div class="seg" id="rollSeg" role="radiogroup" aria-label="滚奏">
+                <button type="button" data-roll="不滚奏" role="radio" aria-checked="false">不滚奏</button>
+                <button type="button" class="on" data-roll="自动滚奏" role="radio" aria-checked="true">自动滚奏</button>
+                <button type="button" data-roll="24分滚奏" role="radio" aria-checked="false">24 分滚奏</button>
+              </div>
+              <p class="hint" id="rollHint" style="margin-top:6px">12 分 1-2，16／24 分整串 2-2</p>
+            </div>
+            <p class="hint" id="autoStickingLock" hidden>已用手顺 JSON</p>
           </div>
 
           <div>
@@ -746,7 +820,7 @@ LEVEL:6
 #END
 </textarea>
           <div id="jsonPanel" hidden>
-            <p class="hint">覆盖自动 1-1，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json</p>
+            <p class="hint">覆盖自动手顺，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json</p>
             <textarea id="jsonInput" spellcheck="false" aria-label="手顺 JSON" placeholder='{ "events": [ { "t": 0, "hand": "R", "face": "don", "grip": "roll" } ] }'></textarea>
           </div>
           <p class="hint">谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
@@ -759,6 +833,7 @@ LEVEL:6
   </div>
 </div>
 
+<script src="js/sticking.js"></script>
 <script src="js/parser.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/titlebar-bpm.js"></script>

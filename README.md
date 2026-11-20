@@ -5,15 +5,15 @@
 主人模式：贴谱面 → 点「生成 / 播放」→ 按 1-1 手顺看动画。  
 溯月模式：导入她写的手顺 JSON（滚奏、插音、金色光圈），覆盖自动手顺。
 
-**仓库名 / Pages 项目名是 `bachi-motion`。** 页面标题是「溯溯的鼓棒」。
+**仓库名 / Pages 项目名是 `bachi-motion`。** 主标题是 bachi-motion，「溯溯的鼓棒」做副标题。
 
 打开方式：用浏览器直接打开 `index.html`，或在本目录起一个静态服务器。手图是相对路径，`file://` 也能显示；若要用 `?sample=` 拉示例谱，需要 http。
 
 ## 网页怎么用
 
-1. 左边默认是「主人」模式。输入框预填的是溯溯的练习谱2（`samples/suyue_demo2_8bun16bun.tja`，8 分散音 + 16 分三连/五连）。也可以打开 TJA，或用 `?sample=suyue_demo` 换成第一张练习谱。
-2. 点 **生成 / 播放**。慢放和谱面流速滑块跟以前一样，可以随时改。
-3. 需要讲滚奏 / 插音时，切到「溯月」模式，贴或打开手顺 JSON。格式见 `samples/handorder.example.json`。
+1. 右边（手机上在鼓的上方）有谱面下拉：练习谱2（默认，`samples/suyue_demo2_8bun16bun.tja`，8 分散音 + 16 分三连/五连）、练习谱、分音测试、滚奏演示，以及「自定义…」。选内置谱会立刻生成并可以播放。
+2. 播放、重来、循环、慢放和谱面流速都在播放条里，可以随时改。贴自己的谱或打开文件时，选「自定义…」或到「谱面与设置」里操作，再点 **生成 / 播放**。
+3. 需要讲滚奏 / 插音时，切到「溯月」模式，贴或打开手顺 JSON。格式见 `samples/handorder.example.json`。选「滚奏演示」会自动载入配套手顺并切到溯月模式；也可用 `?sample=suyue_roll_demo`。
 
 ### 这版支持的 TJA
 
@@ -59,6 +59,7 @@
 | `?sample=suyue_demo2_8bun16bun` | 预载练习谱2（默认展示谱，输入框也预填了这一张） |
 | `?sample=suyue_demo` | 预载第一张练习谱 `samples/suyue_demo.tja` |
 | `?sample=suyue_division_test` | 预载 4–48 分音测试谱 |
+| `?sample=suyue_roll_demo` | 预载滚奏演示谱，并同时载入配套手顺 JSON，进入溯月模式 |
 | `?tja=...` | 把一整段 TJA URL 编码后直接预载 |
 | `?course=Oni` | 多 COURSE 时选难度 |
 | `?measures=119-120` | 只播这一段小节（从 1 起算，含两端） |
@@ -159,7 +160,7 @@ npx --yes serve -p 8080   # 或任意静态服务器
 ## 目录
 
 ```
-index.html              页面（标题：溯溯的鼓棒）
+index.html              页面（主标题 bachi-motion，副标题：溯溯的鼓棒）
 js/parser.js            TJA 解析 + 1-1 手顺
 js/engine.js            动画引擎（renderAt / 实时时钟共用同一套绘制）
 js/app.js               输入框、模式切换、URL 参数
@@ -167,6 +168,8 @@ assets/                 仅手 PNG、锚点、合成的 don/ka
 samples/suyue_demo2_8bun16bun.tja  默认展示谱：练习谱2（8 分散音 + 16 分三连/五连）
 samples/suyue_demo.tja              练习谱1（仍打包）
 samples/suyue_division_test.tja     4/8/12/16/24/32/48 分音测试谱
+samples/suyue_roll_demo.tja         滚奏演示（四种滚奏 + 24 分 1-2-1）
+samples/suyue_roll_demo.handorder.json  滚奏演示配套手顺（选此项会自动进入溯月模式）
 samples/handorder.example.json
 render.js               手元 mp4 命令行
 package.json

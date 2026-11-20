@@ -1513,8 +1513,12 @@ function renderFrame(now) {
   if (state.labels) s += renderLabels(events, now);   // R/L 调试标签，默认关
   els.dyn.innerHTML = s;
   const cur = [...events].reverse().find((e) => e.t <= now + 1e-9);
-  $("clock").textContent = `t = ${now.toFixed(3)} s　慢放 ${state.rate}×　流速 ${state.scroll}×`;
-  $("src").textContent = cur ? `上一个音：#${cur.i + 1} ${cur.src} ${cur.both ? "双手" : cur.hand} ${cur.face === "don" ? (cur.big ? "大咚" : "咚") : (cur.big ? "大咔" : "咔")} ${cur.grip === "roll" ? "滚奏(捏)" : "单击(握)"}${cur.inserted ? " ★插音" : ""}` : "";
+  const clockEl = $("clock");
+  if (clockEl) clockEl.textContent = `t = ${Math.max(0, now).toFixed(3)} s`;
+  const clockEnd = $("clockEnd");
+  if (clockEnd) clockEnd.textContent = `${Math.max(0, state.end).toFixed(2)} s`;
+  const srcEl = $("src");
+  if (srcEl) srcEl.textContent = cur ? `上一个音：#${cur.i + 1} ${cur.src} ${cur.both ? "双手" : cur.hand} ${cur.face === "don" ? (cur.big ? "大咚" : "咚") : (cur.big ? "大咔" : "咔")} ${cur.grip === "roll" ? "滚奏(捏)" : "单击(握)"}${cur.inserted ? " ★插音" : ""}` : "";
   $("scrub").value = String((now - state.start) / (state.end - state.start));
 }
 
@@ -1574,7 +1578,21 @@ window.renderAt = renderAt;
 Object.defineProperty(window, "chartDuration", { get() { return state.end; }, configurable: true });
 Object.defineProperty(window, "chartStart", { get() { return state.start; }, configurable: true });
 
-function setPlaying(p) { state.playing = p; $("btnPlay").textContent = p ? "⏸ 暂停" : "▶ 播放"; }
+function setPlaying(p) {
+  state.playing = p;
+  const btn = $("btnPlay");
+  if (!btn) return;
+  btn.setAttribute("aria-label", p ? "暂停" : "播放");
+  btn.classList.toggle("playing", p);
+  const iconPlay = btn.querySelector(".icon-play");
+  const iconPause = btn.querySelector(".icon-pause");
+  if (iconPlay && iconPause) {
+    iconPlay.toggleAttribute("hidden", p);
+    iconPause.toggleAttribute("hidden", !p);
+  } else if (!btn.querySelector("svg")) {
+    btn.textContent = p ? "⏸ 暂停" : "▶ 播放";
+  }
+}
 function setRate(r) {
   state.rate = r;
   document.querySelectorAll("[data-rate]").forEach((b) => b.classList.toggle("on", +b.dataset.rate === r));
@@ -1597,13 +1615,21 @@ function setData(data) {
 function bindControls() {
   $("btnPlay").onclick = () => setPlaying(!state.playing);
   $("btnRestart").onclick = () => { seek(state.start); setPlaying(true); };
-  $("btnLoop").onclick = () => { state.loop = !state.loop; $("btnLoop").classList.toggle("on", state.loop); };
+  $("btnLoop").onclick = () => {
+    state.loop = !state.loop;
+    const loopBtn = $("btnLoop");
+    loopBtn.classList.toggle("on", state.loop);
+    loopBtn.setAttribute("aria-pressed", String(state.loop));
+    loopBtn.setAttribute("aria-label", state.loop ? "循环（开）" : "循环（关）");
+  };
   document.querySelectorAll("[data-rate]").forEach((b) => b.onclick = () => setRate(+b.dataset.rate));
   $("scroll").oninput = (e) => { state.scroll = +e.target.value; $("scrollVal").textContent = state.scroll + "×"; };
   $("route").onchange = (e) => { state.route = e.target.value; state.tracks = buildHandTracks(state.events, state.route); };
   $("scrub").oninput = (e) => seek(state.start + (+e.target.value) * (state.end - state.start));
   setRate(state.rate); setPlaying(state.playing);
   $("btnLoop").classList.toggle("on", state.loop);
+  $("btnLoop").setAttribute("aria-pressed", String(state.loop));
+  $("btnLoop").setAttribute("aria-label", state.loop ? "循环（开）" : "循环（关）");
   $("scroll").value = state.scroll; $("scrollVal").textContent = state.scroll + "×";
   $("route").value = state.route;
   $("labels").checked = state.labels;

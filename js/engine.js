@@ -44,18 +44,18 @@ const CONFIG = {
   SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
   // 棒尖比击中位置高出的像素（按同一手上一下间隔查表）
-  LIFT_PX_DENSE: 36,    // 密串/纯 16 分滚串 ≲0.1s（普通散音 115 的三分之一）
+  LIFT_PX_DENSE: 36,    // 密串/纯 16 分滚串 ≲0.1s
   LIFT_PX_LIGHT: 140,   // 8+16 复合轻点兜底（实际按同组重音 × 0.75 ≈ 141px）
   LIFT_PX_8TH: 85,      // 纯 8 分连串 ~0.1–0.2s（后面不接 16 分对）
-  LIFT_PX_SPARSE: 115,  // 普通散音 ~0.2–0.4s
-  LIFT_PX_LONG: 180,    // 长散音 / 休息后第一下 ≳0.4s
+  LIFT_PX_SPARSE: 130,  // 普通散音 ~0.2–0.4s
+  LIFT_PX_LONG: 185,    // 长散音 / 休息后第一下 ≳0.4s
   LIFT_PX_COMPOUND_HEAVY: 188, // 复合重音（8 分后紧跟 16 分密对），旧版幅度 185–190
   LIFT_COMPOUND_LIGHT_RATIO: 0.75, // 复合轻点 = 同组重音 × 0.75 ≈ 141px，重轻比 ≈ 1.33
-  LIFT_PX_SLOW: 115,    // 兼容旧调用：等于普通散音
+  LIFT_PX_SLOW: 130,    // 兼容旧调用：等于普通散音
   LIFT_PX_FAST: 36,     // 兼容旧调用：等于密串
   LIFT_PX_FAST_MIN: 36,
   LIFT_PX_WINDUP: 180,  // 不再用于「密串前预抬」；保留键以免旧调用读到 undefined
-  LIFT_PX: 115,         // 兼容旧调用：等于普通散音
+  LIFT_PX: 130,         // 兼容旧调用：等于普通散音
   KA_LIFT_PX: 14,       // 咔举起：在接触位上再往上送；与快串同量级，避免回弹跨度过大
   ROLL_LIFT_PX: 150,    // 滚奏大抬回：任意一帧都能看出一只手低（在打）、一只手高（抬起）
   LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
@@ -334,7 +334,7 @@ function kaMaxLiftPx(hand) {
 /** 单击举起方向。咚、咔走同一张 gap→px 表，从待机位起抬；咔高度封顶至谱面条下沿留 10px。 */
 function liftVec(hand, face, heightPx) {
   const H = GEOM.hands[hand];
-  const refH = CONFIG.LIFT_PX_SPARSE || CONFIG.LIFT_PX_SLOW || 115;
+  const refH = CONFIG.LIFT_PX_SPARSE || CONFIG.LIFT_PX_SLOW || 130;
   const h = isFinite(heightPx) ? heightPx : refH;
   if (face === "ka") {
     const hCap = Math.min(h, kaMaxLiftPx(hand));
@@ -847,7 +847,7 @@ function singleTimeGroups(evs) {
 }
 
 /** 8+16 复合组：前面空隙 ≥8 分（>密串阈值），后面紧跟 1–2 个 16 分间隔（2–3 颗如 1120）；
- *  若紧跟 ≥3 个连续密间隔（整段 16 分滚串），则是段首，走普通查表（85/115），不标成复合。 */
+ *  若紧跟 ≥3 个连续密间隔（整段 16 分滚串），则是段首，走普通查表（85/130），不标成复合。 */
 function compoundLightRunAt(groups, k) {
   if (k < 0 || k + 1 >= groups.length) return 0;
   const dense = CONFIG.LIFT_DT_DENSE || 0.10;
@@ -1692,7 +1692,7 @@ function poseAt(hand, track, t, opts = {}) {
 /** 单击某一面（咚或咔）的接触/举起姿势。咔仍是整只手连棒往斜上外侧送，不改打法。 */
 function composeSingleByFace(hand, face, lift, bend, scale) {
   // scale：新代码传抬手像素（15–188）；旧的 0–1 密度系数仍按满幅散音折算。
-  const slow = CONFIG.LIFT_PX_SPARSE || CONFIG.LIFT_PX_SLOW || CONFIG.LIFT_PX || 115;
+  const slow = CONFIG.LIFT_PX_SPARSE || CONFIG.LIFT_PX_SLOW || CONFIG.LIFT_PX || 130;
   const heightPx = isFinite(scale) ? (scale <= 1.5 ? Math.max(0, scale) * slow : scale) : slow;
   const hit = singleContactPose(hand, face);
   const L = V.len(V.sub(hit.tip, hit.grip));

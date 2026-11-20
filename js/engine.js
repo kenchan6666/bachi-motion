@@ -710,6 +710,59 @@ function reboundMinDur(hand, face, toIdleFace) {
   return Math.max(need, 1e-4);
 }
 
+function tipDistIdleToIdle(hand, fromFace, toFace) {
+  const a = singleIdlePose(hand, 0, fromFace === "ka" ? "ka" : "don");
+  const b = singleIdlePose(hand, 0, toFace === "ka" ? "ka" : "don");
+  return V.len(V.sub(a.tip, b.tip));
+}
+
+/** 存在 REST 窗（上一击后 0.35s 到下一击前 0.33s）时，长休止中间必须停在鼓心倒V。 */
+function longRestWindow(tPrev, tNext) {
+  const t0 = (isFinite(tPrev) ? tPrev : -9) + REST_AFTER;
+  const t1 = (isFinite(tNext) ? tNext : 99) - REST_BEFORE;
+  return t1 > t0 + 1e-6 ? { t0, t1 } : null;
+}
+
+/**
+ * 长休止一律收回鼓心倒V；若下一击是咔，休止窗结束后再在待机高度横移到咔预备位，然后按表抬手。
+ * 短间隔（没有 REST 窗）仍在回弹阶段直接到下一击预备位，避免把换面挤进抬手窗。
+ */
+function restParkPlan(hand, tPrev, tHit, nextFace) {
+  const approachFace = nextFace === "ka" ? "ka" : "don";
+  const restW = longRestWindow(tPrev, tHit);
+  if (!restW) {
+    return { park: false, restFace: approachFace, approachFace, tSlideStart: Infinity, tSlideEnd: -Infinity, slideDist: 0, slideDur: 0, tReady: -Infinity };
+  }
+  if (approachFace === "don") {
+    return { park: true, restFace: "don", approachFace, tSlideStart: Infinity, tSlideEnd: -Infinity, slideDist: 0, slideDur: 0, tReady: -Infinity };
+  }
+  const slideDist = tipDistIdleToIdle(hand, "don", "ka");
+  const slideDur = travelDur(slideDist, 6 / 60, 5 / 60, 0.10);
+  const tSlideStart = restW.t1;
+  const tSlideEnd = tSlideStart + slideDur;
+  return { park: true, restFace: "don", approachFace, tSlideStart, tSlideEnd, slideDist, slideDur, tReady: tSlideEnd };
+}
+
+function parkIdleState(plan, t) {
+  if (!plan || !plan.park) {
+    const face = (plan && plan.approachFace) || "don";
+    return { idleFace: face, idleFaceFrom: face, idleBlend: 1 };
+  }
+  if (!(t >= plan.tSlideStart) || plan.slideDur < 1e-6) {
+    return { idleFace: "don", idleFaceFrom: "don", idleBlend: 1 };
+  }
+  if (t >= plan.tSlideEnd) {
+    return { idleFace: plan.approachFace, idleFaceFrom: plan.approachFace, idleBlend: 1 };
+  }
+  const s = (t - plan.tSlideStart) / plan.slideDur;
+  const u = travelEase(s, plan.slideDist, plan.slideDur);
+  return { idleFace: plan.approachFace, idleFaceFrom: "don", idleBlend: u };
+}
+
+function withParkIdle(ph, plan, t) {
+  return Object.assign(ph, parkIdleState(plan, t));
+}
+
 /** 同一只手上一下的间隔（时值/节拍拟合用）。 */
 function prevGapOf(contact) {
   if (contact && isFinite(contact.prevGap)) return contact.prevGap;
@@ -965,28 +1018,30 @@ function windupLeadClamp(tb, down, hold, up, notBefore) {
   return { tDown, tHoldStart, tUpStart, upDur: Math.max(1e-6, tHoldStart - tUpStart), holdDur: Math.max(0, tDown - tHoldStart) };
 }
 
-/** 单击接近落点：待机位停稳 → 固定窗口抬到顶（可短停）→ 加速下砸。 */
+/** 单击接近落点：长休止停鼓心倒V（下一击是咔则休止结束后横移到咔预备位）→ 固定窗口抬到顶（可短停）→ 加速下砸。 */
 function singleApproach(t, b, hand) {
   const h = hand || "R";
   const face = b.face === "ka" ? "ka" : "don";
   const tm = strikeTimes(prevGapOf(b));
   const height = liftHeightPx(b);
+  const plan = restParkPlan(h, -Infinity, b.t, face);
   const distUp = tipDistIdleToRaised(h, face, height);
   const distDown = tipDistContactToRaised(h, face, height);
   const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.10, 0.22);
   const down = downTravelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.14);
-  const w = windupLeadClamp(b.t, down, tm.hold || 0, up, -Infinity);
-  if (t >= b.t) return { lift: 0, idle: 0 };
+  const w = windupLeadClamp(b.t, down, tm.hold || 0, up, plan.tReady);
+  const idleHit = { idleFace: face, idleFaceFrom: face, idleBlend: 1 };
+  if (t >= b.t) return Object.assign({ lift: 0, idle: 0 }, idleHit);
   if (t >= w.tDown) {
     const s = (t - w.tDown) / Math.max(1e-6, down);
-    return { lift: 1 - easeInDown(s, distDown, down), idle: 0 };
+    return Object.assign({ lift: 1 - easeInDown(s, distDown, down), idle: 0 }, idleHit);
   }
-  if (t >= w.tHoldStart) return { lift: 1, idle: 0 };
+  if (t >= w.tHoldStart) return Object.assign({ lift: 1, idle: 0 }, idleHit);
   if (t >= w.tUpStart) {
     const s = (t - w.tUpStart) / w.upDur;
-    return { lift: 1, idle: 1 - travelEase(s, distUp, w.upDur) };
+    return Object.assign({ lift: 1, idle: 1 - travelEase(s, distUp, w.upDur) }, idleHit);
   }
-  return { lift: 0, idle: 1 };
+  return withParkIdle({ lift: 0, idle: 1 }, plan, t);
 }
 
 /** 单击打完：落点上留出发光的击中帧，立刻像皮球弹回预备高度（回弹≈下砸速度）。 */
@@ -1008,36 +1063,44 @@ function singleBetween(t, a, b, scale, hand) {
   const faceA = a.face === "ka" ? "ka" : "don";
   const faceB = b.face === "ka" ? "ka" : "don";
   const heightB = isFinite(scale) ? scale : liftHeightPx(b);
-  const tm = strikeFit(gap, { fromFace: a.face, toFace: b.face, hand: h, height: heightB, prevGap: prevGapOf(b) });
+  const tm0 = strikeFit(gap, { fromFace: a.face, toFace: b.face, hand: h, height: heightB, prevGap: prevGapOf(b) });
   const ta = a.t, tb = b.t;
   const zero = { x: 0, y: 0 };
-  if (t < ta + tm.hit) return { lift: 0, idle: 0, base: a.target, drift: zero };
+  const plan = restParkPlan(h, ta, tb, faceB);
+  let tm = tm0;
+  if (tm.idleMid && plan.park) {
+    const needReb = reboundMinDur(h, faceA, "don");
+    tm = Object.assign({}, tm, { rebound: Math.min(0.25, Math.max(tm.rebound, needReb)) });
+  }
+  if (t < ta + tm.hit) return withParkIdle({ lift: 0, idle: 0, base: a.target, drift: zero }, plan, t);
 
   if (tm.idleMid) {
+    const rebFace = plan.park ? "don" : faceB;
     const tRebEnd = ta + tm.hit + tm.rebound;
     const distUp = tipDistIdleToRaised(h, faceB, heightB);
     const distDown = tipDistContactToRaised(h, faceB, heightB);
     const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.10, 0.22);
     const down = downTravelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.14);
-    const w = windupLeadClamp(tb, down, tm.hold || 0, up, tRebEnd);
+    const w = windupLeadClamp(tb, down, tm.hold || 0, up, Math.max(tRebEnd, plan.tReady));
+    const idleHit = { idleFace: faceB, idleFaceFrom: faceB, idleBlend: 1 };
     if (t < tRebEnd) {
       const dur = Math.max(1e-6, tm.rebound);
       const s = (t - ta - tm.hit) / dur;
-      const dist = tipDistContactToIdle(h, faceA, faceB);
-      return { lift: 0, idle: travelEase(s, dist, dur), base: a.target, drift: zero };
+      const dist = tipDistContactToIdle(h, faceA, rebFace);
+      return withParkIdle({ lift: 0, idle: travelEase(s, dist, dur), base: a.target, drift: zero }, plan, t);
     }
     if (t < w.tUpStart) {
-      return { lift: 0, idle: 1, base: a.target, drift: zero };
+      return withParkIdle({ lift: 0, idle: 1, base: a.target, drift: zero }, plan, t);
     }
     if (t < w.tHoldStart) {
       const s = (t - w.tUpStart) / w.upDur;
-      return { lift: 1, idle: 1 - travelEase(s, distUp, w.upDur), base: b.target, drift: zero };
+      return Object.assign({ lift: 1, idle: 1 - travelEase(s, distUp, w.upDur), base: b.target, drift: zero }, idleHit);
     }
     if (t < w.tDown) {
-      return { lift: 1, idle: 0, base: b.target, drift: zero };
+      return Object.assign({ lift: 1, idle: 0, base: b.target, drift: zero }, idleHit);
     }
     const s = (t - w.tDown) / Math.max(1e-6, down);
-    return { lift: 1 - easeInDown(s, distDown, down), idle: 0, base: b.target, drift: zero };
+    return Object.assign({ lift: 1 - easeInDown(s, distDown, down), idle: 0, base: b.target, drift: zero }, idleHit);
   }
 
   const mid = V.lerp(a.target, b.target, smooth(clamp01((t - ta) / gap)));
@@ -1524,7 +1587,7 @@ function poseAt(hand, track, t, opts = {}) {
     const phase = singleApproach(t, b, hand);
     const height = liftHeightPx(b);
     lift = phase.lift; base = b.target; grip = "single"; follow = 1;
-    singleState = { idle: phase.idle, face: targetFace(hand, b.target), idleFace: targetFace(hand, b.target), scale: height, idleShift: kaIdleShift(hand, t) };
+    singleState = { idle: phase.idle, face: targetFace(hand, b.target), idleFace: phase.idleFace || "don", idleFaceFrom: phase.idleFaceFrom, idleBlend: phase.idleBlend, scale: height, idleShift: kaIdleShift(hand, t) };
   } else if (!b) {
     const phase = singleDepart(t, a, hand);
     const height = liftHeightPx(a);
@@ -1556,8 +1619,8 @@ function poseAt(hand, track, t, opts = {}) {
         faceU = t < tRebEnd ? 0 : 1;
       }
     }
-    const idleFace = tmIdleFace(a, b, height, hand);
-    singleState = { idle: phase.idle, face: faceB, faceFrom: faceA, faceTo: faceB, faceU, idleFace, scale: height, idleShift: kaIdleShift(hand, t), drift: phase.drift };
+    const idleFace = phase.idleFace || tmIdleFace(a, b, height, hand);
+    singleState = { idle: phase.idle, face: faceB, faceFrom: faceA, faceTo: faceB, faceU, idleFace, idleFaceFrom: phase.idleFaceFrom, idleBlend: phase.idleBlend, scale: height, idleShift: kaIdleShift(hand, t), drift: phase.drift };
     if (!phase.idle) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * lift);
   }
   let p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState, singleState);
@@ -1635,7 +1698,14 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
     }
     if (idleAmt > 0) {
       const idleFace = (singleState && singleState.idleFace) || "don";
-      pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift, idleFace), idleAmt);
+      const shift = singleState && singleState.idleShift;
+      let idlePose = singleIdlePose(hand, shift, idleFace);
+      const idleFrom = singleState && singleState.idleFaceFrom;
+      const idleBlend = singleState && isFinite(+singleState.idleBlend) ? clamp01(+singleState.idleBlend) : 1;
+      if (idleFrom && idleFrom !== idleFace && idleBlend < 1 - 1e-6) {
+        idlePose = lerpPose(singleIdlePose(hand, shift, idleFrom), idlePose, idleBlend);
+      }
+      pose = lerpPose(pose, idlePose, idleAmt);
     }
     return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }

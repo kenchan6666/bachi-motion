@@ -118,6 +118,10 @@ body.editor-mode .editor {
   font-weight: 500;
   white-space: nowrap;
 }
+.editor .seg.editor-mode-seg button[data-ed-mode="custom"][aria-disabled="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
 
 .editor-auto-settings {
   display: flex;
@@ -151,14 +155,6 @@ body.editor-mode .editor {
   line-height: 1.35;
   max-width: 280px;
 }
-.editor-lock-hint {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--ink-soft);
-  line-height: 1.35;
-  flex: 1 0 100%;
-}
-.editor-lock-hint[hidden] { display: none !important; }
 
 .editor-tech { position: relative; }
 .editor-tech-btn {

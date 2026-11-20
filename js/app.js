@@ -42,6 +42,23 @@
     setStickingLocked(suyue);
   }
 
+  function publishHandorder() {
+    const ed = window.BachiEditor;
+    if (ed && typeof ed.onHandorderChange === "function") ed.onHandorderChange();
+  }
+
+  function setJsonValue(v) {
+    jsonInput.value = v || "";
+    publishHandorder();
+  }
+
+  function enterEditorCustom() {
+    const ed = window.BachiEditor;
+    if (!ed || typeof ed.setMode !== "function") return;
+    const open = typeof ed.isOpen === "function" && ed.isOpen();
+    ed.setMode("custom", { silent: !open });
+  }
+
   function currentMode() {
     return modeSuyue.classList.contains("on") ? "suyue" : "zhuren";
   }
@@ -140,14 +157,12 @@
   function setStickingLocked(locked) {
     const tech = $("techniqueSelect");
     const seg = $("rollSeg");
-    const lockHint = $("autoStickingLock");
     if (tech) tech.disabled = !!locked;
     document.querySelectorAll("#handSeg [data-hand]").forEach((b) => { b.disabled = !!locked; });
     const handSeg = $("handSeg");
     if (handSeg) handSeg.classList.toggle("is-locked", !!locked);
     document.querySelectorAll("#rollSeg [data-roll]").forEach((b) => { b.disabled = !!locked; });
     if (seg) seg.classList.toggle("is-locked", !!locked);
-    if (lockHint) lockHint.hidden = !locked;
   }
 
   function parseOpts() {
@@ -231,16 +246,19 @@
   $("btnGenerate").onclick = () => generate(true);
   modeZhuren.onclick = () => setMode("zhuren");
   modeSuyue.onclick = () => setMode("suyue");
+  jsonInput.addEventListener("input", () => publishHandorder());
   $("jsonFile").onchange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      jsonInput.value = String(reader.result || "");
+      const text = String(reader.result || "");
+      setJsonValue(text);
       setMode("suyue");
       syncChartPicker("custom");
       openSettings();
       showError("");
+      if (text.trim()) enterEditorCustom();
     };
     reader.onerror = () => showError("读取 JSON 文件失败");
     reader.readAsText(file, "utf-8");
@@ -277,14 +295,21 @@
     try {
       const jsonRes = await fetch("samples/" + sample + ".handorder.json", { cache: "no-store" });
       if (jsonRes.ok) {
-        jsonInput.value = await jsonRes.text();
-        hasHands = true;
+        const text = await jsonRes.text();
+        if (text.trim()) {
+          setJsonValue(text);
+          hasHands = true;
+        }
       }
     } catch (err) { /* no companion 手顺 is fine */ }
-    if (hasHands) setMode("suyue");
-    else {
-      jsonInput.value = "";
+    if (hasHands) {
+      setMode("suyue");
+      enterEditorCustom();
+    } else {
+      setJsonValue("");
       setMode("zhuren");
+      const ed = window.BachiEditor;
+      if (ed && typeof ed.releaseCustomIfEmpty === "function") ed.releaseCustomIfEmpty();
     }
     syncChartPicker(CHARTS.some((c) => c.id === sample) ? sample : "custom");
     return sample;
@@ -497,7 +522,7 @@
     getTja: () => tjaInput.value,
     setTja: (v) => { tjaInput.value = v || ""; },
     getJson: () => jsonInput.value,
-    setJson: (v) => { jsonInput.value = v || ""; },
+    setJson: (v) => setJsonValue(v),
     ROLL_HINTS,
   };
 

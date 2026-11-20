@@ -346,18 +346,21 @@
     });
   }
 
-  function setupRouteHint() {
-    const btn = $("routeHintBtn");
-    const pop = $("routeHint");
+  const routeHintCtrls = [];
+
+  function setupRouteHint(btnId, popId) {
+    const btn = $(btnId);
+    const pop = $(popId);
     if (!btn || !pop) return;
     const supportsPopover = Object.hasOwn(HTMLElement.prototype, "popover");
     const closeBtn = pop.querySelector(".route-hint-close");
+    const preferredWidth = pop.classList.contains("route-hint-wide") ? 300 : 260;
 
     function place() {
       const anchor = btn.getBoundingClientRect();
       const margin = 8;
       const gap = 10;
-      const width = Math.min(260, window.innerWidth - margin * 2);
+      const width = Math.min(preferredWidth, window.innerWidth - margin * 2);
       pop.style.width = width + "px";
       const height = pop.offsetHeight;
       const spaceBelow = window.innerHeight - anchor.bottom - margin;
@@ -390,6 +393,12 @@
       btn.setAttribute("aria-expanded", "false");
     }
 
+    function hideOthers() {
+      for (const other of routeHintCtrls) {
+        if (other.pop !== pop && other.isOpen()) other.hide();
+      }
+    }
+
     if (supportsPopover) {
       pop.addEventListener("beforetoggle", (e) => {
         if (e.newState === "open") pop.style.visibility = "hidden";
@@ -408,6 +417,7 @@
     } else {
       btn.addEventListener("click", () => {
         const open = !pop.classList.contains("is-open");
+        if (open) hideOthers();
         pop.classList.toggle("is-open", open);
         btn.setAttribute("aria-expanded", String(open));
         if (!open) return;
@@ -450,9 +460,13 @@
         if (!settingsEl.open) hide();
       });
     }
+
+    routeHintCtrls.push({ pop, isOpen, hide });
   }
 
-  setupRouteHint();
+  setupRouteHint("routeHintBtn", "routeHint");
+  setupRouteHint("chartHintBtn", "chartHint");
+  setupRouteHint("batchHintBtn", "batchHint");
 
   function regenerateKeepTime() {
     const anim = window.taikoAnim;

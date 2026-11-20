@@ -37,6 +37,14 @@ echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo
 
+echo "== original-audio mux =="
+node tests/audio-mux.test.js
+echo
+
+echo "== batch queue + progress =="
+node tests/batch-queue.test.js
+echo
+
 echo "== auto-sticking (55 cases from suyue@ebd21a0) =="
 node tests/sticking.test.js
 echo

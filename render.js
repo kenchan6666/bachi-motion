@@ -36,6 +36,10 @@ const MIME = {
   ".md": "text/plain; charset=utf-8",
 };
 
+function defaultWorkers() {
+  return Math.max(1, Math.min(6, os.cpus().length - 2));
+}
+
 const HELP = `bachi-motion — render a 手元 (first-person hand-cam) mp4
 
 Usage:
@@ -52,6 +56,8 @@ Flags:
   --bignote <mode>     Big-note handling: single (default) / both / small
   --fps <n>            Frames per second (default 60)
   --size <1080p|720p|WxH>  Output resolution (default 1080p)
+  --workers <n>        Parallel render workers (default: min(6, cpus-2) = ${defaultWorkers()};
+                       1 = legacy single-page PNG-to-disk path)
   --audio              Mix bundled don/ka hits (assets/sounds/*.wav, synthesized, not official)
   --out <path>         Output mp4 path (required)
 
@@ -74,6 +80,7 @@ function parseArgs(argv) {
     bignote: "single",
     fps: 60,
     size: "1080p",
+    workers: defaultWorkers(),
     audio: false,
     out: null,
     help: false,
@@ -94,6 +101,7 @@ function parseArgs(argv) {
       case "--bignote": args.bignote = need(); break;
       case "--fps": args.fps = Number(need()); break;
       case "--size": args.size = need(); break;
+      case "--workers": args.workers = Number(need()); break;
       case "--audio": args.audio = true; break;
       case "--out": args.out = need(); break;
       case "--help":
@@ -267,6 +275,317 @@ function runFfmpeg(argv) {
   });
 }
 
+function spawnFfmpegPipe(argv) {
+  const proc = spawn("ffmpeg", argv, { stdio: ["pipe", "pipe", "pipe"] });
+  let err = "";
+  let exited = false;
+  let exitCode = null;
+  proc.stderr.on("data", (d) => { err += d; });
+  const done = new Promise((resolve, reject) => {
+    proc.on("error", (e) => { exited = true; reject(e); });
+    proc.on("close", (code) => {
+      exited = true;
+      exitCode = code;
+      if (code === 0) resolve();
+      else reject(new Error("ffmpeg 失败 (exit " + code + ")\n" + err.slice(-2000)));
+    });
+  });
+  function write(buf) {
+    return new Promise((resolve, reject) => {
+      if (exited) {
+        return reject(new Error("ffmpeg 提前退出 (exit " + exitCode + ")\n" + err.slice(-2000)));
+      }
+      const stream = proc.stdin;
+      if (!stream || stream.destroyed || stream.writableEnded) {
+        return reject(new Error("ffmpeg stdin 不可写"));
+      }
+      const onErr = (e) => { cleanup(); reject(e); };
+      const onClose = () => { cleanup(); reject(new Error("ffmpeg stdin 意外关闭")); };
+      const cleanup = () => {
+        stream.off("error", onErr);
+        stream.off("close", onClose);
+      };
+      stream.once("error", onErr);
+      stream.once("close", onClose);
+      const ok = stream.write(buf);
+      if (ok) {
+        cleanup();
+        resolve();
+      } else {
+        stream.once("drain", () => {
+          cleanup();
+          resolve();
+        });
+      }
+    });
+  }
+  function end() {
+    if (proc.stdin && !proc.stdin.destroyed && !proc.stdin.writableEnded) {
+      proc.stdin.end();
+    }
+  }
+  function kill() {
+    if (!exited) {
+      try { proc.kill("SIGKILL"); } catch { /* ignore */ }
+    }
+  }
+  return { proc, done, write, end, kill };
+}
+
+function buildAudioWavIfNeeded(args, data, chartStart, chartEnd, work) {
+  if (!args.audio) return null;
+  const donPath = path.join(ROOT, "assets/sounds/don.wav");
+  const kaPath = path.join(ROOT, "assets/sounds/ka.wav");
+  if (!fs.existsSync(donPath) || !fs.existsSync(kaPath)) {
+    throw new Error("缺少 assets/sounds/don.wav 或 ka.wav");
+  }
+  const mixed = mixHitAudio(data.events || [], {
+    start: chartStart,
+    end: chartEnd,
+    rate: args.rate,
+    don: readWavPcm(donPath),
+    ka: readWavPcm(kaPath),
+  });
+  const wavPath = path.join(work, "hits.wav");
+  writeWavPcm(wavPath, mixed.sampleRate, mixed.samples);
+  return wavPath;
+}
+
+async function setupExportPage(page, url, size, data, rate, preloadAssets) {
+  await page.setViewport({ width: size.width, height: size.height, deviceScaleFactor: 1 });
+  await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
+  await page.waitForFunction(() => typeof window.renderAt === "function" && typeof window.startEngine === "function", { timeout: 15000 });
+
+  await page.evaluate((payload, r) => {
+    document.body.classList.add("export");
+    if (typeof window.setRate === "function") window.setRate(r);
+    window.startEngine(payload, { mode: payload.source || "cli" });
+    if (typeof window.setPlaying === "function") window.setPlaying(false);
+  }, data, rate);
+
+  if (preloadAssets) {
+    await page.evaluate(async () => {
+      if (document.fonts && document.fonts.ready) {
+        await document.fonts.ready;
+      }
+      const hrefs = new Set();
+      if (typeof CONFIG !== "undefined" && CONFIG.HAND_IMG) {
+        for (const side of Object.values(CONFIG.HAND_IMG)) {
+          for (const grip of Object.values(side)) {
+            if (grip && grip.href) hrefs.add(grip.href);
+          }
+        }
+      }
+      await Promise.all([...hrefs].map((src) => new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+          if (typeof img.decode === "function") img.decode().then(resolve, resolve);
+          else resolve();
+        };
+        img.onerror = resolve;
+        img.src = src;
+      })));
+    });
+  }
+}
+
+function logJobHeader(args, data, chartStart, chartEnd, chartLen, videoDur, frameCount, size, workerCount) {
+  console.log("[bachi-motion] " + (data.song || path.basename(args.tja)) +
+    (data.course ? "  " + data.course : "") +
+    (data.measureFrom ? "  小节 " + data.measureFrom + "-" + data.measureTo : "") +
+    "  events " + (data.events || []).length);
+  console.log("[bachi-motion] chart " + chartStart.toFixed(3) + "s .. " + chartEnd.toFixed(3) +
+    "s  (len " + chartLen.toFixed(3) + "s)  rate " + args.rate +
+    "  → video " + videoDur.toFixed(3) + "s  " + args.fps + "fps  " +
+    frameCount + " frames  " + size.label +
+    (workerCount > 1 ? "  workers " + workerCount + " (jpeg pipe)" : "  workers 1 (png)"));
+}
+
+async function renderSingleWorker(browser, url, size, data, args, work, outPath) {
+  const page = await browser.newPage();
+  await setupExportPage(page, url, size, data, args.rate, false);
+
+  const timing = await page.evaluate(() => ({
+    start: window.chartStart,
+    end: window.chartDuration,
+    ready: window.__BACHI_READY__,
+  }));
+  const chartStart = timing.start;
+  const chartEnd = timing.end;
+  const chartLen = chartEnd - chartStart;
+  const videoDur = chartLen / args.rate;
+  const frameCount = Math.ceil(videoDur * args.fps);
+
+  logJobHeader(args, data, chartStart, chartEnd, chartLen, videoDur, frameCount, size, 1);
+
+  const pad = Math.max(5, String(frameCount).length);
+  for (let f = 0; f < frameCount; f++) {
+    const t = Math.min(chartEnd, chartStart + (f / args.fps) * args.rate);
+    await page.evaluate((t) => window.renderAt(t), t);
+    const framePath = path.join(work, "frame_" + String(f).padStart(pad, "0") + ".png");
+    await page.screenshot({ path: framePath, type: "png", captureBeyondViewport: false });
+    if (f === 0 || f + 1 === frameCount || (f + 1) % Math.max(1, Math.round(args.fps)) === 0) {
+      console.log("[bachi-motion] frame " + (f + 1) + "/" + frameCount + "  t=" + t.toFixed(3) + "s");
+    }
+  }
+
+  await browser.close();
+
+  const pattern = path.join(work, "frame_%0" + pad + "d.png");
+  const ff = [
+    "-y",
+    "-framerate", String(args.fps),
+    "-i", pattern,
+  ];
+  const wavPath = buildAudioWavIfNeeded(args, data, chartStart, chartEnd, work);
+  if (wavPath) {
+    ff.push("-i", wavPath, "-c:a", "aac", "-shortest");
+  }
+  ff.push(
+    "-c:v", "libx264",
+    "-pix_fmt", "yuv420p",
+    "-movflags", "+faststart",
+    outPath,
+  );
+  console.log("[bachi-motion] ffmpeg …");
+  await runFfmpeg(ff);
+}
+
+async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath) {
+  const browsers = [];
+  let timing;
+  let segments;
+  let workerCount;
+  const activePipes = [];
+  try {
+    const pages = await Promise.all(Array.from({ length: args.workers }, async () => {
+      let b;
+      try {
+        b = await puppeteer.launch(launchOpts);
+      } catch (err) {
+        throw new Error(
+          "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
+          "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
+        );
+      }
+      browsers.push(b);
+      const p = await b.newPage();
+      await setupExportPage(p, url, size, data, args.rate, true);
+      return p;
+    }));
+
+    timing = await pages[0].evaluate(() => ({
+      start: window.chartStart,
+      end: window.chartDuration,
+      ready: window.__BACHI_READY__,
+    }));
+
+    const chartStart = timing.start;
+    const chartEnd = timing.end;
+    const chartLen = chartEnd - chartStart;
+    const videoDur = chartLen / args.rate;
+    const frameCount = Math.ceil(videoDur * args.fps);
+    workerCount = Math.min(args.workers, Math.max(1, frameCount));
+
+    if (browsers.length > workerCount) {
+      const extra = browsers.splice(workerCount);
+      pages.splice(workerCount);
+      await Promise.all(extra.map((b) => b.close().catch(() => {})));
+    }
+
+    logJobHeader(args, data, chartStart, chartEnd, chartLen, videoDur, frameCount, size, workerCount);
+
+    segments = [];
+    const base = Math.floor(frameCount / workerCount);
+    const rem = frameCount % workerCount;
+    let cursor = 0;
+    for (let w = 0; w < workerCount; w++) {
+      const count = base + (w < rem ? 1 : 0);
+      if (count > 0) {
+        segments.push({
+          index: w,
+          startFrame: cursor,
+          endFrame: cursor + count,
+          segPath: path.join(work, "seg_" + String(w).padStart(3, "0") + ".mp4"),
+        });
+        cursor += count;
+      }
+    }
+
+    const ffThreads = Math.max(1, Math.floor(os.cpus().length / segments.length));
+    let completed = 0;
+    const logEvery = Math.max(1, Math.round(args.fps));
+
+    await Promise.all(segments.map(async (seg, idx) => {
+      const page = pages[idx];
+      const pipe = spawnFfmpegPipe([
+        "-y",
+        "-f", "image2pipe",
+        "-vcodec", "mjpeg",
+        "-framerate", String(args.fps),
+        "-i", "pipe:0",
+        "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p",
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-threads", String(ffThreads),
+        "-video_track_timescale", String(Math.round(args.fps * 256)),
+        seg.segPath,
+      ]);
+      activePipes.push(pipe);
+      // Attach early rejection guard while rendering
+      pipe.done.catch(() => {});
+
+      for (let f = seg.startFrame; f < seg.endFrame; f++) {
+        const t = Math.min(chartEnd, chartStart + (f / args.fps) * args.rate);
+        await page.evaluate((t) => window.renderAt(t), t);
+        const buf = await page.screenshot({
+          type: "jpeg",
+          quality: 90,
+          optimizeForSpeed: true,
+          captureBeyondViewport: false,
+        });
+        await pipe.write(Buffer.from(buf));
+        completed++;
+        if (completed === 1 || completed === frameCount || completed % logEvery === 0) {
+          console.log("[bachi-motion] progress " + completed + "/" + frameCount +
+            "  (worker " + idx + " frame " + (f + 1) + " t=" + t.toFixed(3) + "s)");
+        }
+      }
+      pipe.end();
+      await pipe.done;
+    }));
+  } catch (err) {
+    for (const pipe of activePipes) pipe.kill();
+    throw err;
+  } finally {
+    await Promise.all(browsers.map((b) => b.close().catch(() => {})));
+  }
+
+  const concatListPath = path.join(work, "concat.txt");
+  const concatBody = segments
+    .map((s) => "file '" + s.segPath.replace(/'/g, "'\\''") + "'")
+    .join("\n") + "\n";
+  fs.writeFileSync(concatListPath, concatBody, "utf8");
+
+  const ff = [
+    "-y",
+    "-f", "concat",
+    "-safe", "0",
+    "-i", concatListPath,
+  ];
+  const wavPath = buildAudioWavIfNeeded(args, data, timing.start, timing.end, work);
+  if (wavPath) {
+    ff.push("-i", wavPath, "-c:a", "aac", "-shortest");
+  }
+  ff.push(
+    "-c:v", "copy",
+    "-movflags", "+faststart",
+    outPath,
+  );
+  console.log("[bachi-motion] ffmpeg concat" + (wavPath ? " + audio" : "") + " …");
+  await runFfmpeg(ff);
+}
+
 async function main() {
   let args;
   try { args = parseArgs(process.argv.slice(2)); }
@@ -276,6 +595,7 @@ async function main() {
   if (!args.out) die("请用 --out 指定输出 mp4 路径。\n" + HELP);
   if (!isFinite(args.rate) || args.rate <= 0) die("--rate 必须是正数");
   if (!isFinite(args.fps) || args.fps <= 0) die("--fps 必须是正数");
+  if (!Number.isInteger(args.workers) || args.workers < 1) die("--workers 必须是正整数");
   const size = parseSize(args.size);
   if (!fs.existsSync(path.resolve(args.tja))) die("找不到谱面文件：" + args.tja);
   if (args.sticking && !fs.existsSync(path.resolve(args.sticking))) {
@@ -307,7 +627,7 @@ async function main() {
   // Pass --rate so the page's rate-dependent roll blur (扇形模糊 at rate==1) stays off during slow-mo.
   const url = "http://127.0.0.1:" + port + "/index.html?export=1&rate=" + encodeURIComponent(String(args.rate));
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "bachi-frames-"));
-  let browser;
+  let singleBrowser = null;
   try {
     const launchOpts = {
       headless: true,
@@ -320,98 +640,28 @@ async function main() {
         "--hide-scrollbars",
       ],
     };
-    if (chrome) launchOpts.executablePath = chrome;
-    try {
-      browser = await puppeteer.launch(launchOpts);
-    } catch (err) {
-      throw new Error(
-        "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
-        "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
-      );
-    }
+        if (chrome) launchOpts.executablePath = chrome;
 
-    const page = await browser.newPage();
-    await page.setViewport({ width: size.width, height: size.height, deviceScaleFactor: 1 });
-    await page.goto(url, { waitUntil: "networkidle0", timeout: 30000 });
-    await page.waitForFunction(() => typeof window.renderAt === "function" && typeof window.startEngine === "function", { timeout: 15000 });
-
-    await page.evaluate((payload, rate) => {
-      document.body.classList.add("export");
-      if (typeof window.setRate === "function") window.setRate(rate);
-      window.startEngine(payload, { mode: payload.source || "cli" });
-      if (typeof window.setPlaying === "function") window.setPlaying(false);
-    }, data, args.rate);
-
-    const timing = await page.evaluate(() => ({
-      start: window.chartStart,
-      end: window.chartDuration,
-      ready: window.__BACHI_READY__,
-    }));
-    const chartStart = timing.start;
-    const chartEnd = timing.end;
-    const chartLen = chartEnd - chartStart;
-    const videoDur = chartLen / args.rate;
-    const frameCount = Math.ceil(videoDur * args.fps);
-
-    console.log("[bachi-motion] " + (data.song || path.basename(args.tja)) +
-      (data.course ? "  " + data.course : "") +
-      (data.measureFrom ? "  小节 " + data.measureFrom + "-" + data.measureTo : "") +
-      "  events " + (data.events || []).length);
-    console.log("[bachi-motion] chart " + chartStart.toFixed(3) + "s .. " + chartEnd.toFixed(3) +
-      "s  (len " + chartLen.toFixed(3) + "s)  rate " + args.rate +
-      "  → video " + videoDur.toFixed(3) + "s  " + args.fps + "fps  " +
-      frameCount + " frames  " + size.label);
-
-    const pad = Math.max(5, String(frameCount).length);
-    for (let f = 0; f < frameCount; f++) {
-      const t = Math.min(chartEnd, chartStart + (f / args.fps) * args.rate);
-      await page.evaluate((t) => window.renderAt(t), t);
-      const framePath = path.join(work, "frame_" + String(f).padStart(pad, "0") + ".png");
-      await page.screenshot({ path: framePath, type: "png", captureBeyondViewport: false });
-      if (f === 0 || f + 1 === frameCount || (f + 1) % Math.max(1, Math.round(args.fps)) === 0) {
-        console.log("[bachi-motion] frame " + (f + 1) + "/" + frameCount + "  t=" + t.toFixed(3) + "s");
+    if (args.workers === 1) {
+      try {
+        singleBrowser = await puppeteer.launch(launchOpts);
+      } catch (err) {
+        throw new Error(
+          "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
+          "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
+        );
       }
+      await renderSingleWorker(singleBrowser, url, size, data, args, work, outPath);
+      singleBrowser = null;
+    } else {
+      await renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath);
     }
 
-    await browser.close();
-    browser = null;
-
-    const pattern = path.join(work, "frame_%0" + pad + "d.png");
-    const ff = [
-      "-y",
-      "-framerate", String(args.fps),
-      "-i", pattern,
-    ];
-    if (args.audio) {
-      const donPath = path.join(ROOT, "assets/sounds/don.wav");
-      const kaPath = path.join(ROOT, "assets/sounds/ka.wav");
-      if (!fs.existsSync(donPath) || !fs.existsSync(kaPath)) {
-        throw new Error("缺少 assets/sounds/don.wav 或 ka.wav");
-      }
-      const mixed = mixHitAudio(data.events || [], {
-        start: chartStart,
-        end: chartEnd,
-        rate: args.rate,
-        don: readWavPcm(donPath),
-        ka: readWavPcm(kaPath),
-      });
-      const wavPath = path.join(work, "hits.wav");
-      writeWavPcm(wavPath, mixed.sampleRate, mixed.samples);
-      ff.push("-i", wavPath, "-c:a", "aac", "-shortest");
-    }
-    ff.push(
-      "-c:v", "libx264",
-      "-pix_fmt", "yuv420p",
-      "-movflags", "+faststart",
-      outPath,
-    );
-    console.log("[bachi-motion] ffmpeg …");
-    await runFfmpeg(ff);
     const stat = fs.statSync(outPath);
     console.log("[bachi-motion] wrote " + outPath + "  (" + Math.round(stat.size / 1024) + " KB)");
   } finally {
-    if (browser) {
-      try { await browser.close(); } catch { /* ignore */ }
+    if (singleBrowser) {
+      try { await singleBrowser.close(); } catch { /* ignore */ }
     }
     server.close();
     try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* ignore */ }

@@ -44,7 +44,11 @@ const CONFIG = {
   KA_TIP_OUT_PX: 42,    // 咔棒头伸出鼓边黑线外（接触点仍在黑线上；略加长，打中姿势稍高一点）
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
   WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
-  WINDUP: 0.03,         // 单击从放低的闲置姿势抬到最高，再在 RISE 里落下；短到另一只手打中时这只还没抬
+  WINDUP: 0.03,         // 单击从鼓心倒V预备抬到最高，再在 RISE 里落下；短到另一只手打中时这只还没抬
+  IDLE_HOVER_PX: 24,    // 预备/闲置：棒尖悬在咚落点上方，不落到面上、也不放到鼓前
+  IDLE_V_DEG: 20,       // 倒V：每根棒相对竖直往内倾的角度（两棒夹角约 40°；参考视频是近竖直的倒V，不是45°大撇）
+  IDLE_KA_SHIFT_RX: 0.15, // 对方打咔时，闲置棒尖往自己一侧偏 0.15 个面半径，避免两棒交叉
+  IDLE_SETTLE: 0.22,    // 同手间隔宽于约 8 分则回到鼓心预备悬停；打击节奏（蓄力/下砸）等主人手元后再定，这趟不改
   SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
   SCENE_CLIP_PAD_TOP: 110, // 卡片上沿额外留白，允许棒尖略画出框
   KA_GLOW_GROW: 12,     // 青光画在鼓边外侧（不是鼓面上）
@@ -96,7 +100,7 @@ const GEOM = {
     // 单击举起高度走 LIFT_PX（从当前落点向上），不再靠这个 rest
     // 第一人称：手从画面底部进来；单击时手+棒是刚体，pivot 只是握点的参考原点
     // kaAng：咔在近端鼓边的位置（0=右，-90=上）。右手约 1 点钟 -55°，左手镜像 11 点钟 235°。
-    // 闲置时手在鼓前面放低（idle），不跟着另一只手抬。
+    // 闲置/预备：棒尖在鼓心咚位上方悬停，两棒倒V；idle 坐标已不用（姿势由 singleIdlePose 算）。
     // don 是落点；donLen 只用来定棒长（跟手焊死用），避免把落点上提时把棒拉长。
     L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 258 }, donLen: { x: 350, y: 272 }, kaAng: 235, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
     R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 258 }, donLen: { x: 450, y: 272 }, kaAng: -55, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
@@ -250,15 +254,28 @@ function singleContactPose(hand, face) {
   return { tip, grip, deg };
 }
 
-function singleIdlePose(hand) {
+/** 预备/闲置：两棒回到鼓心咚位，倒V悬在鼓面上方。shiftOut=1 时棒尖往自己一侧微偏（对方打咔用）。 */
+function singleIdlePose(hand, shiftOut) {
   const H = GEOM.hands[hand];
   const L = stickLen(hand);
-  const tip = H.idle;
-  const deg = -90 + 6 * H.out; // 闲置时也接近竖直，略向外
+  const shift = (shiftOut ? CONFIG.IDLE_KA_SHIFT_RX : 0) * GEOM.face.rx;
+  const tip = { x: H.don.x + H.out * shift, y: H.don.y - CONFIG.IDLE_HOVER_PX };
+  const deg = -90 - CONFIG.IDLE_V_DEG * H.out; // 棒尖往内、手下往外 = 倒V
   const r = deg * Math.PI / 180;
   const dir = { x: Math.cos(r), y: Math.sin(r) };
   const grip = V.sub(tip, V.mul(dir, L));
   return { tip, grip, deg };
+}
+
+/** 另一只手正在打咔（起势到打中后一小段）时，这只闲置手往外侧让一点。 */
+function kaIdleShift(hand, t) {
+  const other = hand === "R" ? "L" : "R";
+  const evs = (state.events || []).filter((e) => e.hand === other && e.face === "ka" && e.grip !== "roll");
+  const win = CONFIG.RISE + (CONFIG.WINDUP || 0);
+  for (const e of evs) {
+    if (t >= e.t - win && t <= e.t + 0.05) return 1;
+  }
+  return 0;
 }
 
 function weldSnap(tip, grip, L) {
@@ -389,7 +406,7 @@ function singleDepart(t, a) {
 function singleBetween(t, a, b, scale) {
   const rise = CONFIG.RISE, wind = CONFIG.WINDUP, drop = Math.min(rise, 0.12);
   const gap = b.t - a.t;
-  const need = 0.22; // 8 分同手 0.1875 走弧，四分 0.375 中间放低
+  const need = CONFIG.IDLE_SETTLE; // 宽于约 8 分同手间隔：回到鼓心倒V悬停（闲手打中时要在预备位）
   if (gap < need) {
     return { lift: arcHeight(t, a.t, b.t, CONFIG.FULL_LIFT * scale), idle: 0, base: V.lerp(a.target, b.target, smooth(clamp01((t - a.t) / gap))) };
   }
@@ -416,7 +433,7 @@ function poseAt(hand, track, t, opts = {}) {
   let follow = CONFIG.SINGLE_FOLLOW;
   let rollState = null;
   let singleState = null;
-  if (!a && !b) { lift = 0; base = H.don; grip = "single"; singleState = { idle: 1, face: "don" }; }
+  if (!a && !b) { lift = 0; base = H.don; grip = "single"; singleState = { idle: 1, face: "don", idleShift: kaIdleShift(hand, t) }; }
   else if (isRollContact(a) || isRollContact(b)) {
     const rise = CONFIG.ROLL_RISE;
     if (!a) {
@@ -458,17 +475,17 @@ function poseAt(hand, track, t, opts = {}) {
   } else if (!a) {
     const phase = singleApproach(t, b);
     lift = phase.lift; base = b.target; grip = "single"; follow = 1;
-    singleState = { idle: phase.idle, face: targetFace(hand, b.target), scale: densityScale(b.gap) };
+    singleState = { idle: phase.idle, face: targetFace(hand, b.target), scale: densityScale(b.gap), idleShift: kaIdleShift(hand, t) };
   } else if (!b) {
     const phase = singleDepart(t, a);
     lift = phase.lift; base = a.target; grip = "single"; follow = 1;
-    singleState = { idle: phase.idle, face: targetFace(hand, a.target), scale: densityScale(a.gap) };
+    singleState = { idle: phase.idle, face: targetFace(hand, a.target), scale: densityScale(a.gap), idleShift: kaIdleShift(hand, t) };
   } else {
     const u = clamp01((t - a.t) / (b.t - a.t));
     const scale = densityScale(b.t - a.t);
     const phase = singleBetween(t, a, b, scale);
     lift = phase.lift; base = phase.base; grip = "single"; follow = 1;
-    singleState = { idle: phase.idle, face: targetFace(hand, phase.base), scale };
+    singleState = { idle: phase.idle, face: targetFace(hand, phase.base), scale, idleShift: kaIdleShift(hand, t) };
     if (!phase.idle) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * lift);
   }
   const p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState, singleState);
@@ -506,7 +523,7 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
     const contact = weldSnap(V.add(hit.tip, bend), V.add(hit.grip, bend), L);
     let pose = lerpPose(contact, raised, clamp01(lift), L);
     pose = applyWristTilt(pose, clamp01(lift) * scale);
-    if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand), idleAmt, L);
+    if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift), idleAmt, L);
     return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }
   // 滚奏：捏点钉在胶带约 1/4、不滑动；拇指+食指是轴。棒绕轴回弹 10–15°（不焊死）。

@@ -86,31 +86,37 @@ function startStaticServer(root) {
       const F = api.GEOM.face;
       const n = api.ROLL_DOT.rimSamples;
       const hands = ["R", "L"];
+      const types = ["don", "ka"];
       const pos = {};
       const mismatches = [];
 
-      for (const hand of hands) {
-        const raw = api.rollDotPosUncached(hand);
-        const first = api.rollDotPos(hand);
-        if (raw.x !== first.x || raw.y !== first.y) {
-          mismatches.push({ kind: "pos-first", hand, raw, first });
-        }
-        for (let i = 0; i < 240; i++) {
-          const again = api.rollDotPos(hand);
-          if (again.x !== raw.x || again.y !== raw.y) {
-            mismatches.push({ kind: "pos-repeat", hand, i, raw, again });
-            break;
+      for (const type of types) {
+        pos[type] = {};
+        for (const hand of hands) {
+          const raw = api.rollDotPosUncached(hand, type);
+          const first = api.rollDotPos(hand, type);
+          if (raw.x !== first.x || raw.y !== first.y) {
+            mismatches.push({ kind: "pos-first", hand, type, raw, first });
           }
+          for (let i = 0; i < 240; i++) {
+            const again = api.rollDotPos(hand, type);
+            if (again.x !== raw.x || again.y !== raw.y) {
+              mismatches.push({ kind: "pos-repeat", hand, type, i, raw, again });
+              break;
+            }
+          }
+          pos[type][hand] = { x: raw.x, y: raw.y };
         }
-        pos[hand] = { x: raw.x, y: raw.y };
       }
 
       // ellipseMinDist vs uncached, at the roll-dot centers and a few offsets.
       const probes = [];
-      for (const hand of hands) {
-        probes.push({ x: pos[hand].x, y: pos[hand].y });
-        probes.push({ x: pos[hand].x, y: pos[hand].y + 4 });
-        probes.push({ x: pos[hand].x, y: F.cy });
+      for (const type of types) {
+        for (const hand of hands) {
+          probes.push({ x: pos[type][hand].x, y: pos[type][hand].y });
+          probes.push({ x: pos[type][hand].x, y: pos[type][hand].y + 4 });
+          probes.push({ x: pos[type][hand].x, y: F.cy });
+        }
       }
       probes.push({ x: F.cx, y: F.cy });
       probes.push({ x: F.cx + F.rx, y: F.cy });
@@ -139,7 +145,10 @@ function startStaticServer(root) {
     }
     const fmt = (p) => "(" + p.x + ", " + p.y + ")";
     console.log("roll-dot cache: ok");
-    console.log("  R " + fmt(result.pos.R) + "  L " + fmt(result.pos.L));
+    for (const type of ["don", "ka"]) {
+      const row = result.pos[type];
+      console.log("  " + type + "  R " + fmt(row.R) + "  L " + fmt(row.L));
+    }
     console.log("  uncached vs cached: exact match, " + result.repeats + " repeats/hand, "
       + result.distChecks + " ellipseMinDist probes, " + result.samples + " rim samples");
   } finally {

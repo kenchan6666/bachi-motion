@@ -337,6 +337,8 @@
   const ZOOM_GUTTER = 12;
   const ZOOM_PAD = 18;
   const ZOOM_VIEW_PAD = 12;
+  const ZOOM_SIDE_SLOT = ZOOM_NOTE_W; // 左右各留约一颗音的空位
+  const ZOOM_EDGE = 16;              // 放大框离编辑区可见边缘的最小间距
 
   function warnCaption(type) {
     if (type === "同拍重复") return "拿不准：同一拍有重复音符";
@@ -475,20 +477,56 @@
   function expandString(s, opts) {
     if (!s) return;
     const keepPan = opts && opts.keepPan && state.expanded && state.expanded.from === s.from && state.expanded.to === s.to;
+    const focusIndex = opts && Number.isFinite(+opts.focusIndex) ? +opts.focusIndex : (keepPan && state.expanded ? state.expanded.focusIndex : null);
     state.expanded = {
       from: s.from,
       to: s.to,
       panX: keepPan ? state.expanded.panX : 0,
+      focusIndex: focusIndex,
+      _fresh: !keepPan,
     };
     renderZoomCard();
   }
 
+  function zoomInnerWidth(n) {
+    return ZOOM_PAD * 2 + n * ZOOM_NOTE_W + Math.max(0, n - 1) * ZOOM_GUTTER;
+  }
+
+  function zoomNoteCenterX(k) {
+    return ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER) + ZOOM_NOTE_W / 2;
+  }
+
   function clampZoomPan(panX, innerW, viewW) {
-    if (innerW <= viewW) return 0;
+    if (innerW <= viewW) return (viewW - innerW) / 2;
     const min = viewW - innerW;
     if (panX > 0) return 0;
     if (panX < min) return min;
     return panX;
+  }
+
+  function centerInScroll(size, scrollPos, clientSize, edge) {
+    const room = clientSize - size;
+    const e = Math.max(0, Math.min(edge, room / 2));
+    const pos = scrollPos + (clientSize - size) / 2;
+    const lo = scrollPos + e;
+    const hi = scrollPos + clientSize - size - e;
+    if (hi < lo) return scrollPos + Math.max(0, room / 2);
+    return Math.max(lo, Math.min(hi, pos));
+  }
+
+  function nearestNoteInString(s, clientX) {
+    if (!s) return null;
+    const mid = s.from + Math.floor((s.to - s.from) / 2);
+    if (clientX == null || !ui.measuresEl) return mid;
+    let best = mid, bestD = Infinity;
+    for (let i = s.from; i <= s.to; i++) {
+      const el = ui.measuresEl.querySelector('.editor-note[data-index="' + i + '"]');
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      const d = Math.abs((r.left + r.right) / 2 - clientX);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
   }
 
   function panZoom(delta) {
@@ -530,12 +568,9 @@
     if (!notes.length) { collapseString(); return; }
 
     const n = notes.length;
-    const innerW = ZOOM_PAD * 2 + n * ZOOM_NOTE_W + Math.max(0, n - 1) * ZOOM_GUTTER;
+    const innerW = zoomInnerWidth(n);
     const first = raw[notes[0]];
     const mi = state.measures.findIndex((m) => m.index === first.measure);
-    const clusterLeft = noteAbsX(notes[0]) - 14;
-    const clusterRight = noteAbsX(notes[notes.length - 1]) + 14;
-    const clusterMid = (clusterLeft + clusterRight) / 2;
 
     ui.zoomInner.replaceChildren();
     const lane = document.createElement("div");
@@ -574,27 +609,31 @@
     ui.zoomInner.appendChild(handsEl);
     ui.zoomInner.style.width = innerW + "px";
 
-    const host = ui.scroll.getBoundingClientRect();
-    const meas = ui.measuresEl.getBoundingClientRect();
-    // Viewport is a window over the unfolded row, so long clusters can be panned.
-    const viewW = Math.min(
-      innerW,
-      Math.max(200, (clusterRight - clusterLeft) * 1.45 + 40),
-      Math.max(180, host.width - 56)
-    );
+    // 窗口按整串（含谱轨圆头）来开，左右再留约一颗音；不再用原密串的窄宽度裁。
+    // 特别长、一次放不下时，把点中的那段放在窗口中间，再滚轮/滑动平移。
+    const availView = Math.max(180, ui.scroll.clientWidth - 2 * ZOOM_EDGE - 2 * ZOOM_VIEW_PAD);
+    const viewW = Math.min(innerW + 2 * ZOOM_SIDE_SLOT, availView);
     const outerW = viewW + ZOOM_VIEW_PAD * 2;
-    const leftInMeasures = clusterMid - outerW / 2;
-    const left = meas.left - host.left + ui.scroll.scrollLeft + leftInMeasures;
-    const laneEl = ui.measuresEl.querySelector(".editor-lane");
-    const topBase = laneEl
-      ? (laneEl.getBoundingClientRect().top - host.top + ui.scroll.scrollTop - 14)
-      : 24;
-    ui.zoomCard.style.left = Math.max(8, left) + "px";
-    ui.zoomCard.style.top = Math.max(6, topBase - 8) + "px";
     ui.zoomCard.style.width = outerW + "px";
     ui.zoomView.style.width = outerW + "px";
+    const cardH = ui.zoomCard.offsetHeight || 160;
+    const left = centerInScroll(outerW, ui.scroll.scrollLeft, ui.scroll.clientWidth, ZOOM_EDGE);
+    const top = centerInScroll(cardH, ui.scroll.scrollTop, ui.scroll.clientHeight, 8);
+    ui.zoomCard.style.left = left + "px";
+    ui.zoomCard.style.top = top + "px";
 
-    exp.panX = clampZoomPan(exp.panX || 0, innerW, viewW);
+    if (exp._fresh) {
+      const fi = exp.focusIndex;
+      const k = (fi != null) ? notes.indexOf(fi) : -1;
+      if (innerW > viewW && k >= 0) {
+        exp.panX = clampZoomPan(viewW / 2 - zoomNoteCenterX(k), innerW, viewW);
+      } else {
+        exp.panX = clampZoomPan(0, innerW, viewW);
+      }
+      exp._fresh = false;
+    } else {
+      exp.panX = clampZoomPan(exp.panX || 0, innerW, viewW);
+    }
     ui.zoomInner.style.transform = "translateX(" + exp.panX + "px)";
     ui.zoomCard.hidden = false;
     ui.scroll.classList.add("is-zoomed");
@@ -1307,7 +1346,7 @@
       if (s) {
         hidePops();
         state.selection = null;
-        expandString(s);
+        expandString(s, { focusIndex: nearestNoteInString(s, e.clientX) });
       }
       e.preventDefault();
       return;
@@ -1371,7 +1410,7 @@
         if (str && !(state.expanded && drag.index >= state.expanded.from && drag.index <= state.expanded.to)) {
           hidePops();
           state.selection = null;
-          expandString(str);
+          expandString(str, { focusIndex: drag.index });
         } else if (!isReadonly()) {
           showSwapPop(drag.index);
         }
@@ -1439,9 +1478,9 @@
     rebuild: rebuild,
     selectRange: (from, to) => { if (state.open) showRangePop(from, to); },
     selectNote: (index) => { if (state.open) showSwapPop(index); },
-    expandString: (from, to) => {
+    expandString: (from, to, opts) => {
       const s = (state.strings || []).find((it) => it.from === from && it.to === to) || noteInString(from);
-      if (s) expandString(s);
+      if (s) expandString(s, opts);
     },
     collapseString: () => collapseString(),
     setStringPan: (px) => {

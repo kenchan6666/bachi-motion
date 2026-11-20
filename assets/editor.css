@@ -528,7 +528,6 @@ body.editor-mode .editor {
   position: absolute;
   z-index: 10;
   pointer-events: auto;
-  transform: translateY(-6px);
 }
 .editor-zoom-viewport {
   overflow: hidden;

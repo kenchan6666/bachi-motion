@@ -86,12 +86,33 @@ const CONFIG = {
   DRUM_SHAKE_DY: 2.2,   // 接触帧鼓皮下沉像素
   IMPACT_DUR: 0.028,    // 击中光+波纹只在击中那一帧亮起（绝不延到回弹帧）
   IMPACT_ROLL_DUR: 0.020,
-  // 落点侧局部击中光晕（汐月可再调）。哔保持原值；哚缩小、变淡。
+  // 落点侧局部击中光晕 + 冲击圈/白芯/放射线（汐月 2026-11-20 5b9a）。
+  // 哚再收一档（尺寸 0.76、不透明度 0.60，由 0.20→0.12）；哔保持原值。
   HIT_GLOW: {
-    don: { rx: 36, ry: 24, op: 0.20 },       // was rx 46, ry 30, op 0.32
-    ka:  { rx: 46, ry: 30, op: 0.32 },
-    rollDon: { rx: 27, ry: 18, op: 0.20 },   // was rx 34, ry 22, op 0.32
-    rollKa:  { rx: 34, ry: 22, op: 0.32 },
+    don: {
+      rx: 28, ry: 18, op: 0.12,            // was 36×24 / 0.20
+      maxR: 25.84, stroke: 3.42, ringOp: 0.57,
+      coreRx: 7.22, coreRy: 4.94, coreStroke: 1.67, coreOp: 0.588,
+      rayLen: 6.84, rayStroke: 1.82, rayOp: 0.51,
+    },
+    ka: {
+      rx: 46, ry: 30, op: 0.32,
+      maxR: 34, stroke: 4.5, ringOp: 0.95,
+      coreRx: 9.5, coreRy: 6.5, coreStroke: 2.2, coreOp: 0.98,
+      rayLen: 9, rayStroke: 2.4, rayOp: 0.85,
+    },
+    rollDon: {
+      rx: 20, ry: 14, op: 0.12,            // was 27×18 / 0.20
+      maxR: 18.24, stroke: 2.58, ringOp: 0.57,
+      coreRx: 7.22, coreRy: 4.94, coreStroke: 1.67, coreOp: 0.588,
+      rayLen: 4.56, rayStroke: 1.82, rayOp: 0.51,
+    },
+    rollKa: {
+      rx: 34, ry: 22, op: 0.32,
+      maxR: 24, stroke: 3.4, ringOp: 0.95,
+      coreRx: 9.5, coreRy: 6.5, coreStroke: 2.2, coreOp: 0.98,
+      rayLen: 6, rayStroke: 2.4, rayOp: 0.85,
+    },
   },
   // 大音符谱面光圈（汐月可再调）：加粗 + 一层白晕，击中/判定时和小音符更容易分开。
   BIG_RING: {
@@ -140,8 +161,8 @@ const CONFIG = {
                 //   锚点.txt 给的是缝隙最下端（胶带在手里的最下端），棒尾比它再往下一截，藏在手背下面
     R: { roll:   { href: "assets/右手_滚奏捏棒.png", w: 835, h: 1942, pinch: [164, 672], axisDeg: -102.4, scale: 0.48, band: null },
          single: { href: "assets/右手_单击握拳.png", w: 849, h: 1939, pinch: [142, 662], axisDeg: -100.6, scale: 0.48, band: null } },
-    L: { roll:   { href: "assets/左手_滚奏捏棒.png", w: 435, h: 1142, pinch: [270, 672], axisDeg: -77.6, scale: 0.48, band: null },
-         single: { href: "assets/左手_单击握拳.png", w: 421, h: 1139, pinch: [278, 662], axisDeg: -79.4, scale: 0.48, band: null } },
+    L: { roll:   { href: "assets/左手_滚奏捏棒.png", w: 835, h: 1942, pinch: [670, 672], axisDeg: -77.6, scale: 0.48, band: null },
+         single: { href: "assets/左手_单击握拳.png", w: 849, h: 1939, pinch: [706, 662], axisDeg: -79.4, scale: 0.48, band: null } },
   },
   PIVOT_Y: { img: 700, vector: 806, none: 806 },   // 捏点高度：图片手露到手腕；矢量手裁到指关节
   DON_RISE: 0.025, DON_FALL: 0.2,           // 咚：接触帧即亮起(0.75→1.0)，0.2s 退回
@@ -2332,7 +2353,8 @@ const ROLL_DOT = {
   midDeg: (SWIPE_ARROW.a0Deg + SWIPE_ARROW.a1Deg) / 2, // -129.1，箭头弧中点（汐月 A 方案）
   rimPad: 6,            // 白边外沿离鼓沿描边外沿的最小间距（px）
   rimSamples: 720,      // 鼓沿椭圆采样点数（用来算圆心到沿的最短距离）
-  rFac: 0.11,           // 半径 = 鼓面 rx × 0.11
+  rFacDon: 0.13,        // 红点（dd / don）半径 = 鼓面 rx × rFac；was 0.11
+  rFacKa: 0.125,        // 青点（kk / ka）
   stroke: 2.5,          // 白描边（外圈）
   opacity: 0.90,
   popK: 0.30,           // 第一下 0→0.3T：scale 0.6→1
@@ -2341,6 +2363,13 @@ const ROLL_DOT = {
   bounceDur: 0.07,      // 跳跃回落到 1 的时长
   fadeK: 0.5,           // 第二下之后 0.5T 内淡出
 };
+
+function rollDotKind(type) {
+  return (type === "ka" || type === "kk") ? "ka" : "don";
+}
+function rollDotRFac(type) {
+  return rollDotKind(type) === "ka" ? ROLL_DOT.rFacKa : ROLL_DOT.rFacDon;
+}
 
 /** 未缓存：沿参数角采 rimSamples 个点，取点到椭圆中心线的最短距离。 */
 function ellipseMinDistUncached(cx, cy, rx, ry, x, y, samples) {
@@ -2385,12 +2414,13 @@ function ellipseMinDist(cx, cy, rx, ry, x, y, samples) {
   return min;
 }
 
-function rollDotGeomKey(hand) {
+function rollDotGeomKey(hand, type) {
   const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
+  const rFac = rollDotRFac(type);
   return [
     hand, F.cx, F.cy, F.rx, F.ry,
     S.cxOff, S.cyOff, S.rFac,
-    D.midDeg, D.rimPad, D.rimSamples, D.rFac, D.stroke, D.bounceScale, OUT,
+    D.midDeg, D.rimPad, D.rimSamples, rFac, D.stroke, D.bounceScale, OUT,
   ].join("	");
 }
 
@@ -2401,7 +2431,7 @@ function rollDotGeomKey(hand) {
  * 白边外沿离鼓沿描边外沿（椭圆中心线再扣描边半宽 OUT/2）至少 rimPad。
  * 不是击打落点。
  */
-function rollDotPosFromDist(hand, distFn) {
+function rollDotPosFromDist(hand, distFn, type) {
   const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
   const left = hand === "L";
   const C = { x: F.cx + (left ? -S.cxOff : S.cxOff) * F.rx, y: F.cy - S.cyOff * F.ry };
@@ -2410,7 +2440,7 @@ function rollDotPosFromDist(hand, distFn) {
   const R = S.rFac * F.rx;
   const x = C.x + R * Math.cos(ang);
   let y = C.y + R * Math.sin(ang);
-  const rMax = D.rFac * F.rx * D.bounceScale;
+  const rMax = rollDotRFac(type) * F.rx * D.bounceScale;
   // 放到 1.15× 时白边外沿半径，再留 6px，并扣掉鼓沿描边半宽（描边外沿朝鼓面的那一侧）
   const need = rMax + D.stroke + D.rimPad + OUT / 2;
   const dist = (yy) => distFn(F.cx, F.cy, F.rx, F.ry, x, yy, D.rimSamples);
@@ -2428,8 +2458,8 @@ function rollDotPosFromDist(hand, distFn) {
   return { x, y };
 }
 
-function rollDotPosUncached(hand) {
-  return rollDotPosFromDist(hand, ellipseMinDistUncached);
+function rollDotPosUncached(hand, type) {
+  return rollDotPosFromDist(hand, ellipseMinDistUncached, type);
 }
 
 const _rollDotPosCache = new Map();
@@ -2441,11 +2471,11 @@ function clearRollGeomCache() {
   _rimSampleCache.ys = null;
 }
 
-function rollDotPos(hand) {
-  const key = rollDotGeomKey(hand);
+function rollDotPos(hand, type) {
+  const key = rollDotGeomKey(hand, type);
   const hit = _rollDotPosCache.get(key);
   if (hit) return { x: hit.x, y: hit.y };
-  const pos = rollDotPosFromDist(hand, ellipseMinDist);
+  const pos = rollDotPosFromDist(hand, ellipseMinDist, type);
   _rollDotPosCache.set(key, pos);
   return pos;
 }
@@ -2470,7 +2500,7 @@ function renderRollDots(tracks, now) {
       const end = a.t + T + fade;
       if (now < a.t || now > end) continue;
       const tRel = now - a.t;
-      const { x, y } = rollDotPos(hand);
+      const { x, y } = rollDotPos(hand, type);
       let sc = D.popFrom + (1 - D.popFrom) * clamp01(tRel / (D.popK * T));
       const dt2 = now - (a.t + T);
       if (dt2 >= 0 && dt2 < D.bounceDur)
@@ -2478,7 +2508,7 @@ function renderRollDots(tracks, now) {
       let op = D.opacity;
       if (tRel > T) op *= 1 - clamp01((tRel - T) / fade);
       if (op <= 0.01) continue;
-      const r = D.rFac * F.rx * sc;
+      const r = rollDotRFac(type) * F.rx * sc;
       const fill = type === "dd" ? COL.noteDon : COL.noteKa;
       s += `<g class="roll-dot" data-hand="${hand}" data-type="${type}" opacity="${f1(op)}" filter="url(#swipeArrowShadow)">`;
       s += `<circle cx="${f1(x)}" cy="${f1(y)}" r="${f1(r + D.stroke)}" fill="#FFFFFF"/>`;
@@ -2572,27 +2602,27 @@ function renderHitFx(events, second, now, shake) {
       const fade = (1 - u) * (1 - 0.35 * u) * k2;
       const pt = e.face === "ka" ? kaImpactPt(e.hand, shake) : H.don;
       const col = e.face === "ka" ? COL.ka : COL.don;
-      const maxR = isRoll ? 24 : 34;
-      const r = 10 + maxR * easeOutQuad(u);
-      const ry = e.face === "ka" ? r * 0.85 : r * 0.62;
       // 落点侧局部击中光晕（仅在接触帧亮，不染半边鼓）。哚缩小变淡，哔保持原值。
       const G = CONFIG.HIT_GLOW;
       const glow = isRoll
         ? (e.face === "ka" ? G.rollKa : G.rollDon)
         : (e.face === "ka" ? G.ka : G.don);
+      const maxR = glow.maxR;
+      const r = 10 + maxR * easeOutQuad(u);
+      const ry = e.face === "ka" ? r * 0.85 : r * 0.62;
       s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(glow.rx)}" ry="${f1(glow.ry)}" fill="${col}" opacity="${f1(glow.op * fade)}" filter="url(#softGlow)"/>`;
-      s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(r)}" ry="${f1(ry)}" fill="none" stroke="${col}" stroke-width="${f1((isRoll ? 3.4 : 4.5) * (1 - 0.4 * u))}" opacity="${f1(0.95 * fade)}"/>`;
-      s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(9.5 * (1 - 0.2 * u))}" ry="${f1(6.5 * (1 - 0.2 * u))}" fill="#fff" stroke="${col}" stroke-width="2.2" opacity="${f1(0.98 * fade)}"/>`;
+      s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(r)}" ry="${f1(ry)}" fill="none" stroke="${col}" stroke-width="${f1(glow.stroke * (1 - 0.4 * u))}" opacity="${f1(glow.ringOp * fade)}"/>`;
+      s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(glow.coreRx * (1 - 0.2 * u))}" ry="${f1(glow.coreRy * (1 - 0.2 * u))}" fill="#fff" stroke="${col}" stroke-width="${f1(glow.coreStroke)}" opacity="${f1(glow.coreOp * fade)}"/>`;
       // 4条短放射冲击线（咚沿着鼓面散开，咔朝鼓边外侧放射）
       const baseAng = e.face === "ka" ? ellipseParamDeg(pt) : -90;
       const offsets = e.face === "ka" ? [-55, -18, 18, 55] : [-145, -35, 35, 145];
       const r0 = 7 + maxR * 0.45 * easeOutQuad(u);
-      const r1 = r0 + (isRoll ? 6 : 9) * (1 - 0.3 * u);
+      const r1 = r0 + glow.rayLen * (1 - 0.3 * u);
       for (const da of offsets) {
         const rad = (baseAng + da) * Math.PI / 180;
         const x0 = pt.x + Math.cos(rad) * r0, y0 = pt.y + Math.sin(rad) * r0 * (e.face === "ka" ? 0.9 : 0.65);
         const x1 = pt.x + Math.cos(rad) * r1, y1 = pt.y + Math.sin(rad) * r1 * (e.face === "ka" ? 0.9 : 0.65);
-        s += `<line x1="${f1(x0)}" y1="${f1(y0)}" x2="${f1(x1)}" y2="${f1(y1)}" stroke="${col}" stroke-width="2.4" stroke-linecap="round" opacity="${f1(0.85 * fade)}"/>`;
+        s += `<line x1="${f1(x0)}" y1="${f1(y0)}" x2="${f1(x1)}" y2="${f1(y1)}" stroke="${col}" stroke-width="${f1(glow.rayStroke)}" stroke-linecap="round" opacity="${f1(glow.rayOp * fade)}"/>`;
       }
     }
     if (isRoll) continue;                             // 滚奏不用单击那种一下一灭的大咔光

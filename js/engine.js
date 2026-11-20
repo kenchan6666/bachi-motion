@@ -2581,6 +2581,7 @@ const state = {
   scroll: pickNum(params.get("scroll"), 1, 0.5, 8),
   route: ["inner", "outer", "straight"].includes(params.get("route")) ? params.get("route") : "data",
   labels: params.get("labels") === "1",                 // R/L 调试标签：?labels=1 打开
+  technique: params.get("technique") || "全换",          // 手法：全换 / 半换A / 半换B / 炒菜（自动手顺 PR 再接真实选择）
   lastTs: null,
 };
 // 捏点高度随手的模式变（图片手露到手腕，矢量手裁到指关节）
@@ -2765,6 +2766,11 @@ function setPlaying(p) {
 function setRate(r) {
   state.rate = r;
   document.querySelectorAll("[data-rate]").forEach((b) => b.classList.toggle("on", +b.dataset.rate === r));
+  if (typeof window.updateTitleBar === "function") window.updateTitleBar();
+}
+function setTechnique(name) {
+  state.technique = name || "全换";
+  if (typeof window.updateTitleBar === "function") window.updateTitleBar();
 }
 function seek(t) { state.now = Math.max(state.start, Math.min(state.end, t)); renderFrame(state.now); }
 /** 换数据（调试/验收用）：传原始 JSON 对象 */
@@ -2822,8 +2828,10 @@ function startEngine(data, meta) {
     renderFrame(state.now);
   }
   const info = meta || data || {};
+  if (data && data.technique) state.technique = data.technique;
+  if (typeof window.updateTitleBar === "function") window.updateTitleBar(data);
   window.taikoAnim = {
-    state, seek, setPlaying, setRate, setData, startEngine,
+    state, seek, setPlaying, setRate, setTechnique, setData, startEngine,
     renderAt, signalBachiDone, poseAt, buildHandTracks, stickGeom, checkSingleWeld,
     singleContactPose, singleIdlePose, rollPairType, rollLanding, rollTypeRoute, CONFIG, GEOM,
     raw: data, meta: info,

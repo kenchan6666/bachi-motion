@@ -109,6 +109,11 @@
           opts.timeShift = base.timeShift || 0;
           opts.rangeStart = base.rangeStart;
           opts.rangeEnd = base.rangeEnd;
+          opts.song = base.song;
+          opts.headers = base.headers;
+          opts.bpm = base.bpm;
+          if (base.course) opts.course = base.course;
+          if (base.bpmTimeline) opts.bpmTimeline = base.bpmTimeline;
         } catch (err) { /* 手顺 can still load without a companion TJA */ }
       }
       return TaikoParser.loadHandJson(raw, opts);
@@ -299,8 +304,12 @@
 
     if (pageParams.get("settings") === "1") openSettings();
 
+    // Headless export/dump always injects its own payload via startEngine.
+    // Do not generate the prefilled 练习谱2 first: that would write
+    // 「溯溯的练习谱2」into the title bar and download extra unicode-range
+    // slices before the real song is loaded.
     const autoplay = pageParams.get("autoplay") === "1";
-    generate(autoplay);
+    if (pageParams.get("export") !== "1") generate(autoplay);
   }
 
   boot();

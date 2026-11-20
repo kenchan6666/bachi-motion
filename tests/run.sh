@@ -29,6 +29,10 @@ echo "== parser self-check =="
 node js/parser.js
 echo
 
+echo "== title-bar BPM range =="
+node tests/titlebar-bpm.test.js
+echo
+
 echo "== weld check (grip→tip cluster span must be 0.0000) =="
 WELD_OUT="$(mktemp)"
 cleanup() { rm -rf "${TMPDIR:-}" "$WELD_OUT"; }

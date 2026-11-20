@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/fonts/bachi-serif-cjk.css">
 <style>
   :root {
     --washi: #F6F1E8;
@@ -520,6 +521,38 @@
     * { transition: none !important; }
   }
 
+  /* Persistent title bar: left beige letterbox, top-aligned with the chart track. */
+  #titlebar {
+    display: none;
+    position: fixed;
+    z-index: 8;
+    box-sizing: border-box;
+    margin: 0;
+    background: #4b4550;
+    border: 3px solid #2B2320;
+    color: #F6EEDC;
+    font-family: "Bachi Serif CJK", "Noto Serif CJK JP", "Noto Serif CJK SC", serif;
+    font-weight: 700;
+    line-height: 1.2;
+    pointer-events: none;
+    user-select: none;
+    overflow: hidden;
+  }
+  #titlebar.is-on { display: block; }
+  #titlebarTitle {
+    margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    letter-spacing: 0.02em;
+  }
+  #titlebarMeta {
+    margin: 0.22em 0 0;
+    white-space: nowrap;
+    overflow: hidden;
+    opacity: 0.92;
+    letter-spacing: 0.04em;
+  }
+
   /* Headless export: fill the viewport with just the stage, original beige letterbox. */
   body.export { overflow: hidden; background: var(--export-bg); background-image: none; }
   body.export .top,
@@ -597,6 +630,10 @@
           <g id="chart" clip-path="url(#laneClip)"></g>
           <g id="dynamic"></g>
         </svg>
+        <aside id="titlebar" hidden>
+          <div id="titlebarTitle"></div>
+          <div id="titlebarMeta"></div>
+        </aside>
       </div>
     </div>
 
@@ -724,6 +761,8 @@ LEVEL:6
 
 <script src="js/parser.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/titlebar-bpm.js"></script>
+<script src="js/titlebar.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>

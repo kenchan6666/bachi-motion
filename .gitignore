@@ -5,3 +5,4 @@ bachi-frames-*/
 _test_out.mp4
 *.mp4
 !samples/**
+__pycache__/

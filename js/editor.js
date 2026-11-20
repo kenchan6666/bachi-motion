@@ -356,9 +356,18 @@
     return { left: left, right: right };
   }
 
-  // Prefer a capsule seam so the vertical mark can run the full height
-  // without crossing a 左/右 glyph. A single-capsule cluster stays at mid
-  // and only draws the line above and below the capsule.
+  // Align the mark to the nearest inter-capsule seam of the cluster.
+  // A 2px line plus the 1.5px capsule stroke only "goes through" when
+  // there is a real gutter; if capsules overlap, the line stops at the
+  // capsule row and resumes below, so it never paints over 左/右.
+  const MARK_STROKE = 1.5;
+  const MARK_HALF = 1;
+
+  function lineHitsCapsule(x, cap) {
+    return (x + MARK_HALF) > (cap.left - MARK_STROKE) &&
+      (x - MARK_HALF) < (cap.right + MARK_STROKE);
+  }
+
   function placeMarkX(mid, capsules, left, right) {
     const inCluster = [];
     for (let i = 0; i < capsules.length; i++) {
@@ -372,26 +381,20 @@
       seams.push((inCluster[i].right + inCluster[i + 1].left) / 2);
     }
     if (!seams.length) return { x: mid, through: false };
-    const inset = 8;
-    let blocked = false;
-    for (let i = 0; i < inCluster.length; i++) {
-      const cap = inCluster[i];
-      if (mid > cap.left + inset && mid < cap.right - inset) { blocked = true; break; }
-    }
-    if (!blocked) {
-      // Mid already sits in a gap or on a seam.
-      return { x: mid, through: true };
-    }
     let best = seams[0];
     let bestDist = Math.abs(mid - best);
     for (let i = 1; i < seams.length; i++) {
       const d = Math.abs(mid - seams[i]);
       if (d < bestDist) { best = seams[i]; bestDist = d; }
     }
-    return { x: best, through: true };
+    let through = true;
+    for (let i = 0; i < inCluster.length; i++) {
+      if (lineHitsCapsule(best, inCluster[i])) { through = false; break; }
+    }
+    return { x: best, through: through };
   }
 
-  function placeClusterMark(gap, handsEl, capsules, mark) {
+  function placeClusterMark(gap, handsEl, capsules, mark, neighbors) {
     const mid = (mark.left + mark.right) / 2;
     const kind = mark.kind;
     const isRoll = kind === "roll" || kind === "both";
@@ -418,21 +421,32 @@
     }
     gap.appendChild(top);
 
-    if (isWarn || through) {
-      const bot = document.createElement("div");
-      bot.className = cls;
-      bot.style.left = x + "px";
-      const line2 = document.createElement("i");
-      line2.className = "editor-mark-line" + (isWarn && !through ? " is-below" : "");
-      bot.appendChild(line2);
-      if (isWarn) {
-        const tip = document.createElement("div");
-        tip.className = "editor-warn-tip";
-        tip.textContent = warnCaption(mark.typ);
-        bot.appendChild(tip);
+    const bot = document.createElement("div");
+    bot.className = cls;
+    bot.style.left = x + "px";
+    const line2 = document.createElement("i");
+    line2.className = "editor-mark-line" + (through ? "" : " is-below");
+    bot.appendChild(line2);
+    if (isWarn) {
+      const tip = document.createElement("div");
+      tip.className = "editor-warn-tip";
+      tip.textContent = warnCaption(mark.typ);
+      const nextLeft = neighbors && neighbors.nextLeft;
+      const prevRight = neighbors && neighbors.prevRight;
+      const handsRight = MEASURE_W - LANE_MARGIN * 2;
+      let limit;
+      if (flip) {
+        const leftBound = Math.max(prevRight != null ? prevRight + 8 : 0, 0);
+        limit = (x - 6) - leftBound;
+      } else {
+        const rightBound = Math.min(nextLeft != null ? nextLeft - 8 : handsRight, handsRight);
+        limit = rightBound - (x + 6);
       }
-      handsEl.appendChild(bot);
+      // Keep the caption on about two lines, but never cross the next cluster.
+      if (limit > 0) tip.style.maxWidth = Math.round(Math.min(limit, 128)) + "px";
+      bot.appendChild(tip);
     }
+    handsEl.appendChild(bot);
   }
 
   function renderTracks() {
@@ -573,8 +587,14 @@
         marks.push({ kind: "roll", left: rollSpans[i].left, right: rollSpans[i].right });
       }
 
+      marks.sort((a, b) => a.left - b.left);
       for (let m = 0; m < marks.length; m++) {
-        placeClusterMark(gap, handsEl, capsules, marks[m]);
+        const prev = m > 0 ? marks[m - 1] : null;
+        const next = m + 1 < marks.length ? marks[m + 1] : null;
+        placeClusterMark(gap, handsEl, capsules, marks[m], {
+          prevRight: prev ? prev.right : null,
+          nextLeft: next ? next.left : null,
+        });
       }
 
       el.appendChild(handsEl);

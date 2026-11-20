@@ -672,6 +672,16 @@
             <p class="hint" style="margin-top:6px">默认按谱面颜色自动走：滚红 / 滚蓝直上直下，kd 内收，dk 外甩。这是强制覆盖，一般不用改。</p>
           </div>
 
+          <div>
+            <p class="block-label">大音符</p>
+            <div class="chips" id="bigNoteChips" role="radiogroup" aria-label="大音符">
+              <button type="button" class="chip on" data-bignote="single" role="radio" aria-checked="true">单手</button>
+              <button type="button" class="chip" data-bignote="both" role="radio" aria-checked="false">双手</button>
+              <button type="button" class="chip" data-bignote="small" role="radio" aria-checked="false">当小音符</button>
+            </div>
+            <p class="hint" style="margin-top:6px">单手：轮流打；双手：两棒一起落；当小音符：画小、单手打</p>
+          </div>
+
           <label class="check"><input id="labels" type="checkbox"> R/L 标签（调试）</label>
 
           <div class="chips">
@@ -698,7 +708,7 @@ LEVEL:6
             <p class="hint">覆盖自动 1-1，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json</p>
             <textarea id="jsonInput" spellcheck="false" aria-label="手顺 JSON" placeholder='{ "events": [ { "t": 0, "hand": "R", "face": "don", "grip": "roll" } ] }'></textarea>
           </div>
-          <p class="hint">谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈 = 双手同时打</p>
+          <p class="hint">谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
           <button type="button" class="primary-btn" id="btnGenerate">生成 / 播放</button>
           <p class="hint" id="src"></p>
           <div id="error" hidden></div>

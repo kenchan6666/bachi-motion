@@ -1,0 +1,3576 @@
+{
+  "version": 3,
+  "title": "自动手顺规则用例",
+  "spec": "手顺规则说明.md",
+  "source": "Copied from suyue@ebd21a0 资料/手顺规则用例.json (self-written snippets, not published charts).",
+  "conventions": {
+    "indexBase": 0,
+    "warningInterval": "closed",
+    "noteFields": [
+      "beat",
+      "colour",
+      "big",
+      "bpm?"
+    ],
+    "colour": [
+      "don",
+      "ka"
+    ],
+    "手法": [
+      "全换",
+      "半换A",
+      "半换B",
+      "炒菜"
+    ],
+    "惯用手": [
+      "R",
+      "L"
+    ],
+    "hands": "与序列等长的 R/L 数组；开启插音时对准展开序列",
+    "rollPairs": "滚奏对 [i, i+1]，两音同一只手",
+    "warnings": "[startIdx, endIdx, type]，两端包含；type 目前为 逆手起",
+    "options": {
+      "滚奏": "不滚奏 | 自动滚奏（默认；用例省略视为 自动滚奏）| 24分滚奏。对应界面「不滚奏 ｜ 自动滚奏 ｜ 24 分滚奏」。三个值本身互斥。",
+      "补16分洞": "默认 false。true 时 expected 含 insertedNotes，下标对准展开序列"
+    },
+    "insertedNotes": {
+      "afterIndex": "插入点前一颗原谱音在输入 notes 中的下标",
+      "beat": "插入拍点",
+      "colour": "与下一音相反",
+      "big": false
+    },
+    "beat": "累计拍，四分音符=1 拍",
+    "bpm": "全局四分 BPM；音符上的 bpm 从该音起覆盖",
+    "snippets": "全部自编，不是已发表谱面的摘抄"
+  },
+  "cases": [
+    {
+      "id": "contrast-quan-huan",
+      "title": "四种手法对照：全换",
+      "comment": "同一条 10 音：3 音 16 分连音 + 3 颗间隔 0.75 拍的散音 + 4 音 16 分连音。BPM 200，滚奏为 不滚奏，只对照手法分段。全换整句交替，第二串连音从 R 起（散音段结束后接着数）。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "contrast-chao-cai",
+      "title": "四种手法对照：炒菜",
+      "comment": "与 contrast-quan-huan 输入相同。散音一律惯用手；两段连音都从惯用手起。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "R",
+          "R",
+          "R",
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "contrast-ban-huan-a",
+      "title": "四种手法对照：半换A",
+      "comment": "与 contrast-quan-huan 输入相同。散音段、连音段各自惯用手起再交替。",
+      "input": {
+        "手法": "半换A",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "R",
+          "L",
+          "R",
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "contrast-ban-huan-b",
+      "title": "四种手法对照：半换B",
+      "comment": "与 contrast-quan-huan 输入相同。第二段 = 3 颗散音 + 4 音连音，惯用手起后交替，因此第二串连音从 L 起，应标逆手起。",
+      "input": {
+        "手法": "半换B",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": [
+          [
+            6,
+            9,
+            "逆手起"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "quan-huan-eq1-no-reset",
+      "title": "全换：恰好 1 拍且前音不是休息段，不重置",
+      "comment": "3 音 8 分后，第 4 音入间隔恰好 1 拍、出间隔 16 分；第 3 音出间隔 1 拍但入间隔 0.5，不是休息段。全换继续交替为 R L R L R。若误重置会变成 R L R R L。本用例滚奏为 不滚奏，只测手法 / 乐句起手，不叠加滚奏层。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 180,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "quan-huan-gt1-reset",
+      "title": "全换：入间隔大于 1 拍，重置到惯用手",
+      "comment": "同样 3 音 8 分后，第 4 音入间隔 1.5 拍 > 1，新乐句惯用手起：R L R R L。若继续交替会变成 R L R L R。第 3 音出间隔 1.5、入间隔 0.5，不是休息段。本用例滚奏为 不滚奏，只测手法 / 乐句起手，不叠加滚奏层。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 180,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.5,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "rest-section-quarters",
+      "title": "休息段：彼此恰好隔 1 拍的四分，全部惯用手单打",
+      "comment": "四颗音两两隔恰好 1 拍，每一颗（含首尾）到邻居的间隔都 ≥ 1，全是休息段。四种手法结果相同。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 160,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "R",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "rest-follow-eq1-start-dominant",
+      "title": "休息段后恰好 1 拍，下一句仍惯用手起",
+      "comment": "第一音只有右侧邻居且间隔恰好 1 拍，是休息段；后面 4 音 16 分连音必须惯用手起，不能按「恰好 1 拍接着交替」从 L 起。本用例滚奏为 不滚奏，只测手法 / 乐句起手，不叠加滚奏层。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "ka",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "rest-follow-gt1-start-dominant",
+      "title": "休息段后大于 1 拍，下一句惯用手起",
+      "comment": "第一音出间隔 2 拍，休息段；后面连音惯用手起。炒菜同样。本用例滚奏为 不滚奏，只测手法 / 乐句起手，不叠加滚奏层。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.5,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "rest-section-always-on-ban-huan-a",
+      "title": "休息段炒在半换A里也强制开启",
+      "comment": "两颗相隔 2 拍的散音都是休息段，必须都打惯用手，不能按半换A散音段内部交替打成 R L。",
+      "input": {
+        "手法": "半换A",
+        "惯用手": "R",
+        "bpm": 160,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "rest-section-quan-huan-bpm-300",
+      "title": "全换、BPM 300：休息段仍全部惯用手单打",
+      "comment": "与 8 分不炒分开：四颗音彼此隔 1.5 拍（两侧都 ≥ 1 拍），任何 BPM、包括全换，都是休息段炒，手为 R R R R，不交替。BPM 300 也不例外。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 300,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 4.5,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "R",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "rest-section-ban-huan-b-bpm-300",
+      "title": "半换B、BPM 300：休息段炒同样强制开启",
+      "comment": "与 rest-section-quan-huan-bpm-300 相同节奏。半换B 也不得把这些 ≥ 1 拍间隔的音交替打成 R L R L。",
+      "input": {
+        "手法": "半换B",
+        "惯用手": "R",
+        "bpm": 300,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 4.5,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "R",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mirror-quan-huan-left",
+      "title": "惯用手 L：全换交替镜像",
+      "comment": "与 contrast-quan-huan 相同节奏（滚奏同样为 不滚奏），惯用手 L，全部手左右对调。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "L",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mirror-chao-cai-left",
+      "title": "惯用手 L：炒菜散音全打 L",
+      "comment": "与 contrast-chao-cai 相同节奏（滚奏同样为 不滚奏），惯用手 L。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "L",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "L",
+          "R",
+          "L",
+          "L",
+          "L",
+          "L",
+          "L",
+          "R",
+          "L",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mirror-neishua-left",
+      "title": "惯用手 L：xoxo 双手内刷，从 L 起",
+      "comment": "BPM 250 的 16 分 xoxo，惯用手 L。对子都是内刷，允许落在右手（此时右手是逆手，但内刷两手都可）。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "L",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "L",
+          "L",
+          "R",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-roll-at-250",
+      "title": "16 分在 BPM 恰好 250 时滚奏 2-2",
+      "comment": "8 音同色 16 分，应成 4 对滚奏。滚奏为 自动滚奏 时本就滚，与旧的 BPM 250 门槛无关。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-singles-at-249",
+      "title": "16 分在 BPM 249 时，滚奏为 自动滚奏 时仍按 2-2 滚奏（忽略旧阈值）",
+      "comment": "与 sixteenth-roll-at-250 节奏相同。滚奏为 自动滚奏 时不再用 BPM ≥ 250 的旧门槛，249 也整串 2-2。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 249,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "eighths-chao-cai-bpm-269",
+      "title": "炒菜：BPM 269 的 8 分流算散音，可以炒",
+      "comment": "BPM < 270 时连音是严格小于半拍，8 分（间隔恰好半拍）算散音，炒菜整串惯用手。与 270 那条对照。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "R",
+        "bpm": 269,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "R",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "eighths-chao-cai-bpm-270",
+      "title": "炒菜：BPM 恰好 270 的 8 分流交替（8 分不炒硬约束）",
+      "comment": "BPM ≥ 270（含 270）时 8 分并进连音，惯用手起然后交替。与 269（R R R R）对照。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "R",
+        "bpm": 270,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "eighths-ban-huan-a-bpm-270",
+      "title": "半换A：BPM 恰好 270 的 8 分流交替（8 分不炒硬约束）",
+      "comment": "同 eighths-chao-cai-bpm-270，换成半换A：270 起 8 分是连音，不能当散音炒。",
+      "input": {
+        "手法": "半换A",
+        "惯用手": "R",
+        "bpm": 270,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "eighths-chao-cai-bpm-300",
+      "title": "炒菜、BPM 300：8 分流必须交替，不得整串惯用手",
+      "comment": "与休息段炒分开：四颗 8 分（间隔恰好半拍）是连音，不是休息段。炒菜应从惯用手起然后交替为 R L R L。若误当成休息段或按「高 BPM 仍炒 8 分」会错成 R R R R。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "R",
+        "bpm": 300,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "quarters-chao-cai-bpm-270",
+      "title": "炒菜：BPM 270 的四分散音仍然炒",
+      "comment": "间隔 0.75 拍：是散音但不是休息段。BPM 270 时炒菜仍全部惯用手。说明「8 分不炒」不影响真正的散音。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "R",
+        "bpm": 270,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "R",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twelfth-roll-at-threshold",
+      "title": "12 分在 BPM = 250×4/6 时按 1-2 滚奏、对齐拍头",
+      "comment": "拍头起 6 音：单打 + 一对，重复一次。手为 R L L R L L。滚奏为 自动滚奏 时本就滚，与旧阈值无关。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 166.66666666666666,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.3333333333333333,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.6666666666666667,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "L",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            5
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twelfth-singles-below-threshold",
+      "title": "12 分在 BPM 160 时，滚奏为 自动滚奏 时仍按 1-2 滚奏、对齐拍头（忽略旧阈值）",
+      "comment": "与 twelfth-roll-at-threshold 相同拆法。滚奏为 自动滚奏 时不再用 BPM ≥ 166.66… 的旧门槛，手为 R L L R L L，不是单打的 R L R L R L。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 160,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.6666666666666667,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "L",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            5
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twentyfourth-roll-at-200",
+      "title": "24 分在自动滚奏下按 2-2 滚奏",
+      "comment": "8 音同色 24 分，起手 R：整串连续 2-2，为 R R L L R R L L。自动系统不用 1-2-1。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.16666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.8333333333333334,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.1666666666666667,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twentyfourth-singles-at-160",
+      "title": "24 分在 BPM 160 时，滚奏为 自动滚奏 时仍按 2-2 滚奏（忽略旧阈值）",
+      "comment": "与 twentyfourth-roll-at-200 节奏相同。滚奏为 自动滚奏 时不再用 BPM ≥ 200 或间隔 ≤ 60 ms 的旧门槛，160（间隔 62.5 ms）也整串 2-2。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 160,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.16666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.8333333333333334,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.1666666666666667,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-same-colour-dd-kk",
+      "title": "16 分同色对：dd 再 kk",
+      "comment": "BPM 250，oooo 的前 4？用 oo xx：(RR)(LL)。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-neishua-both-hands",
+      "title": "16 分 xoxo 双手内刷",
+      "comment": "2-2 拆成 (xo)(xo)，内刷落在两只手上，都允许，不前移。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-zhengshou-waishua-ok",
+      "title": "正手外刷允许",
+      "comment": "两音 ox、BPM 250、惯用手起，配成右手外刷，保留滚奏对。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-avoid-nizyte-waishua-shift1",
+      "title": "oxox 默认 2-2 会有逆手外刷，前移 1 颗后消除",
+      "comment": "不前移是 (ox)(ox) = 正手外刷 + 逆手外刷。前移 1：第一颗单打，中间 (xo) 逆手内刷（允许），末颗单打。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "L",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            1,
+            2
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-nizyte-waishua-fallback-singles",
+      "title": "只有两音的逆手 ox，无法滚奏，改成单打",
+      "comment": "前一颗间隔 0.75 拍的散音打惯用手后，两音 16 分连音从逆手起。若滚奏会成逆手外刷，改为 L R 单打。仅 2 音且无滚奏对，不标逆手起。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-xoo-cycle-1-2",
+      "title": "xoo 循环两轮按 1-2 拆",
+      "comment": "x(oo)x(oo)，不是 2-2。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "L",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            5
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-xxo-cycle-2-1",
+      "title": "xxo 循环两轮按 2-1 拆",
+      "comment": "(xx)o(xx)o，优先同色对，避免 1-2 拆成 x(xo)。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "R",
+          "R",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            3,
+            4
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "run-tail-sixteenth-bar-line",
+      "title": "串尾只隔 16 分的下一小节拍头仍要配对",
+      "comment": "4/4 小节末 3.0–3.75 的 16 分接下一小节 4.0，间隔仍是 16 分，五音算一串：(RR)(LL)r，4.0 不得另起一句再正手起。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 3.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twelfth-on-beat-1-2",
+      "title": "12 分从拍头起：1-2 对齐拍头",
+      "comment": "与 twelfth-roll-at-threshold 相同拆法。滚奏为 自动滚奏 时 12 分一律 1-2 对齐拍头。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 180,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.3333333333333333,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.3333333333333333,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.6666666666666667,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "L",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            5
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twelfth-off-beat-align",
+      "title": "12 分从拍中起：不能从第一颗盲数 1-2",
+      "comment": "6 音从 beat=1/3 起，第一颗拍头是第 3 音（lead=2）。先把前两颗配成一对，再从拍头 1-2：一对、单打、一对、单打。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 180,
+        "notes": [
+          {
+            "beat": 0.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.6666666666666665,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "R",
+          "R",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            3,
+            4
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mixed-16-24",
+      "title": "16 分与 24 分混合串不断开，整串连续 2-2",
+      "comment": "拍点约定：每一音到前一音的间隔等于这一音自己所属细分的时值（16 分 0.25 拍，24 分 1/6 拍）。本串按入间隔是 3 颗 16 分 + 3 颗 24 分 + 2 颗 16 分（第三音拍点 0.5，入间隔仍是 16 分）。自动滚奏下不按族切开，从右手起连续 2-2：一对可以跨交界。[2,3] 跨 16 到 24，[5,6] 跨 24 到 16。全部 don，无逆手外刷。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.8333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mixed-16-24-4-3-4",
+      "title": "16 夹 24：xxxx yyy xxxx，整串连续 2-2，一对跨交界",
+      "comment": "11 音全 don，BPM 260，全换，惯用手 R，从拍头 0 起。拍点约定：每一音到前一音的间隔等于这一音自己所属细分（16 分 0.25 拍，24 分 1/6 拍）。手为 R R L L R R L L R R L。rollPairs [0,1][2,3][4,5][6,7][8,9]；第 6 音是最后一颗 24 分，第 7 音是后面第一颗 16 分，[6,7] 跨交界。末颗单打 L。全部同色，无逆手外刷。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 260,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.9166666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0833333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ],
+          [
+            8,
+            9
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mixed-16-24-3-5",
+      "title": "16 接 24：xxx yyyyy，整串连续 2-2，一对跨交界",
+      "comment": "8 音全 don，BPM 260，全换，惯用手 R，从拍头 0 起。拍点约定同上。手为 R R L L R R L L。rollPairs [0,1][2,3][4,5][6,7]；[2,3] 跨在最后一颗 16 分与第一颗 24 分上。正好四对。全部同色，无逆手外刷。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 260,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.8333333333333334,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.1666666666666667,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.3333333333333333,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mixed-16-24-2-3-2",
+      "title": "16 夹 24：xx yyy xx，整串连续 2-2",
+      "comment": "7 音全 don，BPM 260，全换，惯用手 R，从拍头 0 起。拍点约定同上。手为 R R L L R R L。rollPairs [0,1][2,3][4,5]；[4,5] 跨在最后一颗 24 分与后面第一颗 16 分上。末颗单打 L。全部同色，无逆手外刷。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 260,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.4166666666666667,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5833333333333334,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "auto-roll-off-sixteenth-300",
+      "title": "不滚奏：BPM 300 的 8 音 16 分全部单打交替",
+      "comment": "全换、惯用手 R。滚奏为 不滚奏。rollPairs 为空，手为 R L R L R L R L。休息段炒与 8 分/270 规则仍生效，本串用不到。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 300,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "不滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twentyfourth-1-2-24-mode",
+      "title": "24分滚奏：从段首起的 6 音纯 24 分按 1-2 拆",
+      "comment": "滚奏为 24分滚奏。从 beat 0 起 6 音纯 24 分：从该段第一颗开始按 1-2 拆，单打 R、一对 LL、单打 R、一对 LL，手为 R L L R L L。不对齐拍头；本例第一颗正好在拍头，结果与对齐拍头相同。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.16666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.3333333333333333,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.6666666666666666,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.8333333333333334,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "24分滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "L",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            1,
+            2
+          ],
+          [
+            4,
+            5
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "twentyfour-mode-16-24-16",
+      "title": "24分滚奏：oo(xxx)oo 只滚中间 24 分段，从该段第一颗起 1-2",
+      "comment": "滚奏为 24分滚奏。oo(xxx)oo：两颗 16 分、三颗 24 分、两颗 16 分。拍点约定：每一音到前一音的间隔等于自己所属细分（16 分 0.25 拍，24 分 1/6 拍）。16 分不滚，按全换单打交替；中间 24 分段从该段第一颗开始按 1-2 拆。手为 R L R L L R L，rollPairs 只有 [3,4]。不是整串当 12 分来数，也不对齐拍头。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 260,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.4166666666666667,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5833333333333334,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "24分滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            3,
+            4
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "sixteenth-singles-24-mode",
+      "title": "24分滚奏：BPM 300 的 16 分不滚，按手法单打交替",
+      "comment": "滚奏为 24分滚奏。8 音 16 分保持全换单打 R L R L R L R L，rollPairs 为空。24分滚奏只滚 24 分（和 32 分），不滚 16 分、12 分。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 300,
+        "notes": [
+          {
+            "beat": 0.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "24分滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "thirtysecond-2-2-24-mode",
+      "title": "24分滚奏：8 音 32 分从段首按 2-2 拆",
+      "comment": "滚奏为 24分滚奏。BPM 200，8 音 32 分（间隔 1/8 拍）从该段第一颗起连续 2-2，手为 R R L L R R L L，rollPairs [0,1][2,3][4,5][6,7]。界面不单独提 32 分，但本模式里 32 分段按 2-2 拆。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 200,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.125,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.375,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.625,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.875,
+            "colour": "don",
+            "big": false
+          }
+        ],
+        "options": {
+          "滚奏": "24分滚奏"
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "no-swallow-twelfth-downbeat",
+      "title": "不要把 12 分拍头吞进前一串 16 分尾",
+      "comment": "两颗 16 分在小节末，下一小节拍头起 3 音 12 分。3.75 与 4.0 虽然只隔 16 分，仍应断开。12 分从拍头走 1-2。手接着交替，12 分从 L 起，标逆手起。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 3.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 4.0,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 4.333333333333333,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 4.666666666666667,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "R",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            3,
+            4
+          ]
+        ],
+        "warnings": [
+          [
+            2,
+            4,
+            "逆手起"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "nizyte-quan-huan-scatter-then-sixteenths",
+      "title": "全换：3 颗散音后 16 分串逆手起，只标警告",
+      "comment": "间隔 0.75 拍的 3 散音 + 4 音 16 分（BPM 250）。全换连续交替，16 分从 L 起并 2-2 滚奏，写入逆手起。不要改手或插音。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.0,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            6
+          ]
+        ],
+        "warnings": [
+          [
+            3,
+            6,
+            "逆手起"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "nizyte-ban-huan-b-odd-scatter",
+      "title": "半换B：前面奇数颗散音让连音逆手起",
+      "comment": "与上一例相同输入。半换B 把 3 散音和 4 音连音合成一段，连音同样从 L 起。炒菜 / 半换A 则会让连音从 R 起、没有这条警告。",
+      "input": {
+        "手法": "半换B",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.0,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            6
+          ]
+        ],
+        "warnings": [
+          [
+            3,
+            6,
+            "逆手起"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "chao-cai-same-notes-no-nizyte",
+      "title": "炒菜：同一条散音+16 分，连音正手起，无警告",
+      "comment": "对照 nizyte-ban-huan-b-odd-scatter。散音全 R，16 分 (RR)(LL)。",
+      "input": {
+        "手法": "炒菜",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.0,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "R",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            6
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "big-note-one-hand-no-reset",
+      "title": "大音符单手，打完不重置",
+      "comment": "4 音 8 分，第 3 颗是大咚。手仍是 R L R L，第 3 颗单打、big 只是输入标记，不另起惯用手。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 180,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": true
+          },
+          {
+            "beat": 1.5,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "R",
+          "L"
+        ],
+        "rollPairs": [],
+        "warnings": []
+      }
+    },
+    {
+      "id": "big-note-inside-sixteenth-run",
+      "title": "16 分串里的大音符不进滚奏对",
+      "comment": "o o O o，BPM 250。前两颗可成 (RR)，大音符单打 L，末颗单打 R。大音符不与左右配对。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": true
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "R"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "mid-run-bpm-change",
+      "title": "一串 16 分中途改 BPM：滚奏为 自动滚奏 时仍整串 2-2",
+      "comment": "前 4 音 BPM 240、后 4 音 BPM 260。滚奏为 自动滚奏 时不按局部 BPM 决定滚不滚，整串连续 2-2。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 240,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false,
+            "bpm": 240
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false,
+            "bpm": 240
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false,
+            "bpm": 240
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false,
+            "bpm": 240
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false,
+            "bpm": 260
+          },
+          {
+            "beat": 1.25,
+            "colour": "don",
+            "big": false,
+            "bpm": 260
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false,
+            "bpm": 260
+          },
+          {
+            "beat": 1.75,
+            "colour": "don",
+            "big": false,
+            "bpm": 260
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            4,
+            5
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": []
+      }
+    },
+    {
+      "id": "insert-16th-hole-off",
+      "title": "16 分洞可选插音默认关闭：两截分开拆",
+      "comment": "5 音 16 分、空一格、再 4 音。默认不插。前一截 (RR)(LL)r；半拍之后第二截从 L 起，oxox 前移 1 避开逆手外刷，并标逆手起。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 300,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "ka",
+            "big": false
+          }
+        ],
+        "options": {
+          "补16分洞": false
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "L",
+          "R",
+          "R",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            0,
+            1
+          ],
+          [
+            2,
+            3
+          ],
+          [
+            6,
+            7
+          ]
+        ],
+        "warnings": [
+          [
+            5,
+            8,
+            "逆手起"
+          ]
+        ]
+      }
+    },
+    {
+      "id": "insert-16th-hole-on",
+      "title": "开启补 16 分洞：插异色音后整串重拆",
+      "comment": "同一输入。在 1.25 拍插 ka（下一音是 don）。展开 10 音从正手重拆；默认 2-2 会在第 4 对出现逆手外刷，故前移 1。展开序列无逆手起。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "R",
+        "bpm": 300,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.75,
+            "colour": "ka",
+            "big": false
+          },
+          {
+            "beat": 2.0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "ka",
+            "big": false
+          }
+        ],
+        "options": {
+          "补16分洞": true
+        }
+      },
+      "expected": {
+        "hands": [
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L",
+          "R",
+          "R",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            1,
+            2
+          ],
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            6
+          ],
+          [
+            7,
+            8
+          ]
+        ],
+        "warnings": [],
+        "insertedNotes": [
+          {
+            "afterIndex": 4,
+            "beat": 1.25,
+            "colour": "ka",
+            "big": false
+          }
+        ]
+      }
+    },
+    {
+      "id": "mirror-nizyte-left",
+      "title": "惯用手 L 时，从 R 起的滚奏串标逆手起",
+      "comment": "与 nizyte-quan-huan-scatter-then-sixteenths 相同节奏，手全部对调，警告区间不变。",
+      "input": {
+        "手法": "全换",
+        "惯用手": "L",
+        "bpm": 250,
+        "notes": [
+          {
+            "beat": 0,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 0.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 1.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.25,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.5,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 2.75,
+            "colour": "don",
+            "big": false
+          },
+          {
+            "beat": 3.0,
+            "colour": "don",
+            "big": false
+          }
+        ]
+      },
+      "expected": {
+        "hands": [
+          "L",
+          "R",
+          "L",
+          "R",
+          "R",
+          "L",
+          "L"
+        ],
+        "rollPairs": [
+          [
+            3,
+            4
+          ],
+          [
+            5,
+            6
+          ]
+        ],
+        "warnings": [
+          [
+            3,
+            6,
+            "逆手起"
+          ]
+        ]
+      }
+    }
+  ]
+}

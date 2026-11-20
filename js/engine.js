@@ -907,6 +907,7 @@ function activeReboundArcs(tracks, now) {
     for (let k = 0; k + 1 < tr.length; k++) {
       const a = tr[k], b = tr[k + 1];
       if (a.stroke !== b.stroke) continue;
+      if (a.rollType === "kd" || a.rollType === "dk") continue; // 内外刷已有方向箭头，不再叠一截小白拱
       const end = b.t + CONFIG.REBOUND_ARC_FADE;
       if (now >= a.t && now <= end)
         out.push({ hand, a, b, draw: clamp01((now - a.t) / (b.t - a.t)),

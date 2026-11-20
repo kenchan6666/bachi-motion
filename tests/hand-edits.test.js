@@ -51,7 +51,7 @@ extra("applyRoll on 16ths at 300 uses 自动滚奏 2-2 pairs", function () {
   assert.strictEqual(tag(got), "rRrRrLrLrRrRrLrL");
 });
 
-extra("applyAlternate turns a range into singles starting with 惯用手", function () {
+extra("applyAlternate from the start of the chart starts with 惯用手", function () {
   const notes = notes16(8, 300);
   const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
   const before = edits.resolve(session);
@@ -69,6 +69,67 @@ extra("applyAlternate with 惯用手 L starts on L", function () {
   const got = edits.resolve(session);
   assert.deepStrictEqual(got.hands, ["L", "R", "L", "R"]);
   assert.deepStrictEqual(got.rollPairs, []);
+});
+
+extra("applyAlternate after a rest longer than one beat starts with 惯用手", function () {
+  // 4 个 16 分，空 1.25 拍（> 1），再 4 个 16 分。
+  const notes = [];
+  for (let i = 0; i < 4; i++) notes.push({ beat: i * 0.25, colour: "don", big: false, bpm: 160 });
+  for (let i = 0; i < 4; i++) notes.push({ beat: 2 + i * 0.25, colour: "don", big: false, bpm: 160 });
+  const session = edits.createSession(notes, { bpm: 160, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  const auto = edits.resolve(session);
+  assert.strictEqual(auto.hands[3], "L", "pre-rest last note is not 惯用手");
+  edits.applyAlternate(session, 4, 7);
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.hands.slice(4), ["R", "L", "R", "L"], "gap > 1 beat resets to 惯用手 R");
+  assert.deepStrictEqual(got.hands.slice(0, 4), auto.hands.slice(0, 4), "notes before the range stay put");
+  assert.deepStrictEqual(got.rollPairs, []);
+});
+
+extra("applyAlternate mid-run continues from the other hand of the previous note (prev R → first L)", function () {
+  // 自动滚奏 16 分是 (RR)(LL)…；截取中间时若仍从惯用手 R 起，会和前一音连打同一只手。
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const auto = edits.resolve(session);
+  assert.strictEqual(auto.hands[1], "R");
+  edits.applyAlternate(session, 2, 5);
+  const got = edits.resolve(session);
+  assert.strictEqual(got.hands[1], "R");
+  assert.strictEqual(got.hands[2], "L", "first of mid-run selection is the other hand, not 惯用手");
+  assert.deepStrictEqual(got.hands.slice(2, 6), ["L", "R", "L", "R"]);
+  assert.deepStrictEqual(got.hands.slice(6), auto.hands.slice(6), "tail keeps existing hands, no 惯用手 reset at the boundary");
+  assert.ok(!got.rollPairs.some((p) => p[0] >= 2 && p[1] <= 5));
+});
+
+extra("applyAlternate mid-run: previous note L (惯用手 also L) still starts on R", function () {
+  const notes = notes16(8, 200);
+  const session = edits.createSession(notes, { bpm: 200, 手法: "全换", 惯用手: "L", 滚奏: "不滚奏" });
+  const auto = edits.resolve(session);
+  assert.deepStrictEqual(auto.hands, ["L", "R", "L", "R", "L", "R", "L", "R"]);
+  edits.applyAlternate(session, 1, 4);
+  const got = edits.resolve(session);
+  assert.strictEqual(got.hands[0], "L");
+  assert.strictEqual(got.hands[1], "R", "must not restart on 惯用手 L after a left note");
+  assert.deepStrictEqual(got.hands.slice(1, 5), ["R", "L", "R", "L"]);
+  assert.deepStrictEqual(got.hands.slice(5), auto.hands.slice(5));
+});
+
+extra("applyAlternate with a gap of exactly one beat continues, does not reset to 惯用手", function () {
+  const notes = [
+    { beat: 0, colour: "don", big: false, bpm: 160 },
+    { beat: 0.25, colour: "don", big: false, bpm: 160 },
+    { beat: 1.25, colour: "don", big: false, bpm: 160 },
+    { beat: 1.5, colour: "don", big: false, bpm: 160 },
+    { beat: 1.75, colour: "don", big: false, bpm: 160 },
+  ];
+  const session = edits.createSession(notes, { bpm: 160, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  const auto = edits.resolve(session);
+  // 全换：间隔 = 1 拍不重置，auto 应为 R L R L R，前一音是 L。
+  assert.strictEqual(auto.hands[1], "L");
+  edits.applyAlternate(session, 2, 4);
+  const got = edits.resolve(session);
+  assert.strictEqual(got.hands[2], "R", "Δ = 1 beat is not a rest reset; continue from other hand");
+  assert.deepStrictEqual(got.hands.slice(2), ["R", "L", "R"]);
 });
 
 extra("applyRestore reverts a range back to auto", function () {

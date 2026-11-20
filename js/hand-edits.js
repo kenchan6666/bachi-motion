@@ -160,12 +160,38 @@
     return session;
   }
 
+  // 全换休息段阈值：超过一拍才回惯用手；间隔不超过一拍则接着前一音换手。
+  var BEAT_EPS = 1e-9;
+
+  function dominantOf(session) {
+    return session.opts.惯用手 === "L" ? "L" : "R";
+  }
+
+  function continuesFromPrev(notes, from) {
+    if (from <= 0) return false;
+    var prev = notes[from - 1];
+    var cur = notes[from];
+    if (!prev || !cur || prev.beat == null || cur.beat == null) return false;
+    return (cur.beat - prev.beat) <= 1 + BEAT_EPS;
+  }
+
+  /**
+   * 交互起手：选区从谱面开头，或选区前休息超过一拍，从惯用手起；
+   * 否则第一颗接选区前那一音的另一只手，避免和前一音连打同一只手。
+   * 用 apply 到此时的 state.hands（含更早的补丁），不在交界再重置惯用手。
+   */
+  function alternateStartHand(session, state, from) {
+    var dominant = dominantOf(session);
+    if (!continuesFromPrev(session.notes, from)) return dominant;
+    var prev = state.hands[from - 1];
+    return prev === "L" ? "R" : "L";
+  }
+
   function applyAlternate(session, from, to) {
     const r = clampRange(session, from, to);
     if (!r) return session;
     pushHistory(session);
-    const startHand = session.opts.惯用手 === "L" ? "L" : "R";
-    session.patches.push({ type: "alternate", from: r.from, to: r.to, startHand: startHand });
+    session.patches.push({ type: "alternate", from: r.from, to: r.to });
     return session;
   }
 
@@ -250,7 +276,7 @@
     }
     if (patch.type === "alternate") {
       state.rollPairs = dropOverlapping(state.rollPairs, from, to);
-      fillAlternate(state.hands, from, to, patch.startHand || session.opts.惯用手);
+      fillAlternate(state.hands, from, to, alternateStartHand(session, state, from));
       return;
     }
     if (patch.type === "restore") {

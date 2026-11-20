@@ -53,6 +53,10 @@ echo "== roll-dot cache (cached 720-sample pos must match uncached) =="
 node tests/roll-dot-cache.test.js
 echo
 
+echo "== long-rest idle (centered 倒V after a ka, short gaps stay put) =="
+node tests/long-rest-idle.test.js
+echo
+
 echo "== weld check (grip→tip cluster span must be 0.0000) =="
 WELD_OUT="$(mktemp)"
 cleanup() { rm -rf "${TMPDIR:-}" "$WELD_OUT"; }

@@ -517,17 +517,34 @@ function kaShiftSettled(hand, t) {
   return 0;
 }
 
+/**
+ * 长休止要停在鼓心倒V。对面咔串如果只是擦过休息起点、后面还有大段空档，
+ * 不能把「起点那一帧还让着」冻成整段休息的姿势。
+ * 只有对面咔串一直延续到自己下一击之前，才整段保持外让（中途不能再动，否则 REST）。
+ */
+function longRestShiftHold(hand, prv, nxt) {
+  const other = hand === "R" ? "L" : "R";
+  const restEnd = nxt - REST_BEFORE;
+  const post = 0.08, pre = 0.16;
+  for (const s of kaShiftStreams(other)) {
+    const reachesNext = s.hi + post >= restEnd - 0.05;
+    const overlapsRestStart = s.lo - pre <= prv + REST_AFTER;
+    if (reachesNext && overlapsRestStart) return 1;
+  }
+  return 0;
+}
+
 function kaIdleShift(hand, t) {
   const { prv, nxt } = neighborHits(hand, t);
-  const inRest = (t - prv > REST_AFTER) && (nxt - t > REST_BEFORE);
+  const longGap = (nxt - prv) > REST_AFTER + REST_BEFORE;
   const settleBy = 0.22; // 比 REST 起点 0.35s 提前停住，避免最后一帧 1px 漏进 REST
-  const settled = kaShiftSettled(hand, prv + REST_AFTER);
-  if (inRest) return settled;
-  if ((nxt - prv) > REST_AFTER + REST_BEFORE && t >= prv) {
-    if (t - prv >= settleBy) return settled;
+  if (longGap && t >= prv) {
+    const hold = longRestShiftHold(hand, prv, nxt);
+    const inRest = (t - prv > REST_AFTER) && (nxt - t > REST_BEFORE);
+    if (inRest || t - prv >= settleBy) return hold;
     const start = kaShiftSettled(hand, prv);
     const u = clamp01((t - prv) / settleBy);
-    return start + (settled - start) * u;
+    return start + (hold - start) * u;
   }
   return kaShiftDesired(hand, t);
 }
@@ -1440,15 +1457,26 @@ function rollPhase(hand, track, a, b, t) {
     const startRoll = { lift: 0, idle: 0, press: press0, grip: "roll", base: a.target };
     const settle = rollSettleToIdle(hand, t, a, idleShift);
     const tIdle = a.t + settle.reb;
+    // 长休止先停鼓心倒V；下一击是咔时，休息窗结束后再横移到咔预备，不把换面提前到空档中间。
+    const plan = restParkPlan(hand, a.t, b.t, faceB);
     const distUp = tipDistIdleToRaised(hand, faceB, height);
     const distDown = tipDistContactToRaised(hand, faceB, height);
     const tm = strikeTimes(prevGapOf(b));
     const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.08, 0.22);
     const down = downTravelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.14);
-    const w = windupLeadClamp(b.t, down, tm.hold || 0, up, tIdle);
+    const notBefore = plan.park ? Math.max(tIdle, plan.tReady) : tIdle;
+    const w = windupLeadClamp(b.t, down, tm.hold || 0, up, notBefore);
     if (gap >= (tIdle - a.t) + (b.t - w.tUpStart) + 1e-4) {
       if (t < tIdle) return settle;
       if (t < w.tUpStart) {
+        if (plan.park) {
+          const st = parkIdleState(plan, t);
+          return {
+            lift: 0, idle: 1, press: 0, grip: "single", base: b.target, face: st.idleFace,
+            scale: height, idleFace: st.idleFace, idleFaceFrom: st.idleFaceFrom, idleBlend: st.idleBlend,
+            idleShift, buzz: null,
+          };
+        }
         return { lift: 0, idle: 1, press: 0, grip: "single", base: b.target, face: faceB, scale: height, idleFace: faceB, idleShift, buzz: null };
       }
       if (t < w.tHoldStart) {
@@ -1616,6 +1644,8 @@ function poseAt(hand, track, t, opts = {}) {
         faceU: ph.faceU, scale: ph.scale || 1,
         idleShift: isFinite(+ph.idleShift) ? +ph.idleShift : kaIdleShift(hand, t),
         idleFace: ph.idleFace || "don",
+        idleFaceFrom: ph.idleFaceFrom,
+        idleBlend: ph.idleBlend,
       };
     }
   } else if (!a) {

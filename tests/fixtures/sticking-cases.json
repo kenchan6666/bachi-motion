@@ -1830,9 +1830,9 @@
       }
     },
     {
-      "id": "sixteenth-xoo-cycle-1-2",
-      "title": "xoo 循环两轮按 1-2 拆",
-      "comment": "x(oo)x(oo)，不是 2-2。",
+      "id": "sixteenth-xoo-cycle-2-1",
+      "title": "xoo 循环两轮按 2-1 拆",
+      "comment": "(xo)o(xo)o。16 分三连一律 2-1，不再拆成 x(oo)x(oo)。",
       "input": {
         "手法": "全换",
         "惯用手": "R",
@@ -1873,20 +1873,20 @@
       "expected": {
         "hands": [
           "R",
-          "L",
-          "L",
           "R",
           "L",
+          "R",
+          "R",
           "L"
         ],
         "rollPairs": [
           [
-            1,
-            2
+            0,
+            1
           ],
           [
-            4,
-            5
+            3,
+            4
           ]
         ],
         "warnings": []

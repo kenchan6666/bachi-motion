@@ -426,12 +426,79 @@
     return null;
   }
 
-  function chooseAuto22Pairs(runNotes, startHand, dominant) {
+  function is16Step(notes, i) {
+    if (i <= 0) return false;
+    return classifyDelta(notes[i].beat - notes[i - 1].beat) === 16;
+  }
+
+  // xoo / oxx / xxo / oox. Same-colour and xox are not 3-cycles here.
+  function tripleKind(c0, c1, c2) {
+    if (c1 === c2 && c0 !== c1) return "xoo";
+    if (c0 === c1 && c1 !== c2) return "xxo";
+    return null;
+  }
+
+  function cycleStartsAt(notes, i) {
+    var n = notes.length;
+    if (i + 5 >= n) return null;
+    for (var k = 1; k <= 5; k++) if (!is16Step(notes, i + k)) return null;
+    var c0 = notes[i].colour, c1 = notes[i + 1].colour, c2 = notes[i + 2].colour;
+    if (!tripleKind(c0, c1, c2)) return null;
+    for (k = 0; k < 6; k++) {
+      if (notes[i + k].colour !== notes[i + (k % 3)].colour) return null;
+    }
+    return [c0, c1, c2];
+  }
+
+  // Same-colour continuation is not a new cell if a colour change inside
+  // this cell also starts a 3-cycle (dddd|kddkdd stays four dons, then kdd).
+  function preferCycleStart(notes, i) {
+    if (!cycleStartsAt(notes, i)) return false;
+    if (i > 0 && is16Step(notes, i) && notes[i].colour === notes[i - 1].colour) {
+      var n = notes.length;
+      for (var s = i + 1; s <= i + 2 && s < n; s++) {
+        if (notes[s].colour !== notes[s - 1].colour && cycleStartsAt(notes, s)) return false;
+      }
+    }
+    return true;
+  }
+
+  function cycleSpan(notes, i) {
+    var pattern = cycleStartsAt(notes, i);
+    if (!pattern) return null;
+    var n = notes.length;
+    var end = i + 5;
+    while (end + 3 < n) {
+      var ok = true;
+      for (var t = 1; t <= 3; t++) {
+        var idx = end + t;
+        if (!is16Step(notes, idx) || notes[idx].colour !== pattern[(idx - i) % 3]) {
+          ok = false;
+          break;
+        }
+      }
+      if (!ok) break;
+      end += 3;
+    }
+    var partial = 0;
+    while (end + 1 < n && partial < 2) {
+      var nxt = end + 1;
+      if (!is16Step(notes, nxt)) break;
+      if (notes[nxt].colour !== pattern[(nxt - i) % 3]) break;
+      if (preferCycleStart(notes, nxt)) break;
+      end = nxt;
+      partial++;
+    }
+    return { start: i, end: end };
+  }
+
+  function chooseAuto22PairsLegacy(runNotes, startHand, dominant) {
     var n = runNotes.length;
     var canPair = function (i, j) { return !runNotes[i].big && !runNotes[j].big; };
     var cycle = detectCycle(runNotes);
     var pairs;
     if (cycle === "xoo") {
+      // 24 分等非 16 分仍走原规则：xoo 整段 1-2。16 分三连不进这里。
       pairs = plan12From(n, 0, canPair);
     } else if (cycle === "xxo") {
       pairs = plan21(n, canPair);
@@ -443,6 +510,45 @@
       pairs = (cSh < c22) ? pSh : p22;
     }
     return breakNizytePairs(runNotes, 0, pairs, startHand, dominant);
+  }
+
+  // 16 分三连（xoo/oxx/xxo/oox，至少两格）一律 2-1。中途换型就从新格重切，
+  // 不把开头的 1-2 锁到整串，也不把后面的三连留在 2-2 上。
+  // 同色三颗走默认 2-2，长度 3 时自然是 (oo)o / (xx)x。四音型不在这里。
+  function chooseAuto22Pairs(runNotes, startHand, dominant) {
+    var n = runNotes.length;
+    var segments = [];
+    var i = 0;
+    while (i < n) {
+      if (preferCycleStart(runNotes, i)) {
+        var span = cycleSpan(runNotes, i);
+        segments.push({ start: i, end: span.end, kind: "21" });
+        i = span.end + 1;
+      } else {
+        var j = i + 1;
+        while (j < n && !preferCycleStart(runNotes, j)) j++;
+        segments.push({ start: i, end: j - 1, kind: "legacy" });
+        i = j;
+      }
+    }
+    var pairs = [];
+    var h = startHand;
+    for (var s = 0; s < segments.length; s++) {
+      var seg = segments[s];
+      var slice = sliceNotes(runNotes, seg.start, seg.end);
+      var rel;
+      if (seg.kind === "21") {
+        var canPair = function (a, b) { return !slice[a].big && !slice[b].big; };
+        rel = breakNizytePairs(slice, 0, plan21(slice.length, canPair), h, dominant);
+      } else {
+        rel = chooseAuto22PairsLegacy(slice, h, dominant);
+      }
+      var abs = toAbsPairs(rel, seg.start);
+      for (var p = 0; p < abs.length; p++) pairs.push(abs[p]);
+      var scratch = new Array(slice.length);
+      h = applyPairsToHands(scratch, 0, slice.length - 1, h, rel);
+    }
+    return pairs;
   }
 
   function findLeadDownbeat(notes, start, end) {

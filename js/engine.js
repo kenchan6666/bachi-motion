@@ -84,6 +84,8 @@ const CONFIG = {
   LIFT_DT_MIN: 0.031,   // 48 分 @160（32 分更密时也收在下限）
   LIFT_SCALE_16: 1 / 3, // 16 分幅度约单击的 1/3（规格）
   LIFT_SCALE_MIN: 0.18,
+  GRIP_CROSSFADE: 3 / 60, // 单击握拳↔滚奏捏棒换图/锚点：2–3 帧位置交叉淡入淡出
+  IDLE_SHIFT_FADE: 3 / 60, // 对方打咔时闲手外让的开关不要一帧跳 28px
   BLUR_DT: 0.04,        // 32 分及更密（两下间隔 < 40ms）且 rate==1 → 汐月扇形残影；16 分不合并
   ROLL_TRAIL_COUNT: 4,  // 滚奏残影缩短，只留棒尖附近一小截
   ROLL_TRAIL_ALPHA: [0.48, 0.34, 0.22, 0.12],
@@ -370,10 +372,15 @@ function kaIdleShift(hand, t) {
   const other = hand === "R" ? "L" : "R";
   const evs = (state.events || []).filter((e) => e.hand === other && e.face === "ka" && e.grip !== "roll");
   const win = CONFIG.STRIKE_UPFLICK + CONFIG.STRIKE_DOWN_MAX;
+  const fade = CONFIG.IDLE_SHIFT_FADE || 0;
+  let amt = 0;
   for (const e of evs) {
-    if (t >= e.t - win && t <= e.t + 0.05) return 1;
+    const lo = e.t - win, hi = e.t + 0.05;
+    if (t >= lo && t <= hi) return 1;
+    if (fade > 0 && t > lo - fade && t < lo) amt = Math.max(amt, smooth((t - (lo - fade)) / fade));
+    if (fade > 0 && t > hi && t < hi + fade) amt = Math.max(amt, 1 - smooth((t - hi) / fade));
   }
-  return 0;
+  return amt;
 }
 
 function weldSnap(tip, grip, L) {
@@ -744,7 +751,26 @@ function poseAt(hand, track, t, opts = {}) {
     const scale = densityScale(b.t - a.t);
     const phase = singleBetween(t, a, b, scale);
     lift = phase.lift; base = phase.base; grip = "single"; follow = 1;
-    singleState = { idle: phase.idle, face: targetFace(hand, phase.base), scale, idleShift: kaIdleShift(hand, t) };
+    const faceA = a.face || targetFace(hand, a.target);
+    const faceB = b.face || targetFace(hand, b.target);
+    let faceU = 1;
+    // 咚↔咔：回弹段把上一击接触姿势平滑过渡到下一击预备姿势，禁止在某一帧整目标换掉。
+    if (faceA !== faceB) {
+      const tm = strikeFit(b.t - a.t);
+      if (!tm.idleMid) {
+        const peakT = b.t - tm.down;
+        if (t <= a.t + tm.hit) faceU = 0;
+        else if (t < peakT) {
+          const s = clamp01((t - (a.t + tm.hit)) / Math.max(1e-6, peakT - (a.t + tm.hit)));
+          faceU = easeOutQuad(s);
+        } else faceU = 1;
+      } else {
+        // 够宽会先回倒V（共用预备），再从倒V打下一击；换脸发生在 idleAmt≈1 时，位置本身连续。
+        const upStart = b.t - tm.down - tm.upflick;
+        faceU = t < upStart ? 0 : 1;
+      }
+    }
+    singleState = { idle: phase.idle, face: faceB, faceFrom: faceA, faceTo: faceB, faceU, scale, idleShift: kaIdleShift(hand, t) };
     if (!phase.idle) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * lift);
   }
   let p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState, singleState);
@@ -753,27 +779,44 @@ function poseAt(hand, track, t, opts = {}) {
   return p;
 }
 
+/** 单击某一面（咚或咔）的接触/举起姿势。咔仍是整只手连棒往斜上外侧送，不改打法。 */
+function composeSingleByFace(hand, face, lift, bend, scale) {
+  const hit = singleContactPose(hand, face);
+  const L = V.len(V.sub(hit.tip, hit.grip));
+  const lv = liftVec(hand, face);
+  const bnm = bend || { x: 0, y: 0 };
+  const raised = weldSnap(
+    V.add(V.add(hit.tip, V.mul(lv, scale)), bnm),
+    V.add(V.add(hit.grip, V.mul(lv, scale)), bnm),
+    L
+  );
+  const contact = weldSnap(V.add(hit.tip, bnm), V.add(hit.grip, bnm), L);
+  let pose = lerpPose(contact, raised, clamp01(lift), L);
+  // 咚才加手腕后倒，让「打下」读成手腕一弹；咔不加，避免把整手外移读成翻腕。
+  if (face !== "ka") pose = applyWristTilt(pose, clamp01(lift) * scale);
+  return pose;
+}
+
 function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, singleState) {
   const H = GEOM.hands[hand];
   if (grip === "single") {
     // 单击：完全固定。follow=1，握点在棒上的位置和握点→棒尖夹角不变，handDeg===stickDeg。
     // 咚：从落点向上举起，绕手腕后倒（上下主要靠手腕轴；近竖直的棒要抬起棒尖，手会跟着焊死的棒走一点）。
     // 咔：整只手连棒明显往斜上外侧平移，再往下砸到 1 点钟鼓边；不靠手腕外翻，平移是主力。
-    const face = (singleState && singleState.face) || targetFace(hand, base);
+    const faceTo = (singleState && (singleState.faceTo || singleState.face)) || targetFace(hand, base);
+    const faceFrom = (singleState && singleState.faceFrom) || faceTo;
+    const faceU = singleState && isFinite(+singleState.faceU) ? clamp01(+singleState.faceU) : 1;
     const scale = singleState && isFinite(+singleState.scale) ? +singleState.scale : 1;
     const idleAmt = singleState && isFinite(+singleState.idle) ? clamp01(+singleState.idle) : 0;
-    const hit = singleContactPose(hand, face);
-    const L = V.len(V.sub(hit.tip, hit.grip)); // 咚/咔各自刚体长度：咔握点更高，棒身看起来短而竖
-    const lv = liftVec(hand, face);
-    const raised = weldSnap(
-      V.add(V.add(hit.tip, V.mul(lv, scale)), bend),
-      V.add(V.add(hit.grip, V.mul(lv, scale)), bend),
-      L
-    );
-    const contact = weldSnap(V.add(hit.tip, bend), V.add(hit.grip, bend), L);
-    let pose = lerpPose(contact, raised, clamp01(lift), L);
-    // 咚才加手腕后倒，让「打下」读成手腕一弹；咔不加，避免把整手外移读成翻腕。
-    if (face !== "ka") pose = applyWristTilt(pose, clamp01(lift) * scale);
+    let pose;
+    if (faceFrom !== faceTo && faceU < 1 - 1e-6) {
+      // 回弹中：从上一颗接触姿势走到下一颗的预备（举起）姿势，长度/抬手高度一起 lerp，不在中途整帧换目标。
+      const fromPose = composeSingleByFace(hand, faceFrom, 0, bend, scale);
+      const toPose = composeSingleByFace(hand, faceTo, 1, bend, scale);
+      pose = lerpPose(fromPose, toPose, faceU);
+    } else {
+      pose = composeSingleByFace(hand, faceTo, lift, bend, scale);
+    }
     if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift), idleAmt);
     return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }
@@ -1145,18 +1188,23 @@ function fingerDetail(f, k0 = 1) {
  *       ghost = 颜色：残影剪影（只填色、不描边）
  */
 /** 画师手图：把图里的锚点放到捏点上，图里的棒子方向转到当前鼓棒方向。ghost = 透明度（残影用） */
-function handImg(handSide, pose) {
-  const I = CONFIG.HAND_IMG[handSide][pose.gripType];
-  // 单击：手图和棒共用 stickDeg（handDeg === stickDeg），棒在手里永远是 0°。
-  // 旋转中心是捏点（棒轴上的握点）；手腕在图里、捏点下方，跟着整只手一起转、一起抬。
-  // 滚奏：仍用手朝向 handDeg（手几乎不动，只有棒绕捏点晃）。
+function handImgLayer(handSide, pose, gripType, opacity) {
+  const I = CONFIG.HAND_IMG[handSide][gripType];
   const alignDeg = pose.stickDeg; // 无论单击还是滚奏，手棒全程焊死：handDeg === stickDeg
   const rot = alignDeg - I.axisDeg;
   const T = `translate(${f1(pose.grip.x)},${f1(pose.grip.y)}) rotate(${f1(rot)}) scale(${I.scale}) translate(${-I.pinch[0]},${-I.pinch[1]})`;
-  let s = `<g transform="${T}">`;
-  s += `<image href="${I.href}" x="0" y="0" width="${I.w}" height="${I.h}" preserveAspectRatio="none"/>`;
-  // 不画腕带（主人：不要腕带）；左右靠胶带上的粉/薄荷色细环区分
-  return s + `</g>`;
+  const op = opacity < 1 - 1e-6 ? ` opacity="${f1(opacity)}"` : "";
+  return `<g transform="${T}"${op}><image href="${I.href}" x="0" y="0" width="${I.w}" height="${I.h}" preserveAspectRatio="none"/></g>`;
+}
+function handImg(handSide, pose) {
+  // 单击：手图和棒共用 stickDeg（handDeg === stickDeg），棒在手里永远是 0°。
+  // 旋转中心是捏点（棒轴上的握点）；手腕在图里、捏点下方，跟着整只手一起转、一起抬。
+  const blend = pose.gripBlend;
+  if (blend && blend.from && blend.to && blend.from !== blend.to) {
+    const u = clamp01(+blend.u);
+    return handImgLayer(handSide, pose, blend.from, 1 - u) + handImgLayer(handSide, pose, blend.to, u);
+  }
+  return handImgLayer(handSide, pose, pose.gripType, 1);
 }
 
 function handSVG(handSide, pose, ghost = null) {
@@ -1417,6 +1465,25 @@ function renderRollFx(hand, pose, track, now, layer) {
   return s;
 }
 
+/** 单击握拳↔滚奏捏棒换图时，2–3 帧交叉淡入淡出，缓和锚点约 15px 的跳变。 */
+function applyGripCrossfade(hand, track, now, pose) {
+  const fade = CONFIG.GRIP_CROSSFADE;
+  if (!fade || !pose) return pose;
+  const step = 1 / 60;
+  let from = pose.gripType, firstOld = 0;
+  const n = Math.max(1, Math.round(fade / step));
+  for (let k = 1; k <= n; k++) {
+    const prev = poseAt(hand, track, now - k * step, { noKick: true, noWobble: true });
+    if (prev && prev.gripType && prev.gripType !== pose.gripType) {
+      from = prev.gripType;
+      firstOld = k;
+      break;
+    }
+  }
+  if (firstOld) pose.gripBlend = { from, to: pose.gripType, u: firstOld / (n + 1) };
+  return pose;
+}
+
 function renderFrame(now) {
   const { events, tracks } = state;
   els.chart.innerHTML = renderChart(events, now, state.scroll);
@@ -1433,6 +1500,7 @@ function renderFrame(now) {
   s += renderReboundArcs(tracks, now);
   for (const hand of ["L", "R"]) {
     const pose = poseAt(hand, tracks[hand], now);
+    applyGripCrossfade(hand, tracks[hand], now, pose);
     s += renderRollFx(hand, pose, tracks[hand], now, "under");
     s += `<g id="stick-${hand}">${renderStick(pose, state.hands === "img" && CONFIG.HAND_IMG[hand][pose.gripType].band ? null : hand)}</g>`;
     // 每只手是一个独立图层，压在鼓棒上面、锚在捏点。以后直接换成画师的手图（CONFIG.HAND_IMG）

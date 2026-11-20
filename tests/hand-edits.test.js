@@ -1,0 +1,216 @@
+/**
+ * Pure-function tests for the hand-order editor edit layer.
+ *   node tests/hand-edits.test.js
+ */
+"use strict";
+
+const assert = require("assert");
+const path = require("path");
+const sticking = require(path.join(__dirname, "..", "js", "sticking.js"));
+const edits = require(path.join(__dirname, "..", "js", "hand-edits.js"));
+const parser = require(path.join(__dirname, "..", "js", "parser.js"));
+
+let passed = 0;
+const failed = [];
+
+function extra(name, fn) {
+  try {
+    fn();
+    passed += 1;
+    console.log("  ✓ " + name);
+  } catch (err) {
+    failed.push(name);
+    console.log("  ✗ " + name + "  " + (err && err.message ? err.message : err));
+    if (err && err.stack) console.log(err.stack.split("\n").slice(0, 8).join("\n"));
+  }
+}
+
+function notes16(n, bpm) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push({ beat: i * 0.25, colour: "don", big: false, bpm: bpm || 300 });
+  return out;
+}
+
+function tag(resolved) {
+  const paired = Object.create(null);
+  for (const p of resolved.rollPairs || []) {
+    paired[p[0]] = true;
+    paired[p[1]] = true;
+  }
+  return (resolved.hands || []).map((h, i) => (paired[i] ? "r" : "s") + h).join("");
+}
+
+extra("applyRoll on 16ths at 300 uses 自动滚奏 2-2 pairs", function () {
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  const auto = edits.resolve(session);
+  assert.strictEqual(auto.rollPairs.length, 0, "不滚奏 baseline has no pairs");
+  edits.applyRoll(session, 0, 7);
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.rollPairs, [[0, 1], [2, 3], [4, 5], [6, 7]]);
+  assert.strictEqual(tag(got), "rRrRrLrLrRrRrLrL");
+});
+
+extra("applyAlternate turns a range into singles starting with 惯用手", function () {
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const before = edits.resolve(session);
+  assert.ok(before.rollPairs.length > 0, "auto roll is on");
+  edits.applyAlternate(session, 0, 7);
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.rollPairs, []);
+  assert.deepStrictEqual(got.hands, ["R", "L", "R", "L", "R", "L", "R", "L"]);
+});
+
+extra("applyAlternate with 惯用手 L starts on L", function () {
+  const notes = notes16(4, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "L", 滚奏: "不滚奏" });
+  edits.applyAlternate(session, 0, 3);
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.hands, ["L", "R", "L", "R"]);
+  assert.deepStrictEqual(got.rollPairs, []);
+});
+
+extra("applyRestore reverts a range back to auto", function () {
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const autoTag = tag(edits.resolve(session));
+  edits.applyAlternate(session, 0, 7);
+  assert.notStrictEqual(tag(edits.resolve(session)), autoTag);
+  edits.applyRestore(session, 0, 7);
+  assert.strictEqual(tag(edits.resolve(session)), autoTag);
+  assert.deepStrictEqual(edits.resolve(session).rollPairs, [[0, 1], [2, 3], [4, 5], [6, 7]]);
+});
+
+extra("applySwap flips one note and breaks its roll pair", function () {
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const auto = edits.resolve(session);
+  assert.strictEqual(auto.hands[0], "R");
+  assert.ok(auto.rollPairs.some((p) => p[0] === 0 && p[1] === 1));
+  edits.applySwap(session, 0, "L");
+  const got = edits.resolve(session);
+  assert.strictEqual(got.hands[0], "L");
+  assert.ok(!got.rollPairs.some((p) => p[0] === 0 || p[1] === 0), "swapped note leaves the pair");
+  assert.deepStrictEqual(got.rollPairs, [[2, 3], [4, 5], [6, 7]]);
+  assert.strictEqual(got.hands[1], auto.hands[1], "partner hand stays");
+});
+
+extra("undo and redo walk the patch history", function () {
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const autoTag = tag(edits.resolve(session));
+  edits.applyAlternate(session, 2, 5);
+  const mid = tag(edits.resolve(session));
+  edits.applySwap(session, 0, "L");
+  const after = tag(edits.resolve(session));
+  assert.notStrictEqual(mid, autoTag);
+  assert.notStrictEqual(after, mid);
+  assert.ok(edits.canUndo(session));
+  edits.undo(session);
+  assert.strictEqual(tag(edits.resolve(session)), mid);
+  edits.undo(session);
+  assert.strictEqual(tag(edits.resolve(session)), autoTag);
+  assert.ok(!edits.canUndo(session));
+  assert.ok(edits.canRedo(session));
+  edits.redo(session);
+  assert.strictEqual(tag(edits.resolve(session)), mid);
+  edits.redo(session);
+  assert.strictEqual(tag(edits.resolve(session)), after);
+  assert.ok(!edits.canRedo(session));
+});
+
+extra("patches compose: roll a tail after alternating the whole run", function () {
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  edits.applyAlternate(session, 0, 7);
+  edits.applyRoll(session, 4, 7);
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.hands.slice(0, 4), ["R", "L", "R", "L"]);
+  assert.deepStrictEqual(got.rollPairs, [[4, 5], [6, 7]]);
+  assert.ok(!got.rollPairs.some((p) => p[0] < 4));
+});
+
+extra("restore of a sub-range leaves later patches outside it", function () {
+  const notes = notes16(8, 300);
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  edits.applyAlternate(session, 0, 7);
+  edits.applyRestore(session, 0, 3);
+  const got = edits.resolve(session);
+  // 0-3 back to auto 2-2; 4-7 stay alternating singles
+  assert.deepStrictEqual(got.rollPairs, [[0, 1], [2, 3]]);
+  assert.deepStrictEqual(got.hands.slice(4), ["R", "L", "R", "L"]);
+});
+
+extra("setOptions re-runs auto but keeps patches", function () {
+  const notes = notes16(4, 200);
+  const session = edits.createSession(notes, { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  edits.applySwap(session, 0, "L");
+  edits.setOptions(session, { 惯用手: "L" });
+  const got = edits.resolve(session);
+  assert.strictEqual(got.hands[0], "L", "swap patch still applied after options change");
+});
+
+extra("逆手起 warning clears after the range is set to 滚奏, returns on 恢复自动", function () {
+  // Build a 16th run that autoSticking marks 逆手起: start the phrase on L
+  // by putting a rest-section dominant-R note, then a roll run that
+  // somehow starts on L. Easier: take auto warnings if any, or construct
+  // a session with a seeded warning and a no-op auto, then patch.
+  const notes = notes16(8, 300);
+  const auto = sticking.autoSticking(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  // Force a 逆手起 warning on 0-7 so the dirty/restore logic is testable
+  // even if this particular run starts on the dominant hand.
+  const seeded = {
+    hands: auto.hands.slice(),
+    rollPairs: auto.rollPairs.slice(),
+    warnings: [[0, 7, "逆手起"]],
+  };
+  const session = edits.createSession(notes, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" }, seeded);
+  assert.ok(edits.resolve(session).warnings.some((w) => w[2] === "逆手起"));
+  edits.applyRoll(session, 0, 7);
+  assert.ok(!edits.resolve(session).warnings.some((w) => w[2] === "逆手起"), "confirmed roll clears 待确认");
+  edits.applyRestore(session, 0, 7);
+  assert.ok(edits.resolve(session).warnings.some((w) => w[2] === "逆手起"), "restore brings 待确认 back");
+});
+
+extra("同拍重复 warnings stay after a swap", function () {
+  const notes = [
+    { beat: 0, colour: "don", big: false },
+    { beat: 0, colour: "ka", big: false },
+    { beat: 1, colour: "don", big: false },
+  ];
+  const session = edits.createSession(notes, { bpm: 160, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  assert.ok(edits.resolve(session).warnings.some((w) => w[2] === "同拍重复"));
+  edits.applySwap(session, 0, "L");
+  assert.ok(edits.resolve(session).warnings.some((w) => w[2] === "同拍重复"));
+});
+
+extra("eventsFromStickingResult matches eventsFromAutoSticking on a 16th bar", function () {
+  const tja = ["TITLE:t", "BPM:300", "OFFSET:0", "COURSE:Oni", "#START", "1111111111111111,", "#END", ""].join("\n");
+  const parsed = parser.sliceCourse(parser.pickCourse(parser.parseTja(tja)), null);
+  const fromAuto = parser.eventsFromAutoSticking(parsed, { 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const input = parser.notesToStickingInput(parsed.notes, parsed.measures, false);
+  const result = sticking.autoSticking(input, { bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const fromResolved = parser.eventsFromStickingResult(parsed, result, { 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(fromResolved.events.length, fromAuto.events.length);
+  const compact = (evs) => evs.map((e) => [e.t, e.hand, e.face, e.grip, !!e.big].join(":")).join("|");
+  assert.strictEqual(compact(fromResolved.events), compact(fromAuto.events));
+});
+
+extra("resolvedFromEvents round-trips auto 2-2 roll events", function () {
+  const tja = ["TITLE:t", "BPM:300", "OFFSET:0", "COURSE:Oni", "#START", "1111111111111111,", "#END", ""].join("\n");
+  const data = parser.eventsFromTja(tja, { 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  const resolved = edits.resolvedFromEvents(data.events);
+  assert.deepStrictEqual(resolved.rollPairs, [[0, 1], [2, 3], [4, 5], [6, 7], [8, 9], [10, 11], [12, 13], [14, 15]]);
+  assert.strictEqual(resolved.hands.length, 16);
+  assert.strictEqual(resolved.hands[0], "R");
+  assert.strictEqual(resolved.hands[1], "R");
+  assert.strictEqual(resolved.hands[2], "L");
+});
+
+console.log("");
+if (failed.length) {
+  console.log("hand-edits tests: " + passed + " passed, " + failed.length + " failed");
+  process.exit(1);
+}
+console.log("hand-edits tests: " + passed + " passed");

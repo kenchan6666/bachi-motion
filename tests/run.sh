@@ -41,6 +41,10 @@ echo "== auto-sticking engine integration =="
 node tests/auto-sticking-engine.test.js
 echo
 
+echo "== hand-order editor edits (roll / alternate / restore / swap / undo) =="
+node tests/hand-edits.test.js
+echo
+
 echo "== roll-dot cache (cached 720-sample pos must match uncached) =="
 node tests/roll-dot-cache.test.js
 echo

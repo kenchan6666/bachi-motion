@@ -654,19 +654,17 @@
    * hands + rollPairs onto engine events (grip:"roll" on each side of a
    * pair, same as 手顺 JSON 的 (RR)(LL)；引擎再按颜色自判 dd/kk/kd/dk）。
    */
-  function eventsFromAutoSticking(parsed, opts) {
+  /**
+   * Map a resolved { hands, rollPairs, warnings } onto engine events.
+   * Used by the live auto path and by the visual editor after manual edits.
+   */
+  function eventsFromStickingResult(parsed, result, opts) {
     const bigMode = normBigMode(opts && (opts.bigNote || opts.bigMode || opts.bignote));
     const stick = stickingOptsFrom(opts);
     const notes = parsed.notes || [];
-    const input = notesToStickingInput(notes, parsed.measures, bigMode === "small");
-    const result = getAutoSticking()(input, {
-      bpm: parsed.headers && parsed.headers.bpm,
-      手法: stick.手法,
-      惯用手: stick.惯用手,
-      滚奏: stick.滚奏,
-    });
+    const hands = (result && result.hands) || [];
     const paired = Object.create(null);
-    const pairs = result.rollPairs || [];
+    const pairs = (result && result.rollPairs) || [];
     for (let i = 0; i < pairs.length; i++) {
       paired[pairs[i][0]] = true;
       paired[pairs[i][1]] = true;
@@ -687,7 +685,7 @@
         measure: n.measure,
         pos: n.pos,
         bpm: n.bpm,
-        hand: result.hands[i] === "L" ? "L" : "R",
+        hand: hands[i] === "L" ? "L" : "R",
         big: bigMode === "small" ? false : isBig,
         both: false,
       };
@@ -705,9 +703,23 @@
       手法: stick.手法,
       惯用手: stick.惯用手,
       滚奏: stick.滚奏,
-      stickingWarnings: result.warnings || [],
+      stickingWarnings: (result && result.warnings) || [],
       source: "auto-sticking",
     };
+  }
+
+  function eventsFromAutoSticking(parsed, opts) {
+    const bigMode = normBigMode(opts && (opts.bigNote || opts.bigMode || opts.bignote));
+    const stick = stickingOptsFrom(opts);
+    const notes = parsed.notes || [];
+    const input = notesToStickingInput(notes, parsed.measures, bigMode === "small");
+    const result = getAutoSticking()(input, {
+      bpm: parsed.headers && parsed.headers.bpm,
+      手法: stick.手法,
+      惯用手: stick.惯用手,
+      滚奏: stick.滚奏,
+    });
+    return eventsFromStickingResult(parsed, result, opts);
   }
 
   /** Parse TJA and return the engine-ready payload.
@@ -1247,6 +1259,7 @@
     normRoll,
     notesToStickingInput,
     eventsFromAutoSticking,
+    eventsFromStickingResult,
     applyBigNoteToHandEvents,
     eventsFromTja,
     chartFromTjaAndHands,

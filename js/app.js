@@ -202,6 +202,9 @@
     seek(state.start);
     if (play) setPlaying(true);
     console.log("[bachi-motion] events:", state.events.length, "mode:", currentMode());
+    if (window.BachiEditor && typeof window.BachiEditor.onGenerate === "function") {
+      window.BachiEditor.onGenerate(data);
+    }
     return data;
   }
 
@@ -364,6 +367,31 @@
       regenerateKeepTime();
     });
   }
+
+  window.BachiApp = {
+    generate,
+    buildData,
+    parseOpts,
+    currentTechnique,
+    currentHand,
+    currentRoll,
+    setTechniqueControl,
+    setHandControl,
+    setRollControl,
+    setStickingLocked,
+    currentMode,
+    setMode,
+    loadSampleChart,
+    openSettings,
+    showError,
+    regenerateKeepTime,
+    updateHeading,
+    getTja: () => tjaInput.value,
+    setTja: (v) => { tjaInput.value = v || ""; },
+    getJson: () => jsonInput.value,
+    setJson: (v) => { jsonInput.value = v || ""; },
+    ROLL_HINTS,
+  };
 
   async function boot() {
     if (pageParams.get("mode") === "suyue") setMode("suyue");

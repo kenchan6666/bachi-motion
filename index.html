@@ -632,6 +632,7 @@
     border-radius: 0;
   }
 </style>
+<link rel="stylesheet" href="assets/editor.css">
 </head>
 <body>
 <div class="page">
@@ -646,8 +647,11 @@
       <div class="titles">
         <h1 id="title">bachi-motion</h1>
         <p class="subtitle">溯溯的鼓棒</p>
+        <button type="button" class="btn-open-editor" id="btnOpenEditor">手顺编辑</button>
+        <button type="button" class="btn-back-player" id="btnBackPlayer">返回播放</button>
       </div>
     </div>
+    <p class="editor-page-title" id="editorPageTitle" hidden>手顺编辑</p>
     <p class="song" id="song"></p>
   </header>
 
@@ -767,6 +771,7 @@
               </div>
             </div>
             <div style="margin-top:12px">
+              <p class="block-label">滚奏</p>
               <div class="seg" id="rollSeg" role="radiogroup" aria-label="滚奏">
                 <button type="button" data-roll="不滚奏" role="radio" aria-checked="false">不滚奏</button>
                 <button type="button" class="on" data-roll="自动滚奏" role="radio" aria-checked="true">自动滚奏</button>
@@ -775,6 +780,7 @@
               <p class="hint" id="rollHint" style="margin-top:6px">12 分 1-2，16／24 分整串 2-2</p>
             </div>
             <p class="hint" id="autoStickingLock" hidden>已载入手顺 JSON，以上设置不生效</p>
+            <button type="button" class="file-btn" id="btnOpenEditorSettings" style="margin-top:8px;align-self:flex-start">打开手顺编辑器</button>
           </div>
 
           <div>
@@ -831,13 +837,143 @@ LEVEL:6
       </details>
     </aside>
   </div>
+
+  <div class="editor" id="editor" hidden>
+    <div class="editor-toolbar">
+      <div class="editor-toolbar-left">
+        <div class="seg editor-mode-seg" id="editorModeSeg" role="radiogroup" aria-label="手顺模式">
+          <button type="button" data-ed-mode="auto" role="radio" aria-checked="false">纯自动</button>
+          <button type="button" class="on" data-ed-mode="tweak" role="radio" aria-checked="true">自动+微调</button>
+          <button type="button" data-ed-mode="custom" role="radio" aria-checked="false">导入自定义</button>
+        </div>
+        <div class="editor-auto-settings" id="editorAutoSettings">
+          <div class="editor-field editor-tech-block">
+            <div class="editor-field-row">
+              <span class="editor-field-label">手法风格</span>
+              <div class="editor-tech" id="editorTech">
+                <button type="button" class="editor-tech-btn" id="editorTechBtn" aria-haspopup="listbox" aria-expanded="false">全换</button>
+                <div class="editor-tech-menu" id="editorTechMenu" role="listbox" hidden>
+                  <button type="button" class="editor-tech-option is-active" role="option" data-tech="全换">
+                    <span class="name">全换（默认）</span>
+                    <span class="desc">全程左右交替，空一拍以上回惯用手</span>
+                  </button>
+                  <button type="button" class="editor-tech-option" role="option" data-tech="半换A">
+                    <span class="name">半换 A</span>
+                    <span class="desc">连音、散音各算一段，每段惯用手起</span>
+                  </button>
+                  <button type="button" class="editor-tech-option" role="option" data-tech="半换B">
+                    <span class="name">半换 B</span>
+                    <span class="desc">连音并上前面的散音算一段，惯用手起</span>
+                  </button>
+                  <button type="button" class="editor-tech-option" role="option" data-tech="炒菜">
+                    <span class="name">炒菜</span>
+                    <span class="desc">散音都用惯用手，连音惯用手起交替；<span class="nowrap">BPM ≥ 270 不炒 8 分</span></span>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <p class="editor-field-hint">休息段一律用惯用手</p>
+          </div>
+          <div class="editor-field editor-hand-block">
+            <p class="block-label">惯用手</p>
+            <div class="seg" id="editorHandSeg" role="radiogroup" aria-label="惯用手">
+              <button type="button" class="on" data-hand="R" role="radio" aria-checked="true">右手</button>
+              <button type="button" data-hand="L" role="radio" aria-checked="false">左手</button>
+            </div>
+          </div>
+          <div class="editor-field editor-roll-block">
+            <p class="block-label">滚奏</p>
+            <div class="seg" id="editorRollSeg" role="radiogroup" aria-label="滚奏">
+              <button type="button" data-roll="不滚奏" role="radio" aria-checked="false">不滚奏</button>
+              <button type="button" class="on" data-roll="自动滚奏" role="radio" aria-checked="true">自动滚奏</button>
+              <button type="button" data-roll="24分滚奏" role="radio" aria-checked="false">24 分滚奏</button>
+            </div>
+            <p class="editor-field-hint" id="editorRollHint">12 分 1-2，16／24 分整串 2-2</p>
+          </div>
+          <p class="editor-lock-hint" id="editorLockHint" hidden>已载入手顺 JSON，以上设置不生效</p>
+        </div>
+      </div>
+      <div class="editor-toolbar-right">
+        <div class="editor-status is-plain" id="editorStatus"><span class="dot" hidden></span><span id="editorStatusText">尚未生成</span></div>
+        <div class="editor-advanced" id="editorAdvanced">
+          <button type="button" class="editor-advanced-btn" id="editorAdvancedBtn" aria-expanded="false">高级 <span class="chevron" aria-hidden="true"></span></button>
+          <div class="editor-advanced-panel" id="editorAdvancedPanel" hidden>
+            <label class="file-btn">导入 JSON<input id="editorJsonFile" type="file" accept=".json,application/json"></label>
+            <button type="button" class="file-btn" id="editorExportJson">导出 JSON</button>
+            <label class="file-btn">打开 TJA<input id="editorTjaFile" type="file" accept=".tja,text/plain"></label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="editor-body">
+      <section class="editor-chart-card">
+        <div class="editor-chart-head">
+          <h2>谱面与手顺轨道</h2>
+          <p id="editorChartHint">拖选一段可改滚奏或交互 · 单击音符可换手</p>
+        </div>
+        <div class="editor-scroll" id="editorScroll">
+          <div class="editor-measures" id="editorMeasures"></div>
+          <div class="editor-playhead" id="editorPlayhead" hidden></div>
+          <div class="editor-sel" id="editorSel" hidden></div>
+          <div class="editor-popover" id="editorRangePop" hidden>
+            <p class="editor-pop-title" id="editorRangePopTitle">将选中的 0 音设为</p>
+            <div class="editor-pop-actions">
+              <button type="button" class="editor-pop-roll" data-ed-action="roll">滚奏</button>
+              <button type="button" class="editor-pop-alt" data-ed-action="alternate">交互</button>
+              <button type="button" data-ed-action="restore">恢复自动</button>
+            </div>
+          </div>
+          <div class="editor-popover is-swap" id="editorSwapPop" hidden>
+            <p class="editor-pop-title">换手</p>
+            <div class="editor-swap-actions">
+              <button type="button" class="editor-swap-btn is-R" data-ed-swap="R">右</button>
+              <button type="button" class="editor-swap-btn is-L" data-ed-swap="L">左</button>
+            </div>
+            <p class="editor-pop-note">点按后立即预览</p>
+          </div>
+        </div>
+        <div class="editor-chart-legend">
+          <div class="items">
+            <span class="editor-swatch is-R"><i></i>右手</span>
+            <span class="editor-swatch is-L"><i></i>左手</span>
+            <span class="editor-swatch is-roll"><i></i>滚奏段</span>
+            <span class="editor-swatch is-warn"><i></i>待确认</span>
+          </div>
+          <span>16 分网格 · 右绿左粉</span>
+        </div>
+      </section>
+
+      <aside class="editor-preview">
+        <div class="editor-preview-head">
+          <h2>实时手元</h2>
+          <p>与谱面播放头同步</p>
+        </div>
+        <div class="editor-stage-host" id="editorStageHost"></div>
+        <div class="editor-playpos" id="editorPlayPos">
+          <span class="k">播放位置</span>
+          <div class="row">
+            <span class="hand-pill is-R" id="editorPlayHand">右</span>
+            <span id="editorPlayText">尚未开始</span>
+            <button type="button" class="editor-play-btn" id="editorPlayBtn">播放</button>
+          </div>
+        </div>
+        <div class="editor-preview-legend">
+          <div class="sw"><span class="hand-pill is-R">右</span>右手标记 / 轨道为绿色</div>
+          <div class="sw"><span class="hand-pill is-L">左</span>左手标记 / 轨道为粉色</div>
+        </div>
+      </aside>
+    </div>
+  </div>
 </div>
 
 <script src="js/sticking.js"></script>
 <script src="js/parser.js"></script>
+<script src="js/hand-edits.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/titlebar-bpm.js"></script>
 <script src="js/titlebar.js"></script>
 <script src="js/app.js"></script>
+<script src="js/editor.js"></script>
 </body>
 </html>

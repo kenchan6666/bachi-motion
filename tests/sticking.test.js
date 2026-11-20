@@ -301,21 +301,125 @@ extra("dense 16ths keep mid-stream 2-1, including the phrase after a rest", func
   assert.strictEqual(t.warn, false);
 });
 
-extra("BPM 270 eighths alternate from the dominant hand; BPM 269 eighths stay dominant", function () {
-  function eighthsAfter(bpm) {
+extra("BPM 270+ 炒菜 eighths stay all dominant; 半换A at 270 still alternates", function () {
+  function eighthsAfter(bpm, opts) {
     const notes = [];
     for (let i = 0; i < 5; i++) notes.push({ beat: i * 0.25, colour: "don", big: false });
-    for (let i = 0; i < 4; i++) notes.push({ beat: 2.5 + i * 0.5, colour: "don", big: false });
-    return tailOf(sticking.autoSticking(notes, {
+    for (let i = 0; i < 4; i++) notes.push({ beat: 2.5 + i * 0.5, colour: i % 2 ? "ka" : "don", big: false });
+    return tailOf(sticking.autoSticking(notes, Object.assign({
       bpm: bpm, 手法: "炒菜", 惯用手: "R", 滚奏: "自动滚奏",
-    }), 5);
+    }, opts || {})), 5);
   }
   const hi = eighthsAfter(270);
-  assert.strictEqual(hi.hands, "RLRL", "270 " + hi.hands + " pairs " + hi.pairs);
+  assert.strictEqual(hi.hands, "RRRR", "270 " + hi.hands + " pairs " + hi.pairs);
   assert.strictEqual(hi.pairs, "");
+  const faster = eighthsAfter(300);
+  assert.strictEqual(faster.hands, "RRRR", "300 " + faster.hands);
+  const left = eighthsAfter(270, { 惯用手: "L" });
+  assert.strictEqual(left.hands, "LLLL", "270 L " + left.hands);
   const lo = eighthsAfter(269);
   assert.strictEqual(lo.hands, "RRRR", "269 " + lo.hands);
   assert.strictEqual(lo.pairs, "");
+  const ban = eighthsAfter(270, { 手法: "半换A" });
+  assert.strictEqual(ban.hands, "RLRL", "半换A 270 " + ban.hands);
+});
+
+// o = don, x = ka. Spaces in the owner's examples are figure boundaries,
+// not a second colour. A continuous 16th stream is step 0.25; a spaced
+// group is the next cluster after an interval >= 0.5.
+function notesGrouped(groups, step, gap) {
+  const notes = [];
+  groups.forEach(function (pat) {
+    for (let i = 0; i < pat.length; i++) {
+      const beat = notes.length
+        ? notes[notes.length - 1].beat + (i === 0 ? gap : step)
+        : 0;
+      const c = pat[i];
+      notes.push({
+        beat: +beat.toFixed(6),
+        colour: (c === "o" || c === "d") ? "don" : "ka",
+        big: false,
+      });
+    }
+  });
+  return notes;
+}
+
+function handsOf(notes, opts) {
+  const out = sticking.autoSticking(notes, Object.assign({
+    bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "不滚奏",
+  }, opts || {}));
+  return { hands: out.hands.join(""), pairs: pairSig(out), warnings: out.warnings || [] };
+}
+
+extra("owner 炒菜 examples: each 三连 and each spaced group starts on the dominant hand", function () {
+  // oox oox xxo, continuous 16ths. Singles restart every cell.
+  // Continuous alternation would be rlrlrlrlr.
+  let g = handsOf(notesGrouped(["ooxooxxxo"], 0.25, 0.25));
+  assert.strictEqual(g.hands, "RLRRLRRLR", "oox oox xxo " + g.hands);
+  g = handsOf(notesGrouped(["ooxooxxxo"], 0.25, 0.25), { 惯用手: "L" });
+  assert.strictEqual(g.hands, "LRLLRLLRL", "oox oox xxo L " + g.hands);
+
+  // Same three 三连 with 自动滚奏: each cell is 2-1, RRL RRL RRL.
+  g = handsOf(notesGrouped(["ooxooxxxo"], 0.25, 0.25), { 滚奏: "自动滚奏" });
+  assert.strictEqual(g.hands, "RRLRRLRRL", "roll " + g.hands);
+  assert.strictEqual(g.pairs, "0-1,3-4,6-7");
+  g = handsOf(notesGrouped(["ooxooxxxo"], 0.25, 0.25), { 滚奏: "自动滚奏", 惯用手: "L" });
+  assert.strictEqual(g.hands, "LLRLLRLLR", "roll L " + g.hands);
+  assert.strictEqual(g.pairs, "0-1,3-4,6-7");
+
+  // oxooxoox xoxoxx oooxxx. Gap of an 8th (0.5) between groups.
+  // Each group alternates from 正手. o/x are colours.
+  const spaced = ["oxooxoox", "xoxoxx", "oooxxx"];
+  g = handsOf(notesGrouped(spaced, 0.25, 0.5));
+  assert.strictEqual(g.hands, "RLRLRLRLRLRLRLRLRLRL", "spaced " + g.hands);
+  g = handsOf(notesGrouped(spaced, 0.25, 0.5), { 惯用手: "L" });
+  assert.strictEqual(g.hands, "LRLRLRLRLRLRLRLRLRLR", "spaced L " + g.hands);
+  // The same colours with no gap are not a 三连 tiling, so they stay one alternation.
+  g = handsOf(notesGrouped([spaced.join("")], 0.25, 0.25));
+  assert.strictEqual(g.hands, "RLRLRLRLRLRLRLRLRLRL", "continuous groups " + g.hands);
+  // Odd cluster then a spaced group: the group must not continue onto L.
+  g = handsOf(notesGrouped(["oox", "oxooxoox"], 0.25, 0.5));
+  assert.strictEqual(g.hands, "RLRRLRLRLRL", "odd then spaced " + g.hands);
+});
+
+extra("炒菜 散音 eighths are all the dominant hand, including a mixed-colour run", function () {
+  function eighths(bpm, hand) {
+    const notes = [];
+    for (let i = 0; i < 4; i++) {
+      notes.push({ beat: i * 0.5, colour: i % 2 ? "ka" : "don", big: false });
+    }
+    return handsOf(notes, { bpm: bpm, 惯用手: hand, 滚奏: "自动滚奏" });
+  }
+  assert.strictEqual(eighths(200, "R").hands, "RRRR");
+  assert.strictEqual(eighths(270, "R").hands, "RRRR");
+  assert.strictEqual(eighths(300, "R").hands, "RRRR");
+  assert.strictEqual(eighths(270, "L").hands, "LLLL");
+  assert.strictEqual(eighths(300, "R").pairs, "");
+});
+
+extra("炒菜 consecutive 三连 each start dominant; 全换 still carries the 2-1 hand", function () {
+  // Six same-colour 16ths, then two kdd. 全换 keeps 2-1 from the off-hand.
+  const pat = "ddddddkddkdd";
+  const quan = sticking.autoSticking(notesAt(pat, 0.25), {
+    bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏",
+  });
+  assert.strictEqual(quan.hands.join(""), "RRLLRRLLRLLR");
+  assert.strictEqual(pairSig(quan), "0-1,2-3,4-5,6-7,9-10");
+
+  const singles = handsOf(notesGrouped(["ddddddkddkdd"], 0.25, 0.25));
+  assert.strictEqual(singles.hands, "RLRLRLRLRRLR", "singles " + singles.hands);
+  const rolled = handsOf(notesGrouped(["ddddddkddkdd"], 0.25, 0.25), { 滚奏: "自动滚奏" });
+  assert.strictEqual(rolled.hands, "RRLLRRRRLRRL", "roll " + rolled.hands);
+  assert.strictEqual(rolled.pairs, "0-1,2-3,4-5,6-7,9-10");
+  const left = handsOf(notesGrouped(["ddddddkddkdd"], 0.25, 0.25), { 滚奏: "自动滚奏", 惯用手: "L" });
+  assert.strictEqual(left.hands, "LLRRLLLLRLLR", "roll L " + left.hands);
+  assert.strictEqual(left.pairs, "0-1,2-3,4-5,6-7,9-10");
+
+  // 24分滚奏 still does not roll 16ths; 炒菜 cells stay singles from 正手.
+  const slow = handsOf(notesGrouped(["ooxooxxxo"], 0.25, 0.25), { 滚奏: "24分滚奏" });
+  assert.strictEqual(slow.hands, "RLRRLRRLR", "24roll cells " + slow.hands);
+  assert.strictEqual(slow.pairs, "");
 });
 
 extra("24分滚奏 keeps the original pairing", function () {

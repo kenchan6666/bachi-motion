@@ -60,6 +60,11 @@
     return lt(delta, 0.5);
   }
 
+  // 炒菜的散音不看 BPM：8 分或更慢（间隔 ≥ 半拍）永远断开，270 也不并进连音。
+  function chaoLinked(delta) {
+    return gt(delta, 0) && lt(delta, 0.5);
+  }
+
   function noteBpm(notes, i, globalBpm) {
     var bpm = globalBpm;
     for (var k = 0; k <= i; k++) {
@@ -150,6 +155,138 @@
     return groups;
   }
 
+  // A patterned 16th 三连 cell: xoo / oxx / xxo / oox. Same-colour and xox are not.
+  function tripleCellAt(notes, i, end) {
+    if (i + 2 > end) return false;
+    if (!is16Step(notes, i + 1) || !is16Step(notes, i + 2)) return false;
+    return !!tripleKind(notes[i].colour, notes[i + 1].colour, notes[i + 2].colour);
+  }
+
+  function leadingTripleCells(notes, i, end) {
+    var n = 0;
+    var k = i;
+    while (tripleCellAt(notes, k, end)) {
+      n++;
+      k += 3;
+    }
+    return n;
+  }
+
+  function cycleContained(notes, i, end) {
+    if (i + 5 > end) return null;
+    if (!preferCycleStart(notes, i)) return null;
+    var span = cycleSpan(notes, i);
+    if (!span || span.start !== i || span.end > end) return null;
+    return span;
+  }
+
+  // Two alignments within two 16ths (oxooxoox is both a 1-shift and a 2-shift)
+  // are one cluster, not a stack of 三连.
+  function cycleCompetes(notes, i, end) {
+    for (var d = -2; d <= 2; d++) {
+      if (d === 0) continue;
+      if (i + d < 0) continue;
+      if (cycleContained(notes, i + d, end)) return true;
+    }
+    return false;
+  }
+
+  function nextSoloCycle(notes, from, end) {
+    for (var i = from + 1; i + 5 <= end; i++) {
+      var span = cycleContained(notes, i, end);
+      if (!span || cycleCompetes(notes, i, end)) continue;
+      return span;
+    }
+    return null;
+  }
+
+  // 1–2 notes that keep the previous 三连 cell's colour cycle. Not a new 正手.
+  function samePatternTail(notes, i, end) {
+    if (i < 3 || i > end) return 0;
+    var len = 0;
+    while (i + len <= end && len < 2) {
+      if (!is16Step(notes, i + len)) break;
+      if (notes[i + len].colour !== notes[i + len - 3].colour) break;
+      len++;
+    }
+    return len;
+  }
+
+  // Figure cuts inside one 炒菜 fast run (every interval < 0.5).
+  //   三连 — each patterned 16th cell (xoo/oxx/xxo/oox), starting on 惯用手.
+  //   续   — the 1–2 note tail of that colour cycle; the hand carries.
+  //   连音 — one cluster, 正手起: monochrome, 鱼蛋, 四连, 五连, 12/24/32,
+  //          or a colour stream whose 三连 alignments compete (oxooxoox).
+  // A lone cell that only opens a longer figure (oxxo and the like) is not peeled off.
+  function cellsToTake(notes, i, end) {
+    var tiles = leadingTripleCells(notes, i, end);
+    if (tiles >= 2) return tiles;
+    if (tiles === 1 && end - i === 2) return 1;
+    return 0;
+  }
+
+  function chaoFigures(notes, start, end) {
+    var figs = [];
+    var i = start;
+    var guard = 0;
+    while (i <= end && guard++ <= notes.length + 2) {
+      var take = cellsToTake(notes, i, end);
+      if (take > 0) {
+        for (var t = 0; t < take; t++) {
+          figs.push({ start: i, end: i + 2, kind: "三连" });
+          i += 3;
+        }
+        // Only a 1–2 note remainder of this cycle. A longer remainder is the next cluster.
+        if (i <= end && end - i < 2) {
+          var tail = samePatternTail(notes, i, end);
+          if (tail === end - i + 1) {
+            figs.push({ start: i, end: i + tail - 1, kind: "续" });
+            i += tail;
+          }
+        }
+        continue;
+      }
+      var span = nextSoloCycle(notes, i, end);
+      if (span && span.start > i) {
+        figs.push({ start: i, end: span.start - 1, kind: "连音" });
+        i = span.start;
+        continue;
+      }
+      figs.push({ start: i, end: end, kind: "连音" });
+      break;
+    }
+    return figs;
+  }
+
+  // 炒菜 segments: 散音 is interval >= 0.5 at every BPM. A fast run is then
+  // cut into the figures above. Other 手法 keep segmentsInPhrase / connected().
+  function chaoSegments(notes, start, end) {
+    var groups = [];
+    var i = start;
+    while (i <= end) {
+      var j = i;
+      while (j < end) {
+        if (!chaoLinked(inbound(notes, j + 1))) break;
+        j++;
+      }
+      var kind = (j > i) ? "连音" : "散音";
+      if (kind === "散音") {
+        while (j < end) {
+          var nxt = j + 1;
+          if (nxt < end && chaoLinked(inbound(notes, nxt + 1))) break;
+          if (chaoLinked(inbound(notes, nxt))) break;
+          j = nxt;
+        }
+        groups.push({ start: i, end: j, kind: "散音" });
+      } else {
+        var figs = chaoFigures(notes, i, j);
+        for (var f = 0; f < figs.length; f++) groups.push(figs[f]);
+      }
+      i = j + 1;
+    }
+    return groups;
+  }
+
   function fillAlternate(hands, start, end, first) {
     var h = first;
     for (var i = start; i <= end; i++) {
@@ -162,18 +299,30 @@
     for (var i = start; i <= end; i++) hands[i] = h;
   }
 
-  // Phrase starts always reset to 惯用手. 炒菜 also resets at every 连音/散音
-  // segment, including a gap of exactly one beat. 全换 does not: a gap of
-  // exactly one beat stays in the phrase when the previous note is not a 休息段.
-  function freshStarts(notes, phrases, 手法, globalBpm) {
+  // Phrase starts always reset to 惯用手. 炒菜 also resets at every 散音 run and
+  // every non-散音 figure (each 三连 cell, each 鱼蛋 / 四连 / 五连 / other cluster),
+  // including a gap of exactly one beat. A 三连 colour-cycle tail (续) does not
+  // reset. 全换 does not reset on a gap of exactly one beat when the previous
+  // note is not a 休息段.
+  function chaoMarks(notes, phrases) {
     var fresh = Object.create(null);
+    var boundary = Object.create(null);
     for (var p = 0; p < phrases.length; p++) {
       var ph = phrases[p];
       fresh[ph.start] = true;
-      if (ph.rest || 手法 !== "炒菜") continue;
-      var segs = segmentsInPhrase(notes, ph.start, ph.end, globalBpm);
-      for (var s = 0; s < segs.length; s++) fresh[segs[s].start] = true;
+      if (ph.rest) continue;
+      var figs = chaoSegments(notes, ph.start, ph.end);
+      for (var s = 0; s < figs.length; s++) {
+        boundary[figs[s].start] = true;
+        if (figs[s].kind !== "续") fresh[figs[s].start] = true;
+      }
     }
+    return { fresh: fresh, boundary: boundary };
+  }
+
+  function freshStarts(notes, phrases) {
+    var fresh = Object.create(null);
+    for (var p = 0; p < phrases.length; p++) fresh[phrases[p].start] = true;
     return fresh;
   }
 
@@ -189,14 +338,18 @@
         fillAlternate(hands, ph.start, ph.end, dominant);
         continue;
       }
-      var segs = segmentsInPhrase(notes, ph.start, ph.end, globalBpm);
       if (手法 === "炒菜") {
-        for (var s = 0; s < segs.length; s++) {
-          var g = segs[s];
+        var figs = chaoSegments(notes, ph.start, ph.end);
+        for (var s = 0; s < figs.length; s++) {
+          var g = figs[s];
           if (g.kind === "散音") fillAll(hands, g.start, g.end, dominant);
+          else if (g.kind === "续") fillAlternate(hands, g.start, g.end, otherHand(dominant));
           else fillAlternate(hands, g.start, g.end, dominant);
         }
-      } else if (手法 === "半换A") {
+        continue;
+      }
+      var segs = segmentsInPhrase(notes, ph.start, ph.end, globalBpm);
+      if (手法 === "半换A") {
         for (s = 0; s < segs.length; s++) {
           fillAlternate(hands, segs[s].start, segs[s].end, dominant);
         }
@@ -244,7 +397,8 @@
 
   // Split a phrase into roll-runs. 16/24/32 stay together; 12 stays with 12;
   // 16↔12 on a downbeat / 12th grid splits; a non-roll gap (e.g. 8th hole) splits.
-  function rollRunsInPhrase(notes, start, end, globalBpm) {
+  function rollRunsInPhrase(notes, start, end, globalBpm, link) {
+    if (!link) link = connected;
     var runs = [];
     var i = start;
     while (i <= end) {
@@ -253,7 +407,7 @@
       if (i < end) {
         var d0 = inbound(notes, i + 1);
         var bpm0 = noteBpm(notes, i + 1, globalBpm);
-        if (!connected(d0, bpm0)) {
+        if (!link(d0, bpm0)) {
           i++;
           continue;
         }
@@ -266,7 +420,7 @@
       while (j < end) {
         var d = inbound(notes, j + 1);
         var bpm = noteBpm(notes, j + 1, globalBpm);
-        if (!connected(d, bpm)) break;
+        if (!link(d, bpm)) break;
         j++;
       }
       // split [i, j] into family runs
@@ -299,15 +453,35 @@
     return runs;
   }
 
-  function collectRollRuns(notes, rest, phrases, globalBpm) {
+  function collectRollRuns(notes, rest, phrases, globalBpm, link) {
     var runs = [];
     for (var p = 0; p < phrases.length; p++) {
       var ph = phrases[p];
       if (ph.rest) continue;
-      var rr = rollRunsInPhrase(notes, ph.start, ph.end, globalBpm);
+      var rr = rollRunsInPhrase(notes, ph.start, ph.end, globalBpm, link);
       for (var r = 0; r < rr.length; r++) runs.push(rr[r]);
     }
     return runs;
+  }
+
+  // Cut a roll-run wherever a 炒菜 figure starts, so each 三连 cell pairs on
+  // its own from 惯用手. A 续 boundary is a cut too, but it is not fresh:
+  // the roll layer keeps the hand after the previous cell.
+  function splitRunsAtBoundaries(runs, boundary) {
+    if (!boundary) return runs;
+    var out = [];
+    for (var r = 0; r < runs.length; r++) {
+      var run = runs[r];
+      var s = run.start;
+      for (var i = run.start + 1; i <= run.end; i++) {
+        if (boundary[i]) {
+          out.push({ start: s, end: i - 1 });
+          s = i;
+        }
+      }
+      out.push({ start: s, end: run.end });
+    }
+    return out;
   }
 
   function canPairNotes(notes, a, b) {
@@ -821,8 +995,17 @@
     var rest = markRests(notes);
     var phrases = splitPhrases(notes, rest);
     var hands = assignTechnique(notes, rest, phrases, 手法, dominant, globalBpm);
-    var runs = collectRollRuns(notes, rest, phrases, globalBpm);
-    var fresh = freshStarts(notes, phrases, 手法, globalBpm);
+    // 炒菜：8 分或更慢不进滚奏串（BPM 270 起全换/半换仍把 8 分当成连音）。
+    var link = (手法 === "炒菜") ? function (delta) { return chaoLinked(delta); } : null;
+    var runs = collectRollRuns(notes, rest, phrases, globalBpm, link);
+    var fresh;
+    if (手法 === "炒菜") {
+      var marks = chaoMarks(notes, phrases);
+      fresh = marks.fresh;
+      runs = splitRunsAtBoundaries(runs, marks.boundary);
+    } else {
+      fresh = freshStarts(notes, phrases);
+    }
     var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh);
     var warnings = collectWarnings(hands, runs, rollPairs, dominant);
     return { hands: hands, rollPairs: rollPairs, warnings: warnings };

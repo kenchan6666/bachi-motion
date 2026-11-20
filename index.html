@@ -499,7 +499,16 @@
     svg#stage { width: 100%; height: auto; max-height: none; }
     .transport { order: 3; padding: 8px 16px 4px; }
     .legend { order: 4; padding: 4px 16px; }
-    .settings { order: 5; margin: 6px 16px 16px; flex: none; overflow: visible; }
+    .settings {
+      order: 5;
+      margin: 6px 16px 16px;
+      flex: none;
+      min-width: 0;
+      overflow: hidden;
+      border: 1.5px solid var(--line-strong);
+      border-radius: var(--radius-pill);
+    }
+    .settings[open] { border-radius: 16px; }
   }
 
   @media (prefers-reduced-motion: reduce) {

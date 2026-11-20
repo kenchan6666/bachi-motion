@@ -60,6 +60,10 @@ if ! grep -qE 'cluster span 0\.0000 px' "$WELD_OUT"; then
 fi
 echo
 
+echo "== HOVER rest-then-dense exemption (synthetic JSON, no official charts) =="
+python3 tests/check-hover-exempt.test.py
+echo
+
 echo "== motion checks (check.py v2) =="
 TMPDIR="$(mktemp -d)"
 # re-bind cleanup now that TMPDIR exists

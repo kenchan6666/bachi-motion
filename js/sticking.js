@@ -1,0 +1,739 @@
+/**
+ * Auto-sticking (谱面音符 → 手顺) pure function.
+ *
+ * Rules follow suyue@ebd21a0:
+ *   资料/手顺规则说明.md
+ *   资料/手顺规则用例.json
+ *
+ *   autoSticking(notes, { bpm, 手法, 惯用手, 滚奏, 补16分洞 })
+ *     → { hands, rollPairs, warnings, insertedNotes? }
+ *
+ * Browser and Node both load this file (same IIFE pattern as other js/ modules).
+ */
+(function (root, factory) {
+  if (typeof module === "object" && module.exports) module.exports = factory();
+  else root.BachiSticking = factory();
+})(typeof globalThis !== "undefined" ? globalThis : (typeof self !== "undefined" ? self : this), function () {
+  "use strict";
+
+  var EPS = 1e-9;
+  var DIV_EPS = 1e-4;
+  var DOWNBEAT_EPS = 1e-6;
+  var DEFAULT_手法 = "全换";
+  var DEFAULT_惯用手 = "R";
+  var DEFAULT_滚奏 = "自动滚奏";
+
+  function ge(a, b) { return a >= b - EPS; }
+  function le(a, b) { return a <= b + EPS; }
+  function gt(a, b) { return a > b + EPS; }
+  function lt(a, b) { return a < b - EPS; }
+  function near(a, b, eps) { return Math.abs(a - b) <= (eps == null ? DIV_EPS : eps); }
+  function otherHand(h) { return h === "R" ? "L" : "R"; }
+
+  function isDownbeat(beat) {
+    return Math.abs(beat - Math.round(beat)) < DOWNBEAT_EPS;
+  }
+
+  function isTwelfthGrid(beat) {
+    return Math.abs(beat * 3 - Math.round(beat * 3)) < 1e-5;
+  }
+
+  // Subdivision of an inbound (or first-note outbound) interval, or 0 if none.
+  function classifyDelta(delta) {
+    if (delta == null || !isFinite(delta)) return 0;
+    if (near(delta, 0.125)) return 32;
+    if (near(delta, 1 / 6)) return 24;
+    if (near(delta, 0.25)) return 16;
+    if (near(delta, 1 / 3)) return 12;
+    if (near(delta, 0.5)) return 8;
+    return 0;
+  }
+
+  function isRollDiv(div) {
+    return div === 12 || div === 16 || div === 24 || div === 32;
+  }
+
+  function connected(delta, laterBpm) {
+    if (laterBpm >= 270) return le(delta, 0.5);
+    return lt(delta, 0.5);
+  }
+
+  function noteBpm(notes, i, globalBpm) {
+    var bpm = globalBpm;
+    for (var k = 0; k <= i; k++) {
+      if (notes[k] && notes[k].bpm != null) bpm = notes[k].bpm;
+    }
+    return bpm;
+  }
+
+  function inbound(notes, i) {
+    if (i <= 0) return null;
+    return notes[i].beat - notes[i - 1].beat;
+  }
+
+  function outbound(notes, i) {
+    if (i >= notes.length - 1) return null;
+    return notes[i + 1].beat - notes[i].beat;
+  }
+
+  function isRestNote(notes, i) {
+    var hasIn = i > 0;
+    var hasOut = i < notes.length - 1;
+    if (!hasIn && !hasOut) return true;
+    if (hasIn && !ge(inbound(notes, i), 1)) return false;
+    if (hasOut && !ge(outbound(notes, i), 1)) return false;
+    return true;
+  }
+
+  function markRests(notes) {
+    var rest = new Array(notes.length);
+    for (var i = 0; i < notes.length; i++) rest[i] = isRestNote(notes, i);
+    return rest;
+  }
+
+  // Phrase cuts: a rest is its own phrase; inbound > 1 starts a new phrase.
+  function splitPhrases(notes, rest) {
+    var phrases = [];
+    var n = notes.length;
+    var i = 0;
+    while (i < n) {
+      if (rest[i]) {
+        phrases.push({ start: i, end: i, rest: true });
+        i++;
+        continue;
+      }
+      var start = i;
+      i++;
+      while (i < n && !rest[i]) {
+        if (gt(inbound(notes, i), 1)) break;
+        i++;
+      }
+      phrases.push({ start: start, end: i - 1, rest: false });
+    }
+    return phrases;
+  }
+
+  // 连音 / 散音 segments inside one non-rest phrase.
+  function segmentsInPhrase(notes, start, end, globalBpm) {
+    var groups = [];
+    var i = start;
+    while (i <= end) {
+      var j = i;
+      while (j < end) {
+        var d = inbound(notes, j + 1);
+        var bpm = noteBpm(notes, j + 1, globalBpm);
+        if (!connected(d, bpm)) break;
+        j++;
+      }
+      // j is the last note of this connected run; length 1 is 散音
+      var kind = (j > i) ? "连音" : "散音";
+      if (kind === "散音") {
+        // absorb following isolated 散音, but do not swallow the first note of a later 连音
+        while (j < end) {
+          var nxt = j + 1;
+          if (nxt < end) {
+            var dN = inbound(notes, nxt + 1);
+            var bpmN = noteBpm(notes, nxt + 1, globalBpm);
+            if (connected(dN, bpmN)) break; // nxt starts a 连音
+          }
+          var d2 = inbound(notes, nxt);
+          var bpm2 = noteBpm(notes, nxt, globalBpm);
+          if (connected(d2, bpm2)) break;
+          j = nxt;
+        }
+      }
+      groups.push({ start: i, end: j, kind: kind });
+      i = j + 1;
+    }
+    return groups;
+  }
+
+  function fillAlternate(hands, start, end, first) {
+    var h = first;
+    for (var i = start; i <= end; i++) {
+      hands[i] = h;
+      h = otherHand(h);
+    }
+  }
+
+  function fillAll(hands, start, end, h) {
+    for (var i = start; i <= end; i++) hands[i] = h;
+  }
+
+  function assignTechnique(notes, rest, phrases, 手法, dominant, globalBpm) {
+    var hands = new Array(notes.length);
+    for (var p = 0; p < phrases.length; p++) {
+      var ph = phrases[p];
+      if (ph.rest) {
+        fillAll(hands, ph.start, ph.end, dominant);
+        continue;
+      }
+      if (手法 === "全换") {
+        fillAlternate(hands, ph.start, ph.end, dominant);
+        continue;
+      }
+      var segs = segmentsInPhrase(notes, ph.start, ph.end, globalBpm);
+      if (手法 === "炒菜") {
+        for (var s = 0; s < segs.length; s++) {
+          var g = segs[s];
+          if (g.kind === "散音") fillAll(hands, g.start, g.end, dominant);
+          else fillAlternate(hands, g.start, g.end, dominant);
+        }
+      } else if (手法 === "半换A") {
+        for (s = 0; s < segs.length; s++) {
+          fillAlternate(hands, segs[s].start, segs[s].end, dominant);
+        }
+      } else if (手法 === "半换B") {
+        // merge each 连音 with the 散音 immediately before it (same phrase)
+        var b = 0;
+        while (b < segs.length) {
+          if (segs[b].kind === "连音") {
+            fillAlternate(hands, segs[b].start, segs[b].end, dominant);
+            b++;
+          } else if (b + 1 < segs.length && segs[b + 1].kind === "连音") {
+            fillAlternate(hands, segs[b].start, segs[b + 1].end, dominant);
+            b += 2;
+          } else {
+            // trailing 散音
+            fillAlternate(hands, segs[b].start, segs[b].end, dominant);
+            b++;
+          }
+        }
+      } else {
+        // unknown 手法: fall back to 全换
+        fillAlternate(hands, ph.start, ph.end, dominant);
+      }
+    }
+    return hands;
+  }
+
+  function noteDiv(notes, i, runStart) {
+    // 每颗按入间隔判细分；串首没有入间隔时用出间隔。
+    if (i > runStart) return classifyDelta(inbound(notes, i));
+    if (i < notes.length - 1) return classifyDelta(outbound(notes, i));
+    return 0;
+  }
+
+  function shouldSplitFamily(notes, i, prevDiv, thisDiv) {
+    // 16 ↔ 12 换族，且该音在拍头或 12 分格子上：在这里断开（该音起新串）。
+    if (!((prevDiv === 16 && thisDiv === 12) || (prevDiv === 12 && thisDiv === 16))) return false;
+    var beat = notes[i].beat;
+    return isDownbeat(beat) || isTwelfthGrid(beat);
+  }
+
+  function isRollableGap(div) {
+    return isRollDiv(div);
+  }
+
+  // Split a phrase into roll-runs. 16/24/32 stay together; 12 stays with 12;
+  // 16↔12 on a downbeat / 12th grid splits; a non-roll gap (e.g. 8th hole) splits.
+  function rollRunsInPhrase(notes, start, end, globalBpm) {
+    var runs = [];
+    var i = start;
+    while (i <= end) {
+      // skip isolated notes that aren't in a 连音 (length-1 散音 / anything not connected to next)
+      // A roll run is a maximal 连音, then further split by family rules.
+      if (i < end) {
+        var d0 = inbound(notes, i + 1);
+        var bpm0 = noteBpm(notes, i + 1, globalBpm);
+        if (!connected(d0, bpm0)) {
+          i++;
+          continue;
+        }
+      } else {
+        i++;
+        continue;
+      }
+      // i starts a 连音; extend
+      var j = i;
+      while (j < end) {
+        var d = inbound(notes, j + 1);
+        var bpm = noteBpm(notes, j + 1, globalBpm);
+        if (!connected(d, bpm)) break;
+        j++;
+      }
+      // split [i, j] into family runs
+      var subStart = i;
+      var prevDiv = noteDiv(notes, i, i);
+      for (var k = i + 1; k <= j; k++) {
+        var inDiv = classifyDelta(inbound(notes, k));
+        var outDiv = classifyDelta(outbound(notes, k));
+        var split = false;
+        if (!isRollableGap(inDiv) && inDiv !== 0) {
+          // e.g. 8th hole: previous run ends at k-1, k starts a new run
+          split = true;
+        } else if ((inDiv === 16 && outDiv === 12) || (inDiv === 12 && outDiv === 16)) {
+          // 换族且该音在拍头或 12 分格子：在该音处断开（该音起新串）
+          if (isDownbeat(notes[k].beat) || isTwelfthGrid(notes[k].beat)) split = true;
+        } else if (shouldSplitFamily(notes, k, prevDiv, inDiv)) {
+          split = true;
+        }
+        if (split) {
+          if (k - 1 >= subStart) runs.push({ start: subStart, end: k - 1 });
+          subStart = k;
+          prevDiv = noteDiv(notes, k, k);
+        } else {
+          prevDiv = inDiv || prevDiv;
+        }
+      }
+      if (j >= subStart) runs.push({ start: subStart, end: j });
+      i = j + 1;
+    }
+    return runs;
+  }
+
+  function collectRollRuns(notes, rest, phrases, globalBpm) {
+    var runs = [];
+    for (var p = 0; p < phrases.length; p++) {
+      var ph = phrases[p];
+      if (ph.rest) continue;
+      var rr = rollRunsInPhrase(notes, ph.start, ph.end, globalBpm);
+      for (var r = 0; r < rr.length; r++) runs.push(rr[r]);
+    }
+    return runs;
+  }
+
+  function canPairNotes(notes, a, b) {
+    return !notes[a].big && !notes[b].big;
+  }
+
+  function plan22(n, canPair) {
+    var pairs = [];
+    var i = 0;
+    while (i < n) {
+      if (i + 1 < n && canPair(i, i + 1)) {
+        pairs.push([i, i + 1]);
+        i += 2;
+      } else {
+        i += 1;
+      }
+    }
+    return pairs;
+  }
+
+  function planShift1(n, canPair) {
+    var pairs = [];
+    var i = 1;
+    while (i < n) {
+      if (i + 1 < n && canPair(i, i + 1)) {
+        pairs.push([i, i + 1]);
+        i += 2;
+      } else {
+        i += 1;
+      }
+    }
+    return pairs;
+  }
+
+  // 1-2 from `from` (single, pair, single, pair…), relative indices.
+  function plan12From(n, from, canPair) {
+    var pairs = [];
+    var i = from;
+    while (i < n) {
+      i += 1; // single
+      if (i + 1 < n && canPair(i, i + 1)) {
+        pairs.push([i, i + 1]);
+        i += 2;
+      }
+    }
+    return pairs;
+  }
+
+  function plan21(n, canPair) {
+    var pairs = [];
+    var i = 0;
+    while (i < n) {
+      if (i + 1 < n && canPair(i, i + 1)) {
+        pairs.push([i, i + 1]);
+        i += 2;
+      }
+      if (i < n) i += 1; // single
+    }
+    return pairs;
+  }
+
+  function isWaishua(c1, c2) {
+    return c1 === "don" && c2 === "ka";
+  }
+
+  function countNizyteWaishua(notes, start, pairs, startHand, dominant) {
+    var pairOf = Object.create(null);
+    for (var p = 0; p < pairs.length; p++) pairOf[pairs[p][0]] = pairs[p][1];
+    var count = 0;
+    var h = startHand;
+    var i = 0;
+    var n = notes.length; // this is run-local? we'll pass run notes via wrapper
+    // This function is called with run-local notes array.
+    while (i < notes.length) {
+      if (pairOf[i] === i + 1) {
+        if (isWaishua(notes[i].colour, notes[i + 1].colour) && h !== dominant) count++;
+        h = otherHand(h);
+        i += 2;
+      } else {
+        h = otherHand(h);
+        i += 1;
+      }
+    }
+    return count;
+  }
+
+  function breakNizytePairs(notes, start, pairs, startHand, dominant) {
+    // drop pairs that would be 逆手外刷; walk in order
+    var kept = [];
+    var h = startHand;
+    var pairOf = Object.create(null);
+    for (var p = 0; p < pairs.length; p++) pairOf[pairs[p][0]] = pairs[p][1];
+    var i = 0;
+    while (i < notes.length) {
+      if (pairOf[i] === i + 1) {
+        if (isWaishua(notes[i].colour, notes[i + 1].colour) && h !== dominant) {
+          // become two singles; first keeps h, second is other
+          h = otherHand(h); // after first single
+          h = otherHand(h); // after second single = original next stroke? 
+          // singles: first h, flip, second other, flip → after two singles we're at original h
+          // Wait: two singles: start h, after first otherHand(h), after second start h again.
+          // A pair would flip once, ending at otherHand(h). These are different!
+          // "改成单打交替，不进 rollPairs" — they become alternating singles, so
+          // after two singles the next hand is back to the start hand of the pair.
+          // Yes h is already flipped twice = start h. Next note uses start h? 
+          // Example 31: 2-note run start L, pair would be 逆手外刷, become L R.
+          // After two singles start L: L, R, next would be L. Good.
+          i += 2;
+        } else {
+          kept.push([i, i + 1]);
+          h = otherHand(h);
+          i += 2;
+        }
+      } else {
+        h = otherHand(h);
+        i += 1;
+      }
+    }
+    return kept;
+  }
+
+  function detectCycle(notes) {
+    if (notes.length < 6) return null;
+    var c0 = notes[0].colour, c1 = notes[1].colour, c2 = notes[2].colour;
+    if (c0 === c1 && c1 === c2) return null; // monochrome
+    for (var i = 0; i < 6; i++) {
+      if (notes[i].colour !== notes[i % 3].colour) return null;
+    }
+    if (c1 === c2 && c0 !== c1) return "xoo";
+    if (c0 === c1 && c1 !== c2) return "xxo";
+    return null;
+  }
+
+  function chooseAuto22Pairs(runNotes, startHand, dominant) {
+    var n = runNotes.length;
+    var canPair = function (i, j) { return !runNotes[i].big && !runNotes[j].big; };
+    var cycle = detectCycle(runNotes);
+    var pairs;
+    if (cycle === "xoo") {
+      pairs = plan12From(n, 0, canPair);
+    } else if (cycle === "xxo") {
+      pairs = plan21(n, canPair);
+    } else {
+      var p22 = plan22(n, canPair);
+      var pSh = planShift1(n, canPair);
+      var c22 = countNizyteWaishua(runNotes, 0, p22, startHand, dominant);
+      var cSh = countNizyteWaishua(runNotes, 0, pSh, startHand, dominant);
+      pairs = (cSh < c22) ? pSh : p22;
+    }
+    return breakNizytePairs(runNotes, 0, pairs, startHand, dominant);
+  }
+
+  function findLeadDownbeat(notes, start, end) {
+    var max = Math.min(start + 2, end);
+    for (var i = start; i <= max; i++) {
+      if (isDownbeat(notes[i].beat)) return i - start;
+    }
+    return 0;
+  }
+
+  function choose12Pairs(notes, start, end) {
+    var n = end - start + 1;
+    var canPair = function (i, j) {
+      return !notes[start + i].big && !notes[start + j].big;
+    };
+    var lead = findLeadDownbeat(notes, start, end);
+    var pairs = [];
+    if (lead === 0) {
+      pairs = plan12From(n, 0, canPair);
+    } else if (lead === 1) {
+      pairs = plan12From(n, 1, canPair);
+    } else if (lead === 2) {
+      if (n >= 2 && canPair(0, 1)) pairs.push([0, 1]);
+      var rest = plan12From(n, 2, canPair);
+      for (var r = 0; r < rest.length; r++) pairs.push(rest[r]);
+    }
+    return pairs;
+  }
+
+
+  function splitByDiv(notes, start, end) {
+    // Consecutive same-div subsegments, using inbound for i>start and outbound for start.
+    var parts = [];
+    var i = start;
+    while (i <= end) {
+      var div = (i === start) ? classifyDelta(outbound(notes, i)) : classifyDelta(inbound(notes, i));
+      // If this is the first of the whole run, outbound is its div. Subsequent notes of same
+      // family keep arriving with that inbound div. When inbound changes, new part starts.
+      var j = i;
+      while (j < end) {
+        var nextDiv = classifyDelta(inbound(notes, j + 1));
+        var curDiv = (j === start && j === i) ? classifyDelta(outbound(notes, j)) : classifyDelta(inbound(notes, j));
+        if (j === i && i === start) curDiv = classifyDelta(outbound(notes, i));
+        if (nextDiv !== curDiv && nextDiv !== 0 && curDiv !== 0) break;
+        j++;
+      }
+      parts.push({ start: i, end: j, div: div || classifyDelta(inbound(notes, i)) || classifyDelta(outbound(notes, i)) });
+      i = j + 1;
+    }
+    return parts;
+  }
+
+  function applyPairsToHands(hands, start, end, startHand, pairsAbs) {
+    var pairOf = Object.create(null);
+    for (var p = 0; p < pairsAbs.length; p++) pairOf[pairsAbs[p][0]] = pairsAbs[p][1];
+    var h = startHand;
+    var i = start;
+    while (i <= end) {
+      if (pairOf[i] === i + 1) {
+        hands[i] = h;
+        hands[i + 1] = h;
+        h = otherHand(h);
+        i += 2;
+      } else {
+        hands[i] = h;
+        h = otherHand(h);
+        i += 1;
+      }
+    }
+    return h; // next hand after the run
+  }
+
+  function sliceNotes(notes, start, end) {
+    var out = [];
+    for (var i = start; i <= end; i++) out.push(notes[i]);
+    return out;
+  }
+
+  function toAbsPairs(pairs, start) {
+    var out = [];
+    for (var i = 0; i < pairs.length; i++) out.push([pairs[i][0] + start, pairs[i][1] + start]);
+    return out;
+  }
+
+  function choose24ModePairs(notes, start, end) {
+    // 16 / 12: no roll. Each 24-subsegment from its first note 1-2 (no downbeat align).
+    // Each 32-subsegment from its first note 2-2.
+    var parts = splitByDiv(notes, start, end);
+    var pairs = [];
+    for (var p = 0; p < parts.length; p++) {
+      var part = parts[p];
+      var n = part.end - part.start + 1;
+      var canPair = function (localStart) {
+        return function (i, j) {
+          return !notes[localStart + i].big && !notes[localStart + j].big;
+        };
+      };
+      if (part.div === 24) {
+        var rel = plan12From(n, 0, canPair(part.start));
+        for (var r = 0; r < rel.length; r++) {
+          pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
+        }
+      } else if (part.div === 32) {
+        rel = plan22(n, canPair(part.start));
+        for (r = 0; r < rel.length; r++) {
+          pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
+        }
+      }
+    }
+    return pairs;
+  }
+
+  function chooseAutoPairs(notes, start, end, startHand, dominant, mode) {
+    if (mode === "不滚奏") return [];
+    var n = end - start + 1;
+    if (n < 2) return [];
+
+    if (mode === "24分滚奏") {
+      var raw = choose24ModePairs(notes, start, end);
+      var runNotes = sliceNotes(notes, start, end);
+      var rel = [];
+      for (var i = 0; i < raw.length; i++) rel.push([raw[i][0] - start, raw[i][1] - start]);
+      rel = breakNizytePairs(runNotes, 0, rel, startHand, dominant);
+      return toAbsPairs(rel, start);
+    }
+
+    // 自动滚奏
+    var divs = {};
+    for (var k = start; k <= end; k++) {
+      var d = (k === start) ? classifyDelta(outbound(notes, k)) : classifyDelta(inbound(notes, k));
+      if (d) divs[d] = true;
+    }
+    var only12 = divs[12] && !divs[16] && !divs[24] && !divs[32];
+    var has12 = !!divs[12];
+    var has162432 = !!(divs[16] || divs[24] || divs[32]);
+
+    if (only12 || (has12 && !has162432)) {
+      var p12 = choose12Pairs(notes, start, end);
+      runNotes = sliceNotes(notes, start, end);
+      p12 = breakNizytePairs(runNotes, 0, p12, startHand, dominant);
+      return toAbsPairs(p12, start);
+    }
+
+    // 16 / 24 / 32 / mixed (and mixed with leftover 12 after family split shouldn't appear)
+    // If a run somehow mixed 12 with 16 after we failed to split, 5.5 says 16+24 don't split
+    // but 16↔12 on downbeat should have been split already.
+    var auto22 = chooseAuto22Pairs(sliceNotes(notes, start, end), startHand, dominant);
+    return toAbsPairs(auto22, start);
+  }
+
+  function applyRollLayer(notes, hands, runs, dominant, mode) {
+    var allPairs = [];
+    if (mode === "不滚奏") return allPairs;
+    var nextStartHand = null;
+    var prevEnd = -2;
+    for (var r = 0; r < runs.length; r++) {
+      var run = runs[r];
+      var startHand;
+      // Hands continue across adjacent roll-runs in the same phrase (no rest / phrase cut between).
+      if (nextStartHand && run.start === prevEnd + 1) startHand = nextStartHand;
+      else startHand = hands[run.start];
+      var pairs = chooseAutoPairs(notes, run.start, run.end, startHand, dominant, mode);
+      var after = applyPairsToHands(hands, run.start, run.end, startHand, pairs);
+      for (var p = 0; p < pairs.length; p++) allPairs.push(pairs[p]);
+      nextStartHand = after;
+      prevEnd = run.end;
+    }
+    return allPairs;
+  }
+
+  function collectWarnings(hands, runs, allPairs, dominant) {
+    var pairIn = Object.create(null);
+    for (var p = 0; p < allPairs.length; p++) {
+      pairIn[allPairs[p][0]] = true;
+      pairIn[allPairs[p][1]] = true;
+    }
+    var warnings = [];
+    for (var r = 0; r < runs.length; r++) {
+      var run = runs[r];
+      var len = run.end - run.start + 1;
+      var hasPair = false;
+      for (var i = run.start; i <= run.end; i++) if (pairIn[i]) { hasPair = true; break; }
+      if (len < 3 && !hasPair) continue;
+      if (hands[run.start] !== dominant) {
+        warnings.push([run.start, run.end, "逆手起"]);
+      }
+    }
+    return warnings;
+  }
+
+  function findSixteenthHoles(notes, globalBpm) {
+    // A 16th hole: two 16th notes with interval exactly 0.5, and they sit between 16th material
+    // (previous outbound or next inbound is 16th). "一串 16 分中间只空了一格 16 分".
+    var holes = [];
+    for (var i = 0; i < notes.length - 1; i++) {
+      var d = inbound(notes, i + 1);
+      if (!near(d, 0.5)) continue;
+      // left note should belong to a 16th run (inbound or outbound 16)
+      var left16 = (i > 0 && classifyDelta(inbound(notes, i)) === 16) || classifyDelta(outbound(notes, i)) === 16;
+      // After a hole the next note starts a 16th run: outbound 16 or... the gap itself isn't 16.
+      // The next note (i+1) should have outbound 16 or be followed as 16ths.
+      var right16 = (i + 1 < notes.length - 1 && classifyDelta(outbound(notes, i + 1)) === 16) ||
+                    (i + 1 > 0 && classifyDelta(inbound(notes, i + 1)) === 8 /* the hole */);
+      // Safer: left has a 16th neighbor on its left, right has a 16th neighbor on its right,
+      // or they themselves are 16ths in a broken run.
+      var leftIs16 = (i > 0 && near(inbound(notes, i), 0.25)) ||
+                     (i < notes.length - 1 && near(outbound(notes, i), 0.25));
+      var rightIs16 = (i + 1 < notes.length - 1 && near(outbound(notes, i + 1), 0.25)) ||
+                      (i + 1 > 0 && near(inbound(notes, i + 1), 0.25));
+      // inbound(i+1) is 0.5, so rightIs16 via inbound would be true always — bad.
+      rightIs16 = (i + 1 < notes.length - 1 && near(outbound(notes, i + 1), 0.25));
+      leftIs16 = (i > 0 && near(inbound(notes, i), 0.25));
+      if (leftIs16 && rightIs16) {
+        holes.push(i); // insert after index i
+      }
+    }
+    return holes;
+  }
+
+  function insertHoles(notes, holes) {
+    var inserted = [];
+    var expanded = notes.slice();
+    // apply from the end so afterIndex stays original
+    var sorted = holes.slice().sort(function (a, b) { return b - a; });
+    for (var h = 0; h < sorted.length; h++) {
+      var after = sorted[h];
+      var left = expanded[after];
+      // afterIndex is original. Because we go from the end, `after` still equals original index
+      // as long as we only insert after earlier-or-equal? going from end: later insertions
+      // don't shift earlier indices. after is original. Good.
+      // In expanded array, index of left may have shifted if we inserted before it — we insert
+      // from the end, so no earlier insertions yet. expanded[after] is still the original note.
+      var next = expanded[after + 1];
+      var colour = next.colour === "don" ? "ka" : "don";
+      var beat = left.beat + 0.25; // one 16th after left (the hole is 0.5 = two 16ths, insert in the middle)
+      var note = { beat: beat, colour: colour, big: false };
+      if (left.bpm != null) note.bpm = left.bpm;
+      else if (next.bpm != null) note.bpm = next.bpm;
+      expanded.splice(after + 1, 0, note);
+      inserted.push({ afterIndex: after, beat: beat, colour: colour, big: false });
+    }
+    inserted.sort(function (a, b) { return a.afterIndex - b.afterIndex; });
+    return { notes: expanded, insertedNotes: inserted };
+  }
+
+  function runPipeline(notes, opts) {
+    var 手法 = opts.手法 || DEFAULT_手法;
+    var dominant = opts.惯用手 || DEFAULT_惯用手;
+    if (dominant !== "L") dominant = "R";
+    var 滚奏 = opts.滚奏 || DEFAULT_滚奏;
+    var globalBpm = opts.bpm;
+    var rest = markRests(notes);
+    var phrases = splitPhrases(notes, rest);
+    var hands = assignTechnique(notes, rest, phrases, 手法, dominant, globalBpm);
+    var runs = collectRollRuns(notes, rest, phrases, globalBpm);
+    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏);
+    var warnings = collectWarnings(hands, runs, rollPairs, dominant);
+    return { hands: hands, rollPairs: rollPairs, warnings: warnings };
+  }
+
+  function autoSticking(notes, opts) {
+    notes = notes || [];
+    opts = opts || {};
+    var 补 = !!(opts.补16分洞);
+    var working = notes;
+    var insertedNotes = null;
+    if (补) {
+      var holes = findSixteenthHoles(notes, opts.bpm);
+      if (holes.length) {
+        var ins = insertHoles(notes, holes);
+        working = ins.notes;
+        insertedNotes = ins.insertedNotes;
+      }
+    }
+    var out = runPipeline(working, opts);
+    if (insertedNotes) out.insertedNotes = insertedNotes;
+    return out;
+  }
+
+  function fromInput(input) {
+    input = input || {};
+    var opts = {
+      bpm: input.bpm,
+      手法: input.手法,
+      惯用手: input.惯用手
+    };
+    var extra = input.options || {};
+    for (var k in extra) if (Object.prototype.hasOwnProperty.call(extra, k)) opts[k] = extra[k];
+    return autoSticking(input.notes, opts);
+  }
+
+  return {
+    autoSticking: autoSticking,
+    fromInput: fromInput
+  };
+});

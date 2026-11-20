@@ -37,11 +37,11 @@ const CONFIG = {
   SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
   LIFT_PX: 95,          // 咚全幅度（≥8 分）抬起高度；16 分及更密仍用 LIFT_SCALE_* 去乘
-  KA_LIFT_PX: 40,       // 咔在落点之上的过冲（落点已在上沿，重点是外移+竖直；太大棒尖会插进谱面轨道）
+  KA_LIFT_PX: 48,       // 咔在落点之上的过冲（略加高；太大棒尖会插进谱面轨道）
   ROLL_LIFT_PX: 70,     // 滚奏手腕点头仍按 70px 的 1/3 算，不随单击 LIFT_PX 变
   LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
-  KA_STICK_OUT_DEG: 10, // 咔棒几乎竖直，只往外倒 5–10°（手在外侧，宽站位；倒角方向让握点外移，不能把手收到中间）
-  KA_TIP_OUT_PX: 36,    // 咔棒头伸出鼓边黑线外（接触点仍在黑线上）
+  KA_STICK_OUT_DEG: 14, // 咔棒近竖直，往外倒约 13–15°（手在外侧，宽站位）
+  KA_TIP_OUT_PX: 42,    // 咔棒头伸出鼓边黑线外（接触点仍在黑线上；略加长，打中姿势稍高一点）
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
   WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
   WINDUP: 0.03,         // 单击从放低的闲置姿势抬到最高，再在 RISE 里落下；短到另一只手打中时这只还没抬
@@ -97,8 +97,9 @@ const GEOM = {
     // 第一人称：手从画面底部进来；单击时手+棒是刚体，pivot 只是握点的参考原点
     // kaAng：咔在近端鼓边的位置（0=右，-90=上）。右手约 1 点钟 -55°，左手镜像 11 点钟 235°。
     // 闲置时手在鼓前面放低（idle），不跟着另一只手抬。
-    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 272 }, kaAng: 235, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
-    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 272 }, kaAng: -55, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
+    // don 是落点；donLen 只用来定棒长（跟手焊死用），避免把落点上提时把棒拉长。
+    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 258 }, donLen: { x: 350, y: 272 }, kaAng: 235, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
+    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 258 }, donLen: { x: 450, y: 272 }, kaAng: -55, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
   },
 };
 // 咔接触点：鼓边黑线上（grow=0）。棒头再沿棒伸出 KA_TIP_OUT_PX。
@@ -292,7 +293,8 @@ function applyWristTilt(pose, lift) {
 /** 鼓棒握点到棒尖的固定长度（以咚的持棒为准，单击过程中不滑动）。 */
 function stickLen(hand) {
   const H = GEOM.hands[hand];
-  return V.len(V.sub(H.don, H.pivot));
+  const src = H.donLen || H.don;
+  return V.len(V.sub(src, H.pivot));
 }
 
 function findSegment(track, t) {

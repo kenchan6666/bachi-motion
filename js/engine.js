@@ -4,16 +4,18 @@
  * 1. CONFIG / GEOM —— 尺寸、颜色、时长（颜色全部来自汐月 v2 规格）
  * =================================================================== */
 const COL = {
-  outline: "#2B2320",                  // 统一描边 3px
+  outline: "#2B2320",                  // 统一描边 3px（手、棒、卡片、谱面；鼓不用这根）
   skin: "#FFE3CC", tint: "#FFC9B8",      // 指尖/指节一点点浅粉（α0.4）
   shaft: "#F3E6C8", tape: "#B9A6E8", tapeLine: "#8F7BC8",   // 鼓棒 v2.3：米白棒身、浅紫缠胶带、黑环
   don: "#E8503A", ka: "#4FE0E6", gold: "#F5C542",
   R: "#5FC99A",                        // 右手（正手）袖口 + 握把粉/绿标记
   L: "#F49AC1",                        // 左手（逆手）袖口 + 握把粉/绿标记（v2.3 起，避开浅紫胶带）
-  face: "#F6EEDC", studBand: "#E9C48A", body: "#C8342A", bodyDark: "#9E2620", stud: "#2B2320",
+  face: "#FFFDF8", studBand: "#F3D08A", body: "#FF4F19", bodyDark: "#D63A10", stud: "#8A3A28",
   noteDon: "#E8503A", noteKa: "#3FB6E8",   // 谱面音符颜色（和谱面图一致）
 };
-const OUT = 3;   // 描边宽度
+const OUT = 3;   // 全局描边宽度（鼓以外）
+const DRUM_OUT = 10;            // 鼓自己的轮廓描边。只画在鼓上，不改 OUT
+const DRUM_OUTLINE = "#000000"; // 鼓轮廓纯黑
 
 const CONFIG = {
   RISE: 0.10,           // 兼容旧调用：等于 STRIKE_DOWN_MAX（稀疏下砸）
@@ -182,7 +184,7 @@ const CONFIG = {
 };
 
 const GEOM = {
-  face: { cx: 400, cy: 300, rx: 190, ry: 118 },   // 米白椭圆鼓面
+  face: { cx: 400, cy: 300, rx: 190, ry: 118 },   // 近白椭圆鼓面
   bodyBottom: 548,                                 // 鼓身往下收成圆底的最低点
   lane: { y: 70, judgeX: 92, x0: 30, x1: 775 },
   card: { x: 40, y: 128, w: 720, h: 720 },
@@ -1909,21 +1911,21 @@ function renderStatic() {
   // 鼓下淡淡冷灰接触阴影（#2A2A30 / 0.11），跟鼓一起走 scene 缩放
   s += `<ellipse cx="${GEOM.face.cx}" cy="${GEOM.bodyBottom + 8}" rx="168" ry="30" fill="#2A2A30" opacity=".11" filter="url(#drumFloorShadow)"/>`;
   s += `<defs><clipPath id="bodyClip"><path d="${bodyD}"/></clipPath></defs>`;
-  s += `<path d="${bodyD}" fill="${COL.bodyDark}"/>`;                       // 底部深红暗带（整块先铺深红）
-  s += `<path d="${drumBodyD(-24)}" fill="${COL.body}" clip-path="url(#bodyClip)"/>`; // 上面盖鼓身红，露出底下一条
-  // 钉带：贴着鼓面下缘的一圈米黄带 + 一排鼓钉
+  s += `<path d="${bodyD}" fill="${COL.bodyDark}"/>`;                       // 底部深橘暗带（整块先铺深橘）
+  s += `<path d="${drumBodyD(-24)}" fill="${COL.body}" clip-path="url(#bodyClip)"/>`; // 上面盖鼓身亮橘，露出底下一条
+  // 钉带：贴着鼓面下缘的一圈暖黄带 + 一排红褐鼓钉。带缘用鼓的纯黑，宽度仍是原来的细边，不是 10px 轮廓。
   const band = ellipseArcD(4, 176, 0, 40);
   s += `<g clip-path="url(#bodyClip)" transform="translate(0,24)">
-          <path d="${band}" fill="none" stroke="${COL.outline}" stroke-width="32"/>
+          <path d="${band}" fill="none" stroke="${DRUM_OUTLINE}" stroke-width="32"/>
           <path d="${band}" fill="none" stroke="${COL.studBand}" stroke-width="25"/></g>`;
   for (let a = 18; a <= 162; a += 12) {
     const p = ellipsePt(a, 0);
     if (p.y + 24 < F.cy + 8) continue;
     s += `<circle cx="${f1(p.x)}" cy="${f1(p.y + 24)}" r="4.2" fill="${COL.stud}"/>`;
   }
-  s += `<path d="${bodyD}" fill="none" stroke="${COL.outline}" stroke-width="${OUT}" stroke-linejoin="round"/>`;
-  // 米白鼓面 + 左上白色椭圆高光（α0.55）
-  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="${COL.face}" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
+  s += `<path d="${bodyD}" fill="none" stroke="${DRUM_OUTLINE}" stroke-width="${DRUM_OUT}" stroke-linejoin="round"/>`;
+  // 近白鼓面 + 左上白色椭圆高光（α0.55）
+  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="${COL.face}" stroke="${DRUM_OUTLINE}" stroke-width="${DRUM_OUT}"/>`;
   s += `</g>`;
   return s;
 }
@@ -2230,6 +2232,9 @@ const SWIPE_ARROW = {
   headWidFac: 2.45,         // 头宽 × strokeWidth
   shaftBack: 0.64,          // 杆终点沿弧从尖往回，盖住圆头
   opacity: 0.90,
+  // 辅圆朝鼓心内收，并同量缩小半径。箭头墨线因此落在 10px 鼓描边内侧，不压进黑边。
+  // 只用于箭头；滚奏点仍用原来的辅圆，再按 DRUM_OUT 自己夹到鼓沿。
+  rimInset: 30,
   minVisible: 0.09,         // 最短可见 90ms（BPM 高时一对只有几十毫秒）
   drawK: 0.45,              // 0 → 0.45T 起笔
   holdK: 0.55,              // 0.45T → 0.55T 停在满箭头
@@ -2266,8 +2271,11 @@ function swipeArrowGeom(hand, type) {
   const F = GEOM.face, S = SWIPE_ARROW;
   const left = hand === "L";
   const inner = type === "kd";
-  const C = { x: F.cx + (left ? -S.cxOff : S.cxOff) * F.rx, y: F.cy - S.cyOff * F.ry };
-  const r = S.rFac * F.rx;
+  const inset = S.rimInset || 0;
+  const C0 = { x: F.cx + (left ? -S.cxOff : S.cxOff) * F.rx, y: F.cy - S.cyOff * F.ry };
+  const inward = V.norm({ x: F.cx - C0.x, y: F.cy - C0.y });
+  const C = { x: C0.x + inward.x * inset, y: C0.y + inward.y * inset };
+  const r = S.rFac * F.rx - inset;
   const ang = (deg) => {
     const a = deg * Math.PI / 180;
     return left ? Math.PI - a : a;
@@ -2431,7 +2439,7 @@ function rollDotGeomKey(hand, type) {
   return [
     hand, F.cx, F.cy, F.rx, F.ry,
     S.cxOff, S.cyOff, S.rFac,
-    D.midDeg, D.rimPad, D.rimSamples, rFac, D.stroke, D.bounceScale, OUT,
+    D.midDeg, D.rimPad, D.rimSamples, rFac, D.stroke, D.bounceScale, DRUM_OUT,
   ].join("	");
 }
 
@@ -2439,8 +2447,8 @@ function rollDotGeomKey(hand, type) {
  * 用给定的最短距离函数计算滚奏点圆心（与历史逐帧算法相同）。
  * 圆的圆心：SWIPE_ARROW 辅圆弧中点，左手镜像。
  * 夹紧按「放到 bounceScale 最大」+「圆心到鼓沿椭圆的最短距离」：
- * 白边外沿离鼓沿描边外沿（椭圆中心线再扣描边半宽 OUT/2）至少 rimPad。
- * 不是击打落点。
+ * 白边外沿离鼓沿描边内沿（椭圆中心线再扣鼓描边半宽 DRUM_OUT/2）至少 rimPad。
+ * 不是击打落点。箭头的 rimInset 不参与，点仍贴着鼓沿。
  */
 function rollDotPosFromDist(hand, distFn, type) {
   const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
@@ -2452,8 +2460,8 @@ function rollDotPosFromDist(hand, distFn, type) {
   const x = C.x + R * Math.cos(ang);
   let y = C.y + R * Math.sin(ang);
   const rMax = rollDotRFac(type) * F.rx * D.bounceScale;
-  // 放到 1.15× 时白边外沿半径，再留 6px，并扣掉鼓沿描边半宽（描边外沿朝鼓面的那一侧）
-  const need = rMax + D.stroke + D.rimPad + OUT / 2;
+  // 放到 1.15× 时白边外沿半径，再留 6px，并扣掉鼓沿描边半宽（描边内沿朝鼓面的那一侧）
+  const need = rMax + D.stroke + D.rimPad + DRUM_OUT / 2;
   const dist = (yy) => distFn(F.cx, F.cy, F.rx, F.ry, x, yy, D.rimSamples);
   if (dist(y) < need) {
     let lo = y, hi = F.cy;
@@ -2594,7 +2602,7 @@ function renderFaceGlow(_events, _second, _now) {
   const F = GEOM.face;
   // 去掉旧的半边橙红/粉色染色残留（不再整半边鼓染色），只保留鼓面高光和外圈描边；击中光集中在落点侧。
   let s = `<ellipse cx="${F.cx - 70}" cy="${F.cy - 62}" rx="72" ry="21" fill="#fff" opacity=".55" transform="rotate(-10 ${F.cx - 70} ${F.cy - 62})"/>`;
-  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="none" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
+  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="none" stroke="${DRUM_OUTLINE}" stroke-width="${DRUM_OUT}"/>`;
   return s;
 }
 

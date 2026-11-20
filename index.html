@@ -146,6 +146,11 @@
     background: transparent;
     border-radius: 18px;
   }
+  /* Webpage only: hide the hard beige plate behind the drum so the card's
+     triangle pattern reads as one surface. body.export keeps the original fill. */
+  body:not(.export) svg#stage .drum-backing {
+    opacity: 0;
+  }
 
   .rail {
     display: flex;

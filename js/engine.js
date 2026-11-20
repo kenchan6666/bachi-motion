@@ -952,7 +952,7 @@ function renderStatic() {
   s += `<circle cx="${L.judgeX}" cy="${L.y}" r="18" fill="none" stroke="#b9b2bf" stroke-width="2"/>`;
   // 圆角卡片 + 三角格纹 + 鼓后面的浅色方块（照参考视频）
   s += `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="30" fill="url(#triPat)" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
-  s += `<rect x="170" y="150" width="460" height="470" rx="28" fill="#FBFAF8" opacity=".75"/>`;
+  s += `<rect class="drum-backing" x="170" y="150" width="460" height="470" rx="28" fill="#FBFAF8" opacity=".75"/>`;
   // ---- 鼓：全部平涂色块做立体感（汐月 v2.1 §1），鼓身往下收成圆底（溯溯） ----
   // 卡片本身不缩；鼓+手整组绕鼓心缩小，棒尖允许略画出框上沿。
   const bodyD = drumBodyD(0);

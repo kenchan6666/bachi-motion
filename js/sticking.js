@@ -162,6 +162,21 @@
     for (var i = start; i <= end; i++) hands[i] = h;
   }
 
+  // Phrase starts always reset to 惯用手. 炒菜 also resets at every 连音/散音
+  // segment, including a gap of exactly one beat. 全换 does not: a gap of
+  // exactly one beat stays in the phrase when the previous note is not a 休息段.
+  function freshStarts(notes, phrases, 手法, globalBpm) {
+    var fresh = Object.create(null);
+    for (var p = 0; p < phrases.length; p++) {
+      var ph = phrases[p];
+      fresh[ph.start] = true;
+      if (ph.rest || 手法 !== "炒菜") continue;
+      var segs = segmentsInPhrase(notes, ph.start, ph.end, globalBpm);
+      for (var s = 0; s < segs.length; s++) fresh[segs[s].start] = true;
+    }
+    return fresh;
+  }
+
   function assignTechnique(notes, rest, phrases, 手法, dominant, globalBpm) {
     var hands = new Array(notes.length);
     for (var p = 0; p < phrases.length; p++) {
@@ -634,28 +649,24 @@
   }
 
   function choose24ModePairs(notes, start, end) {
-    // 16 / 12: no roll. Each 24-subsegment from its first note 1-2 (no downbeat align).
-    // Each 32-subsegment from its first note 2-2.
+    // 24分滚奏：16 / 24 / 32 都从该小段第一颗做 1-2（单打，接着两颗同一只手）。
+    // 段首若是惯用手，对子就落在逆手，也就是逆手滚奏。
+    // 不再把 32 分做成 2-2，也不走自动滚奏的 16 分 2-2、两轮三连 2-1、四音型。
+    // 不对齐拍头。12 分仍不在本模式配对，拍头 1-2 只留给自动滚奏。
     var parts = splitByDiv(notes, start, end);
     var pairs = [];
     for (var p = 0; p < parts.length; p++) {
       var part = parts[p];
+      if (part.div !== 16 && part.div !== 24 && part.div !== 32) continue;
       var n = part.end - part.start + 1;
       var canPair = function (localStart) {
         return function (i, j) {
           return !notes[localStart + i].big && !notes[localStart + j].big;
         };
       };
-      if (part.div === 24) {
-        var rel = plan12From(n, 0, canPair(part.start));
-        for (var r = 0; r < rel.length; r++) {
-          pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
-        }
-      } else if (part.div === 32) {
-        rel = plan22(n, canPair(part.start));
-        for (r = 0; r < rel.length; r++) {
-          pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
-        }
+      var rel = plan12From(n, 0, canPair(part.start));
+      for (var r = 0; r < rel.length; r++) {
+        pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
       }
     }
     return pairs;
@@ -699,7 +710,7 @@
     return toAbsPairs(auto22, start);
   }
 
-  function applyRollLayer(notes, hands, runs, dominant, mode) {
+  function applyRollLayer(notes, hands, runs, dominant, mode, fresh) {
     var allPairs = [];
     if (mode === "不滚奏") return allPairs;
     var nextStartHand = null;
@@ -707,8 +718,11 @@
     for (var r = 0; r < runs.length; r++) {
       var run = runs[r];
       var startHand;
-      // Hands continue across adjacent roll-runs in the same phrase (no rest / phrase cut between).
-      if (nextStartHand && run.start === prevEnd + 1) startHand = nextStartHand;
+      // Adjacent roll-runs keep the hand after the previous pair, unless this
+      // note is a fresh start (new phrase, or a new 炒菜 segment). Those
+      // already have 惯用手 written into hands[] by assignTechnique; do not
+      // carry the previous phrase's off-hand onto a 鱼蛋 / 三连 / 四连 / 五连.
+      if (nextStartHand && run.start === prevEnd + 1 && !(fresh && fresh[run.start])) startHand = nextStartHand;
       else startHand = hands[run.start];
       var pairs = chooseAutoPairs(notes, run.start, run.end, startHand, dominant, mode);
       var after = applyPairsToHands(hands, run.start, run.end, startHand, pairs);
@@ -804,7 +818,8 @@
     var phrases = splitPhrases(notes, rest);
     var hands = assignTechnique(notes, rest, phrases, 手法, dominant, globalBpm);
     var runs = collectRollRuns(notes, rest, phrases, globalBpm);
-    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏);
+    var fresh = freshStarts(notes, phrases, 手法, globalBpm);
+    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh);
     var warnings = collectWarnings(hands, runs, rollPairs, dominant);
     return { hands: hands, rollPairs: rollPairs, warnings: warnings };
   }

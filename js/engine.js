@@ -185,7 +185,7 @@ const CONFIG = {
 
 const GEOM = {
   face: { cx: 400, cy: 344, rx: 190, ry: 162 },   // 近白椭圆鼓面（更正面，ry/rx ≈ 0.85；上沿仍在 cy−ry = 182）
-  bodyBottom: 636,                                 // 鼓身圆底。鼓面下沿 cy+ry=506，露出约 130px 正面橘身
+  bodyBottom: 616,                                 // 鼓身圆底。鼓面下沿 cy+ry=506，露出约 110px 正面橘身
   lane: { y: 70, judgeX: 92, x0: 30, x1: 775 },
   card: { x: 40, y: 128, w: 720, h: 720 },
   hands: {

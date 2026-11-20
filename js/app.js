@@ -321,6 +321,114 @@
     });
   }
 
+  function setupRouteHint() {
+    const btn = $("routeHintBtn");
+    const pop = $("routeHint");
+    if (!btn || !pop) return;
+    const supportsPopover = Object.hasOwn(HTMLElement.prototype, "popover");
+    const closeBtn = pop.querySelector(".route-hint-close");
+
+    function place() {
+      const anchor = btn.getBoundingClientRect();
+      const margin = 8;
+      const gap = 10;
+      const width = Math.min(260, window.innerWidth - margin * 2);
+      pop.style.width = width + "px";
+      const height = pop.offsetHeight;
+      const spaceBelow = window.innerHeight - anchor.bottom - margin;
+      const spaceAbove = anchor.top - margin;
+      const above = spaceBelow < height + gap && spaceAbove > spaceBelow;
+      let top = above ? anchor.top - gap - height : anchor.bottom + gap;
+      let left = anchor.left + anchor.width / 2 - 22;
+      left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+      top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+      pop.style.position = "fixed";
+      pop.style.inset = "auto";
+      pop.style.margin = "0";
+      pop.style.left = left + "px";
+      pop.style.top = top + "px";
+      const arrow = anchor.left + anchor.width / 2 - left;
+      pop.style.setProperty("--arrow-x", Math.max(14, Math.min(width - 14, arrow)) + "px");
+      pop.classList.toggle("is-above", above);
+    }
+
+    function isOpen() {
+      return supportsPopover ? pop.matches(":popover-open") : pop.classList.contains("is-open");
+    }
+
+    function hide() {
+      if (supportsPopover) {
+        if (pop.matches(":popover-open")) pop.hidePopover();
+        return;
+      }
+      pop.classList.remove("is-open");
+      btn.setAttribute("aria-expanded", "false");
+    }
+
+    if (supportsPopover) {
+      pop.addEventListener("beforetoggle", (e) => {
+        if (e.newState === "open") pop.style.visibility = "hidden";
+      });
+      pop.addEventListener("toggle", (e) => {
+        const open = e.newState === "open";
+        btn.setAttribute("aria-expanded", String(open));
+        if (!open) {
+          pop.style.visibility = "";
+          pop.classList.remove("is-above");
+          return;
+        }
+        place();
+        pop.style.visibility = "visible";
+      });
+    } else {
+      btn.addEventListener("click", () => {
+        const open = !pop.classList.contains("is-open");
+        pop.classList.toggle("is-open", open);
+        btn.setAttribute("aria-expanded", String(open));
+        if (!open) return;
+        pop.style.visibility = "hidden";
+        place();
+        pop.style.visibility = "visible";
+      });
+      if (closeBtn) {
+        closeBtn.addEventListener("click", () => {
+          hide();
+          btn.focus();
+        });
+      }
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && pop.classList.contains("is-open")) hide();
+      });
+      document.addEventListener("pointerdown", (e) => {
+        if (!pop.classList.contains("is-open")) return;
+        if (btn.contains(e.target) || pop.contains(e.target)) return;
+        hide();
+      });
+    }
+
+    if (closeBtn && supportsPopover) {
+      closeBtn.addEventListener("click", () => btn.focus());
+    }
+
+    let placeFrame = 0;
+    const reposition = () => {
+      if (!isOpen() || placeFrame) return;
+      placeFrame = requestAnimationFrame(() => {
+        placeFrame = 0;
+        if (isOpen()) place();
+      });
+    };
+    window.addEventListener("resize", reposition);
+    document.addEventListener("scroll", reposition, true);
+    if (settingsEl) {
+      settingsEl.addEventListener("toggle", () => {
+        if (!settingsEl.open) hide();
+      });
+    }
+  }
+
+  setupRouteHint();
+
   function regenerateKeepTime() {
     const anim = window.taikoAnim;
     const t = anim && anim.state ? anim.state.now : null;

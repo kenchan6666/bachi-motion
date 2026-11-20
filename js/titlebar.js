@@ -67,21 +67,29 @@
 
   function fitSize(el, maxPx, minPx, maxW) {
     if (!el) return;
-    const max = Math.max(minPx, maxPx);
-    const min = Math.min(minPx, max);
-    el.style.fontSize = max + "px";
-    if (el.scrollWidth <= maxW + 0.5) return;
-    let lo = min, hi = max;
-    for (let i = 0; i < 14; i++) {
-      const mid = (lo + hi) / 2;
-      el.style.fontSize = mid + "px";
-      if (el.scrollWidth <= maxW + 0.5) lo = mid;
-      else hi = mid;
+    const full = el.dataset.fullText != null ? el.dataset.fullText : (el.textContent || "");
+    el.dataset.fullText = full;
+    const fit = window.TitleFit;
+    if (!fit || typeof fit.fitTitleLine !== "function") {
+      el.textContent = full;
+      el.style.fontSize = Math.max(minPx, maxPx) + "px";
+      return;
     }
-    el.style.fontSize = lo + "px";
+    const fitted = fit.fitTitleLine(full, maxW, {
+      maxPx: Math.max(minPx, maxPx),
+      minPx: Math.min(minPx, maxPx),
+      measure: function (text, px) {
+        return fit.measureText(el, text, px);
+      },
+    });
+    el.textContent = fitted.text;
+    el.style.fontSize = fitted.fontSize + "px";
+    if (fitted.ellipsized && full) el.setAttribute("title", full);
+    else el.removeAttribute("title");
   }
 
   function layoutTitleBar() {
+    if (typeof window.fitSongHeading === "function") window.fitSongHeading();
     const bar = $("titlebar");
     const svg = $("stage");
     const titleEl = $("titlebarTitle");
@@ -142,8 +150,11 @@
     }
     const title = songTitle(raw);
     const metaParts = [formatBpm(raw), formatRate(rateOf()), techniqueOf()].filter(Boolean);
+    const meta = metaParts.join(" · ");
+    titleEl.dataset.fullText = title;
+    metaEl.dataset.fullText = meta;
     titleEl.textContent = title;
-    metaEl.textContent = metaParts.join(" · ");
+    metaEl.textContent = meta;
     bar.hidden = false;
     bar.classList.add("is-on");
     layoutTitleBar();
@@ -153,29 +164,47 @@
   function titleBarSampleText() {
     const titleEl = $("titlebarTitle");
     const metaEl = $("titlebarMeta");
-    return ((titleEl && titleEl.textContent) || "") + ((metaEl && metaEl.textContent) || "");
+    const songEl = $("song");
+    const title = (titleEl && titleEl.dataset.fullText != null) ? titleEl.dataset.fullText : ((titleEl && titleEl.textContent) || "");
+    const meta = (metaEl && metaEl.dataset.fullText != null) ? metaEl.dataset.fullText : ((metaEl && metaEl.textContent) || "");
+    const song = songEl ? (songEl.dataset.fullText || songEl.textContent || "") : "";
+    return title + meta + song;
   }
 
   /**
-   * Load only the unicode-range slices needed for the current title +
-   * second line. Waiting on document.fonts.ready alone is not enough:
-   * unused slices stay unloaded, and the needed ones may still be in flight.
+   * Load the local Bachi slices plus Noto Serif SC and TC for any Han the
+   * subset does not cover. fonts.ready does not fetch unused unicode-range
+   * files, and naming a fallback family does not load it.
    */
-  function loadTitleBarFonts() {
-    const text = titleBarSampleText();
-    if (!text || !document.fonts || typeof document.fonts.load !== "function") {
+  function loadTitleFonts(text) {
+    const sample = text == null ? titleBarSampleText() : String(text);
+    if (!sample || !document.fonts || typeof document.fonts.load !== "function") {
       return Promise.resolve();
     }
-    return document.fonts.load('bold 1em "Bachi Serif CJK"', text);
+    const specs = (window.TitleFit && window.TitleFit.titleFontLoadSpecs)
+      ? window.TitleFit.titleFontLoadSpecs()
+      : ['bold 1em "Bachi Serif CJK"', 'bold 1em "Noto Serif SC"', 'bold 1em "Noto Serif TC"'];
+    return Promise.all(specs.map(function (spec) {
+      return document.fonts.load(spec, sample).catch(function () { return []; });
+    })).then(function () {});
+  }
+
+  function loadTitleBarFonts() {
+    return loadTitleFonts(titleBarSampleText());
   }
 
   function prepareTitleBarFonts() {
     return loadTitleBarFonts().then(function () { layoutTitleBar(); });
   }
 
+  function prepareTitleFonts(text) {
+    return loadTitleFonts(text).then(function () { layoutTitleBar(); });
+  }
+
   window.updateTitleBar = updateTitleBar;
   window.layoutTitleBar = layoutTitleBar;
   window.prepareTitleBarFonts = prepareTitleBarFonts;
+  window.prepareTitleFonts = prepareTitleFonts;
   window.formatTitleBarRate = formatRate;
   window.formatTitleBarBpm = formatBpm;
 

@@ -1064,6 +1064,7 @@
     if (ui.root) ui.root.hidden = false;
     if (ui.pageTitle) ui.pageTitle.hidden = false;
     moveStage(true);
+    refitTitles();
     syncToolbarFromApp();
     setModeButtons();
     setLocked(state.mode === "custom");
@@ -1085,6 +1086,13 @@
     if (typeof window.renderAt === "function" && window.taikoAnim && window.taikoAnim.state) {
       window.renderAt(window.taikoAnim.state.now);
     }
+    refitTitles();
+  }
+
+  function refitTitles() {
+    requestAnimationFrame(function () {
+      if (typeof window.layoutTitleBar === "function") window.layoutTitleBar();
+    });
   }
 
   function onGenerate(data) {
@@ -1264,9 +1272,9 @@
       ui.tjaFile.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => importTjaText(String(reader.result || ""));
-        reader.readAsText(file, "utf-8");
+        const decode = window.TjaEncoding && window.TjaEncoding.readFile;
+        const pending = decode ? decode(file) : file.text();
+        pending.then((text) => importTjaText(String(text || ""))).catch(() => {});
         e.target.value = "";
       });
     }
@@ -1332,6 +1340,65 @@
     return Number.isFinite(i) ? i : null;
   }
 
+  function onScrollbar(e) {
+    const el = ui.scroll;
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    // Overlay bars don't change client size, but they still sit on the
+    // trailing edge. Leave that strip to the native scrollbar.
+    const barY = Math.max(el.offsetHeight - el.clientHeight, 18);
+    const barX = Math.max(el.offsetWidth - el.clientWidth, 12);
+    if (el.scrollWidth > el.clientWidth + 1 && e.clientY >= r.bottom - barY && e.clientY <= r.bottom + 2) return true;
+    if (el.scrollHeight > el.clientHeight + 1 && e.clientX >= r.right - barX && e.clientX <= r.right + 2) return true;
+    return false;
+  }
+
+  function isEmptyTrack(target) {
+    if (!target || !target.closest || !ui.scroll || !ui.scroll.contains(target)) return false;
+    if (target.closest(".editor-note, .editor-string, .editor-zoom, .editor-popover, button, a, input, textarea, label")) return false;
+    return true;
+  }
+
+  function beginTrackPan(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origin = e.target;
+    const startLeft = ui.scroll.scrollLeft;
+    const startTop = ui.scroll.scrollTop;
+    let moved = false;
+    const move = (ev) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
+      moved = true;
+      ui.scroll.classList.add("is-panning");
+      ui.scroll.scrollLeft = startLeft - dx;
+      ui.scroll.scrollTop = startTop - dy;
+    };
+    const up = (ev) => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      ui.scroll.classList.remove("is-panning");
+      if (moved) return;
+      const t = timeAtClientX(ev.clientX);
+      if (t != null && origin && origin.closest && (origin.closest(".editor-lane") || origin.closest(".editor-hands"))) {
+        seekTo(t);
+      }
+      hidePops();
+      state.selection = null;
+      if (state.expanded) collapseString();
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  }
+
+  function wheelPixels(delta, mode) {
+    if (mode === 1) return delta * 16;
+    if (mode === 2) return delta * ((ui.scroll && ui.scroll.clientWidth) || 800);
+    return delta;
+  }
+
   function onPointerDown(e) {
     if (e.button !== 0) return;
     if (e.target.closest(".editor-popover")) return;
@@ -1349,6 +1416,12 @@
         expandString(s, { focusIndex: nearestNoteInString(s, e.clientX) });
       }
       e.preventDefault();
+      return;
+    }
+
+    if (isEmptyTrack(e.target)) {
+      if (onScrollbar(e)) return;
+      beginTrackPan(e);
       return;
     }
 
@@ -1425,10 +1498,21 @@
   }
 
   function onZoomWheel(e) {
-    if (!state.expanded) return;
+    if (e.ctrlKey) return;
+    const dx = wheelPixels(e.deltaX, e.deltaMode);
+    const dy = wheelPixels(e.deltaY, e.deltaMode);
+    const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+    if (!delta) return;
+    if (state.expanded) {
+      e.preventDefault();
+      panZoom(delta);
+      return;
+    }
+    if (!ui.scroll) return;
+    const max = ui.scroll.scrollWidth - ui.scroll.clientWidth;
+    if (max <= 0) return;
     e.preventDefault();
-    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    panZoom(delta);
+    ui.scroll.scrollLeft += delta;
   }
 
   function bindZoomTouch() {

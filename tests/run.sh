@@ -33,6 +33,10 @@ echo "== title-bar BPM range =="
 node tests/titlebar-bpm.test.js
 echo
 
+echo "== CJK title fit + TJA encoding =="
+node tests/cjk-title-encoding.test.js
+echo
+
 echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo

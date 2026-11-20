@@ -456,20 +456,45 @@ body.editor-mode .editor {
   color: var(--ed-hand-ink);
 }
 
-.editor-roll-band {
+/* Cluster mark: a single vertical line at the group's midpoint, never a
+   box or halo over the capsules. Roll = tape purple; warn / both = gold. */
+.editor-mark {
   position: absolute;
-  top: -6px;
-  bottom: -4px;
-  border-radius: 12px;
-  background: rgba(185, 166, 232, 0.22);
-  box-shadow: 0 0 0 1.5px var(--ed-tape);
+  top: 0;
+  bottom: 0;
+  width: 0;
+  z-index: 3;
   pointer-events: none;
-  z-index: 0;
+}
+.editor-mark-line {
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--ed-tape-line);
+  border-radius: 1px;
+}
+.editor-mark.is-warn .editor-mark-line,
+.editor-mark.is-both .editor-mark-line {
+  background: var(--ed-gold-line);
+}
+.editor-hands .editor-mark-line {
+  top: 0;
+  bottom: 0;
+}
+.editor-hands .editor-mark-line.is-below {
+  /* Just under the capsules, reaching toward the caption. */
+  top: 38px;
+  bottom: -6px;
+  height: auto;
 }
 .editor-roll-tag {
   position: absolute;
-  left: 0;
-  top: 4px;
+  left: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   z-index: 3;
   font-size: 10px;
   font-weight: 700;
@@ -479,24 +504,17 @@ body.editor-mode .editor {
   border-radius: 999px;
   padding: 1px 7px;
   line-height: 1.3;
+  white-space: nowrap;
   pointer-events: none;
 }
-
-.editor-warn-band {
-  position: absolute;
-  top: -5px;
-  bottom: -5px;
-  border-radius: 10px;
-  background: rgba(248, 231, 168, 0.45);
-  box-shadow: 0 0 0 1.5px var(--ed-gold-line);
-  border: 1.5px dashed var(--ed-gold-line);
-  pointer-events: none;
-  z-index: 1;
+.editor-mark.is-flip .editor-roll-tag {
+  left: auto;
+  right: 6px;
 }
 .editor-warn-tip {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
+  left: 6px;
   z-index: 4;
   font-size: 12px;
   color: var(--ink-deep);
@@ -507,6 +525,10 @@ body.editor-mode .editor {
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 2px 6px rgba(62, 50, 40, 0.08);
+}
+.editor-mark.is-flip .editor-warn-tip {
+  left: auto;
+  right: 6px;
 }
 
 .editor-playhead {
@@ -657,18 +679,19 @@ body.editor-mode .editor {
   box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
 }
 .editor-swatch.is-roll i {
-  background: #EFE8FA;
-  box-shadow: 0 0 0 1.5px var(--ed-tape);
-  border-radius: 2px;
-  width: 12px;
-  height: 10px;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--ed-tape-line);
+  box-shadow: none;
 }
 .editor-swatch.is-warn i {
-  background: var(--ed-gold-bg);
-  box-shadow: 0 0 0 1.5px var(--ed-gold-line);
-  border: 1px dashed var(--ed-gold-line);
-  width: 12px;
-  height: 10px;
+  width: 2px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--ed-gold-line);
+  box-shadow: none;
+  border: none;
 }
 
 .editor-preview {

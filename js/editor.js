@@ -334,8 +334,9 @@
     return "拿不准：这段像滚奏，点选后可改";
   }
 
-  // Expand a warning's horizontal span so both ends land on capsule seams.
-  // hit = note indices in this measure that belong to the warning.
+  // Horizontal span of a marked cluster: if any hit note sits inside a
+  // merged same-hand capsule, expand to that whole capsule so the mark
+  // is centered on the visible group, not a slice of a label.
   function expandWarnToCapsules(capsules, hit) {
     let left = null;
     let right = null;
@@ -353,6 +354,85 @@
       return { left: 0, right: 32 };
     }
     return { left: left, right: right };
+  }
+
+  // Prefer a capsule seam so the vertical mark can run the full height
+  // without crossing a 左/右 glyph. A single-capsule cluster stays at mid
+  // and only draws the line above and below the capsule.
+  function placeMarkX(mid, capsules, left, right) {
+    const inCluster = [];
+    for (let i = 0; i < capsules.length; i++) {
+      const cap = capsules[i];
+      if (cap.right < left - 1 || cap.left > right + 1) continue;
+      inCluster.push(cap);
+    }
+    inCluster.sort((a, b) => a.left - b.left);
+    const seams = [];
+    for (let i = 0; i < inCluster.length - 1; i++) {
+      seams.push((inCluster[i].right + inCluster[i + 1].left) / 2);
+    }
+    if (!seams.length) return { x: mid, through: false };
+    const inset = 8;
+    let blocked = false;
+    for (let i = 0; i < inCluster.length; i++) {
+      const cap = inCluster[i];
+      if (mid > cap.left + inset && mid < cap.right - inset) { blocked = true; break; }
+    }
+    if (!blocked) {
+      // Mid already sits in a gap or on a seam.
+      return { x: mid, through: true };
+    }
+    let best = seams[0];
+    let bestDist = Math.abs(mid - best);
+    for (let i = 1; i < seams.length; i++) {
+      const d = Math.abs(mid - seams[i]);
+      if (d < bestDist) { best = seams[i]; bestDist = d; }
+    }
+    return { x: best, through: true };
+  }
+
+  function placeClusterMark(gap, handsEl, capsules, mark) {
+    const mid = (mark.left + mark.right) / 2;
+    const kind = mark.kind;
+    const isRoll = kind === "roll" || kind === "both";
+    const isWarn = kind === "warn" || kind === "both";
+    const placed = placeMarkX(mid, capsules, mark.left, mark.right);
+    const x = placed.x;
+    const through = placed.through;
+    // Flip labels to the left when the line sits in the right half, so the
+    // long 待确认 caption stays inside the measure.
+    const flip = x > 200;
+    const cls = "editor-mark is-" + kind + (flip ? " is-flip" : "") + (through ? " is-through" : "");
+
+    const top = document.createElement("div");
+    top.className = cls;
+    top.style.left = x + "px";
+    const line = document.createElement("i");
+    line.className = "editor-mark-line";
+    top.appendChild(line);
+    if (isRoll) {
+      const tag = document.createElement("span");
+      tag.className = "editor-roll-tag";
+      tag.textContent = "滚奏";
+      top.appendChild(tag);
+    }
+    gap.appendChild(top);
+
+    if (isWarn || through) {
+      const bot = document.createElement("div");
+      bot.className = cls;
+      bot.style.left = x + "px";
+      const line2 = document.createElement("i");
+      line2.className = "editor-mark-line" + (isWarn && !through ? " is-below" : "");
+      bot.appendChild(line2);
+      if (isWarn) {
+        const tip = document.createElement("div");
+        tip.className = "editor-warn-tip";
+        tip.textContent = warnCaption(mark.typ);
+        bot.appendChild(tip);
+      }
+      handsEl.appendChild(bot);
+    }
   }
 
   function renderTracks() {
@@ -421,27 +501,6 @@
       const handsEl = document.createElement("div");
       handsEl.className = "editor-hands";
 
-      // Roll bands + tags in the gap / hands, using consecutive roll notes.
-      let r = 0;
-      while (r < idxs.length) {
-        if (!paired[idxs[r]]) { r += 1; continue; }
-        let s = r;
-        while (s + 1 < idxs.length && paired[idxs[s + 1]]) s += 1;
-        const left = noteXInMeasure(raw[idxs[r]], measure) - 14;
-        const right = noteXInMeasure(raw[idxs[s]], measure) + 14;
-        const band = document.createElement("div");
-        band.className = "editor-roll-band";
-        band.style.left = left + "px";
-        band.style.width = Math.max(28, right - left) + "px";
-        handsEl.appendChild(band);
-        const tag = document.createElement("span");
-        tag.className = "editor-roll-tag";
-        tag.textContent = "滚奏";
-        tag.style.left = left + "px";
-        gap.appendChild(tag);
-        r = s + 1;
-      }
-
       // Hand capsules: merge adjacent same-hand notes in this measure.
       const capsules = [];
       let c = 0;
@@ -461,27 +520,61 @@
         c += 1;
       }
 
-      // Warnings overlapping this measure. Box edges sit in capsule seams:
-      // if a warned note sits inside a merged same-hand capsule, expand to
-      // that whole capsule so the dashed frame never bisects a label.
+      // One vertical mark per cluster, centered on the visible capsule
+      // group. Rolls and warnings that cover the same notes share a single
+      // gold line; they never wrap the capsules in a box or halo.
+      const rollSpans = [];
+      let r = 0;
+      while (r < idxs.length) {
+        if (!paired[idxs[r]]) { r += 1; continue; }
+        let s = r;
+        while (s + 1 < idxs.length && paired[idxs[s + 1]]) s += 1;
+        const hit = idxs.slice(r, s + 1);
+        const bounds = expandWarnToCapsules(capsules, hit);
+        rollSpans.push({ from: idxs[r], to: idxs[s], left: bounds.left, right: bounds.right });
+        r = s + 1;
+      }
+
+      const warnSpans = [];
       for (let w = 0; w < (resolved.warnings || []).length; w++) {
         const item = resolved.warnings[w];
         const a = item[0], b = item[1], typ = item[2];
         const hit = idxs.filter((i) => i >= a && i <= b);
         if (!hit.length) continue;
         const bounds = expandWarnToCapsules(capsules, hit);
-        const left = bounds.left - 2;
-        const right = bounds.right + 2;
-        const band = document.createElement("div");
-        band.className = "editor-warn-band";
-        band.style.left = left + "px";
-        band.style.width = Math.max(32, right - left) + "px";
-        handsEl.appendChild(band);
-        const tip = document.createElement("div");
-        tip.className = "editor-warn-tip";
-        tip.textContent = warnCaption(typ);
-        tip.style.left = left + "px";
-        handsEl.appendChild(tip);
+        warnSpans.push({
+          from: hit[0],
+          to: hit[hit.length - 1],
+          left: bounds.left,
+          right: bounds.right,
+          typ: typ,
+        });
+      }
+
+      const marks = [];
+      const usedRoll = [];
+      const rangesOverlap = (a, b) => a.from <= b.to && b.from <= a.to;
+      for (let j = 0; j < warnSpans.length; j++) {
+        const ws = warnSpans[j];
+        let left = ws.left;
+        let right = ws.right;
+        let hitRoll = false;
+        for (let i = 0; i < rollSpans.length; i++) {
+          if (!rangesOverlap(ws, rollSpans[i])) continue;
+          usedRoll[i] = true;
+          hitRoll = true;
+          if (rollSpans[i].left < left) left = rollSpans[i].left;
+          if (rollSpans[i].right > right) right = rollSpans[i].right;
+        }
+        marks.push({ kind: hitRoll ? "both" : "warn", typ: ws.typ, left: left, right: right });
+      }
+      for (let i = 0; i < rollSpans.length; i++) {
+        if (usedRoll[i]) continue;
+        marks.push({ kind: "roll", left: rollSpans[i].left, right: rollSpans[i].right });
+      }
+
+      for (let m = 0; m < marks.length; m++) {
+        placeClusterMark(gap, handsEl, capsules, marks[m]);
       }
 
       el.appendChild(handsEl);

@@ -1088,119 +1088,309 @@ function otherHandRollPeak(hand, tLo, tHi, fallbackDown) {
   return tHi - fallbackDown;
 }
 
-/** 滚奏相位：一对内部「下→小弹→再下(补压)」，两对之间「大抬回→最高点→加速往下砸」。 */
+
+/** 按时长预算滚奏大抬回高度：上升帧 ≤27.5px、下砸前段 ≤27.5、最后 3 帧 ≤42，避免 JUMP。 */
+function rollLiftBudget(riseDur, downDur) {
+  const riseFrames = Math.max(0, (riseDur || 0) * 60);
+  const downFrames = Math.max(0, (downDur || 0) * 60);
+  const riseMax = riseFrames * 22.0;
+  const downMax = downFrames <= 3 ? 40 * downFrames : 22.0 * (downFrames - 3) + 40 * 3;
+  return Math.max(0, Math.min(CONFIG.ROLL_LIFT_PX, riseMax, downMax));
+}
+
+/** 由 rollPhase 返回值合成棒尖（不计残影/回顿），用来量真实路程。 */
+function rollPhaseTip(hand, ph, bend) {
+  if (!ph) return { x: 0, y: 0 };
+  const rollState = ph.grip === "roll"
+    ? { lift: ph.lift || 0, idle: ph.idle || 0, press: ph.press || 0, idleShift: ph.idleShift || 0, idleFace: ph.idleFace || "don" }
+    : null;
+  const face = ph.face || (ph.base ? targetFace(hand, ph.base) : "don");
+  const singleState = ph.grip === "single"
+    ? {
+        idle: ph.idle || 0,
+        face,
+        faceFrom: ph.faceFrom || face,
+        faceTo: ph.faceTo || face,
+        faceU: isFinite(+ph.faceU) ? +ph.faceU : 1,
+        scale: isFinite(+ph.scale) ? +ph.scale : 1,
+        idleShift: ph.idleShift || 0,
+        idleFace: ph.idleFace || "don",
+      }
+    : null;
+  const pose = composePose(hand, ph.base, ph.lift || 0, bend || { x: 0, y: 0 }, 0, ph.grip, 1, rollState, singleState);
+  return pose.tip;
+}
+
+function rollPhaseDist(hand, a, b, bendA, bendB) {
+  return V.len(V.sub(rollPhaseTip(hand, a, bendA), rollPhaseTip(hand, b, bendB)));
+}
+
+function rollIdleShift(hand, t) {
+  return kaIdleShift ? kaIdleShift(hand, t) : 0;
+}
+
+/** 从倒 V 预备抬到滚奏顶点再下砸。抬手紧挨击打，总提前量夹在 EARLY 阈值内。 */
+function rollWindupPlan(hand, tHit, notBefore, target) {
+  const idlePh = { lift: 0, idle: 1, press: 0, grip: "roll", base: target, idleFace: "don" };
+  const peakPh = { lift: 1, idle: 0, press: 0, grip: "roll", base: target };
+  const hitPh = { lift: 0, idle: 0, press: 0, grip: "roll", base: target };
+  const distUp = rollPhaseDist(hand, idlePh, peakPh);
+  const distDown = rollPhaseDist(hand, peakPh, hitPh);
+  const up = travelDur(distUp, 0.10, CONFIG.WINDUP_UP_MIN || 0.08, 0.22);
+  const down = downTravelDur(distDown, 6 / 60, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.12);
+  const w = windupLeadClamp(tHit, down, 0, up, notBefore);
+  return { w, down, distUp, distDown };
+}
+
+function rollApproachFromIdle(hand, t, tHit, notBefore, target, idleShift, idleFace) {
+  const plan = rollWindupPlan(hand, tHit, notBefore, target);
+  const { w, down, distUp, distDown } = plan;
+  const face = idleFace || "don";
+  const shift = idleShift || 0;
+  if (t >= tHit) return { lift: 0, idle: 0, press: 0, grip: "roll", base: target, buzz: null, idleShift: 0, idleFace: face };
+  if (t >= w.tDown) {
+    const s = (t - w.tDown) / Math.max(1e-6, down);
+    return { lift: 1 - easeInDown(s, distDown, down), idle: 0, press: 0, grip: "roll", base: target, buzz: null, idleShift: 0, idleFace: face };
+  }
+  if (t >= w.tHoldStart) return { lift: 1, idle: 0, press: 0, grip: "roll", base: target, buzz: null, idleShift: 0, idleFace: face };
+  if (t >= w.tUpStart) {
+    const s = (t - w.tUpStart) / Math.max(1e-6, w.upDur);
+    const u = travelEase(s, distUp, w.upDur);
+    // lift 先到 1，再淡出 idle：姿势沿倒 V→顶点直线走，避免 lift 与 idle 对冲导致末端加速。
+    return { lift: 1, idle: 1 - u, press: 0, grip: "roll", base: target, buzz: null, idleShift: shift, idleFace: face };
+  }
+  return { lift: 0, idle: 1, press: 0, grip: "roll", base: target, buzz: null, idleShift: shift, idleFace: face };
+}
+
+function rollSettleToIdle(hand, t, a, idleShift) {
+  const press0 = a.idxInStroke === 1 ? 1 : 0;
+  const startPh = { lift: 0, idle: 0, press: press0, grip: "roll", base: a.target };
+  const idlePh = { lift: 0, idle: 1, press: 0, grip: "roll", base: a.target, idleShift: idleShift || 0, idleFace: "don" };
+  const dist = rollPhaseDist(hand, startPh, idlePh);
+  const reb = travelDur(dist, 0.12, 0.08, 0.25);
+  const s = clamp01((t - a.t) / Math.max(1e-6, reb));
+  const u = travelEase(s, dist, reb);
+  return {
+    lift: 0, idle: u, press: press0 * (1 - u), grip: "roll", base: a.target, buzz: null,
+    idleShift: idleShift || 0, idleFace: "don", reb, dist,
+  };
+}
+
+function pickDenseRollPeak(aT, bT, preferred) {
+  const gap = Math.max(1e-6, bT - aT);
+  const minUp = 3 / 60, minDown = 3 / 60;
+  let peakT = bT - Math.min(CONFIG.ROLL_DOWN_MAX || 0.075, Math.max(5 / 60, gap * 0.45));
+  peakT = Math.min(bT - minDown, Math.max(aT + minUp, peakT));
+  if (isFinite(preferred) && preferred > aT + minUp && preferred < bT - minDown) {
+    const hPref = rollLiftBudget(preferred - aT, bT - preferred);
+    const hDef = rollLiftBudget(peakT - aT, bT - peakT);
+    if (hPref >= hDef * 0.82) peakT = preferred;
+  }
+  const rise = Math.max(1e-6, peakT - aT);
+  const down = Math.max(1e-6, bT - peakT);
+  const height = rollLiftBudget(rise, down);
+  return { peakT, peakLift: height / Math.max(1e-6, CONFIG.ROLL_LIFT_PX), rise, down, height };
+}
+
+
+/** 滚奏相位：一对内部「下→小弹→再下(补压)」，两对之间「大抬回→最高点→加速往下砸」。
+ *  长间隔先回倒 V 停稳，抬手紧挨下一击（不提前半秒慢抬）；短间隔按路程限速，禁止相邻帧瞬移。 */
 function rollPhase(hand, track, a, b, t) {
+  const idleShift = rollIdleShift(hand, t);
+
   if (!a && isRollContact(b)) {
-    const bNext = track[1];
-    const pairDt = (bNext && bNext.stroke === b.stroke) ? (bNext.t - b.t) : CONFIG.ROLL_RISE;
-    const down = Math.min(CONFIG.ROLL_DOWN_MAX, Math.max(0.025, pairDt));
-    const peakT = otherHandRollPeak(hand, b.t - 3 * down, b.t, down);
-    // 抬起要提早完成：对侧第一下时这只手已经接近最高，才能看出「一只手低、一只手高」
-    const upDur = Math.max(0.16, 3 * down);
-    const upStart = peakT - upDur;
-    // 预备位用 idle=1 焊到单击倒V；全程 grip=roll，避免在抬到一半时按 150px 高度重解释而瞬切。
-    if (t >= peakT) {
-      const s = clamp01((t - peakT) / Math.max(1e-6, b.t - peakT));
-      return { lift: 1 - easeInQuad(s), idle: 0, press: 0, grip: "roll", base: b.target, buzz: null };
-    }
-    if (t >= upStart) {
-      const s = clamp01((t - upStart) / upDur);
-      return { lift: easeOutQuad(s), idle: 1 - easeOutQuad(s), press: 0, grip: "roll", base: b.target, buzz: null };
-    }
-    return { lift: 0, idle: 1, press: 0, grip: "roll", base: b.target, buzz: null };
+    return rollApproachFromIdle(hand, t, b.t, -Infinity, b.target, idleShift, "don");
   }
 
   if (a && !b && isRollContact(a)) {
-    const reboundDur = 0.12;
-    const s = clamp01((t - a.t) / reboundDur);
-    const press = (a.idxInStroke === 1 ? 1 : 0) * (1 - easeOutQuad(s));
-    return { lift: 0, idle: easeOutQuad(s), press, grip: "roll", base: a.target, buzz: null };
+    return rollSettleToIdle(hand, t, a, idleShift);
   }
 
   if (a.stroke === b.stroke && isRollContact(a) && isRollContact(b)) {
-    // 成对内部 (RR)/(LL)：下(a) → 立刻小弹 → 加速再下(b, 补压)
-    const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
+    // 成对内部 (RR)/(LL)：下(a) → 立刻小弹 → 加速再下(b, 补压)。弹起高度按帧预算封顶。
+    const pairDt = Math.max(1e-6, b.t - a.t);
+    const u = clamp01((t - a.t) / pairDt);
     const uPeak = CONFIG.ROLL_BOUNCE_PEAK_U;
+    const upDur = Math.max(1e-6, pairDt * uPeak);
+    const downDur = Math.max(1e-6, pairDt * (1 - uPeak));
+    const bouncePx = Math.min(
+      CONFIG.ROLL_BOUNCE_RATIO * CONFIG.ROLL_LIFT_PX,
+      upDur * 60 * 18,
+      downDur * 60 * 28
+    );
+    const bounceLift = bouncePx / Math.max(1e-6, CONFIG.ROLL_LIFT_PX);
+    const landDist = V.len(V.sub(a.target, b.target));
+    const frames = Math.max(1, pairDt * 60);
+    // 最后约 1 帧是第二下击中（JUMP 豁免），把落点剩余路程留到那一帧，避免中间帧 don↔ka 一次甩出 50px+
+    const moveFrames = Math.max(1, frames - 0.85);
+    const maxLand = Math.min(landDist, 22 * moveFrames);
+    const landScale = landDist < 1e-6 ? 1 : Math.min(1, maxLand / landDist);
+    const snapAt = Math.max(0.15, 1 - 0.85 / frames);
+    let landU;
+    if (u < snapAt) landU = landScale * flattenMid(u / Math.max(1e-6, snapAt), 0.7);
+    else landU = landScale + (1 - landScale) * clamp01((u - snapAt) / Math.max(1e-6, 1 - snapAt));
+    const base = V.lerp(a.target, b.target, landU);
     let lift, press;
     if (u <= uPeak) {
-      lift = CONFIG.ROLL_BOUNCE_RATIO * easeOutQuad(u / uPeak);
+      const s = clamp01(u / uPeak);
+      lift = bounceLift * travelEase(s, bouncePx, upDur);
       press = 0;
     } else {
       const s = (u - uPeak) / (1 - uPeak);
-      lift = CONFIG.ROLL_BOUNCE_RATIO * (1 - easeInQuad(s));
-      press = easeInQuad(s);
+      lift = bounceLift * (1 - easeInDown(s, bouncePx, downDur));
+      press = easeInDown(s, bouncePx, downDur);
     }
-    return { lift, idle: 0, press, grip: "roll", base: V.lerp(a.target, b.target, smooth(u)), buzz: a };
+    return { lift, idle: 0, press, grip: "roll", base, buzz: a };
   }
 
   if (isRollContact(a) && isRollContact(b)) {
-    // 两对之间：大抬回 → 对侧第二下时正好到达最高点 → 加速砸向下一对第一下
+    // 两对之间
     const gap = b.t - a.t;
-    const fallbackDown = Math.min(CONFIG.ROLL_DOWN_MAX, gap / 3);
-    const peakT = otherHandRollPeak(hand, a.t, b.t, fallbackDown);
-    const u = clamp01((t - a.t) / Math.max(1e-6, gap));
-    const base = V.lerp(a.target, b.target, smooth(u));
-    if (t <= peakT) {
-      const s = clamp01((t - a.t) / Math.max(1e-6, peakT - a.t));
-      const press = (a.idxInStroke === 1 ? 1 : 0) * (1 - easeOutQuad(s));
-      return { lift: easeOutQuad(s), idle: 0, press, grip: "roll", base, buzz: null };
+    const press0 = a.idxInStroke === 1 ? 1 : 0;
+    const startPh = { lift: 0, idle: 0, press: press0, grip: "roll", base: a.target };
+    const idlePh = { lift: 0, idle: 1, press: 0, grip: "roll", base: a.target, idleShift, idleFace: "don" };
+    const rebDist = rollPhaseDist(hand, startPh, idlePh);
+    const reb = travelDur(rebDist, 0.12, 0.08, 0.25);
+    const plan = rollWindupPlan(hand, b.t, a.t + reb, b.target);
+    const tUp = plan.w.tUpStart;
+    if (gap >= reb + (b.t - tUp) + 1e-4) {
+      // 够宽：弹回倒 V，在起手窗之前停稳，再按正常节奏抬砸（修 EARLY / REST / HOVER）
+      if (t < a.t + reb) {
+        const s = clamp01((t - a.t) / Math.max(1e-6, reb));
+        const u = travelEase(s, rebDist, reb);
+        return { lift: 0, idle: u, press: press0 * (1 - u), grip: "roll", base: a.target, buzz: null, idleShift, idleFace: "don" };
+      }
+      return rollApproachFromIdle(hand, t, b.t, a.t + reb, b.target, idleShift, "don");
     }
-    const s = clamp01((t - peakT) / Math.max(1e-6, b.t - peakT));
-    return { lift: 1 - easeInQuad(s), idle: 0, press: 0, grip: "roll", base, buzz: null };
+    // 密段：连续大抬回，高度按路程预算；用 travelEase / easeInDown，不用会冲出去的 easeOutQuad
+    const preferred = otherHandRollPeak(hand, a.t, b.t, Math.min(CONFIG.ROLL_DOWN_MAX, gap / 3));
+    const pk = pickDenseRollPeak(a.t, b.t, preferred);
+    const landDist2 = V.len(V.sub(a.target, b.target));
+    const gapFrames = Math.max(1, gap * 60);
+    const landScale2 = landDist2 < 1e-6 ? 1 : Math.min(1, (22 * Math.max(1, gapFrames - 0.85)) / landDist2);
+    const snapAt2 = Math.max(0.15, 1 - 0.85 / gapFrames);
+    const ug = clamp01((t - a.t) / Math.max(1e-6, gap));
+    const landU2 = ug < snapAt2
+      ? landScale2 * flattenMid(ug / Math.max(1e-6, snapAt2), 0.7)
+      : landScale2 + (1 - landScale2) * clamp01((ug - snapAt2) / Math.max(1e-6, 1 - snapAt2));
+    const base = V.lerp(a.target, b.target, landU2);
+    const pressDur = Math.min(2 / 60, pk.rise * 0.35);
+    const press = press0 * (1 - clamp01((t - a.t) / Math.max(1e-6, pressDur)));
+    const peakPh = { lift: pk.peakLift, idle: 0, press: 0, grip: "roll", base: b.target };
+    const hitA = { lift: 0, idle: 0, press: press0, grip: "roll", base: a.target };
+    const hitB = { lift: 0, idle: 0, press: 0, grip: "roll", base: b.target };
+    if (t <= pk.peakT) {
+      const dist = Math.max(pk.height, rollPhaseDist(hand, hitA, peakPh));
+      const s = clamp01((t - a.t) / pk.rise);
+      const u = travelEase(s, dist, pk.rise);
+      return { lift: pk.peakLift * u, idle: 0, press, grip: "roll", base, buzz: null };
+    }
+    const distDown = Math.max(pk.height, rollPhaseDist(hand, peakPh, hitB));
+    const s = clamp01((t - pk.peakT) / pk.down);
+    return { lift: pk.peakLift * (1 - easeInDown(s, distDown, pk.down)), idle: 0, press: 0, grip: "roll", base, buzz: null };
   }
 
-  // 滚奏 ↔ 单击交接：高度从单击预备(40)走到滚奏大抬回(150)必须连续，不能在某一帧切换 compose 尺度。
-  const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
+  // 滚奏 ↔ 单击交接：必须从上一击的接触姿势出发（不能一帧跳到 lift=1），高度连续，长间隔停稳再抬。
   const gap = b.t - a.t;
-  const down = Math.min(CONFIG.STRIKE_DOWN_MAX, gap * 0.45);
-  const peakT = b.t - down;
-  const base = V.lerp(a.target, b.target, smooth(u));
-  const rollH = CONFIG.ROLL_LIFT_PX;
-  const idleH = CONFIG.IDLE_HOVER_PX || 40;
-  const step = Math.max(1, ((CONFIG.REBOUND_MAX_STEP_PX || 30) - 2.5) * 60);
-  const needUp = Math.max(0.16, Math.abs(rollH - idleH) / step);
 
   if (isRollContact(b) && !isRollContact(a)) {
-    const upStart = Math.max(a.t, peakT - needUp);
-    if (t < upStart) {
-      const reb = Math.max(1e-6, Math.min(0.13, upStart - a.t));
-      const s = clamp01((t - a.t) / reb);
-      const faceA = a.face === "ka" ? "ka" : "don";
-      return { lift: 0, idle: travelEase(s, tipDistContactToIdle(hand, faceA), reb), press: 0, grip: "single", base: a.target, buzz: null };
+    const faceA = a.face === "ka" ? "ka" : "don";
+    const tm = strikeTimes(prevGapOf(a));
+    const tHitEnd = a.t + (tm.hit || 0);
+    const rebDist = tipDistContactToIdle(hand, faceA, "don");
+    const reb = Math.max(travelDur(rebDist, Math.max(tm.rebound, reboundMinDur(hand, faceA)), 0.08, 0.25), 1e-6);
+    const tIdle = tHitEnd + reb;
+    const plan = rollWindupPlan(hand, b.t, tIdle, b.target);
+    const startSingle = { lift: 0, idle: 0, press: 0, grip: "single", base: a.target, face: faceA, scale: 1, idleShift, idleFace: "don" };
+    if (t < tHitEnd) {
+      return { lift: 0, idle: 0, press: 0, grip: "single", base: a.target, face: faceA, scale: 1, buzz: null, idleShift, idleFace: "don" };
     }
-    if (t <= peakT) {
-      const dur = Math.max(1e-6, peakT - upStart);
-      const s = travelEase(clamp01((t - upStart) / dur), Math.abs(rollH - idleH), dur);
-      return { lift: s, idle: 1 - s, press: 0, grip: "roll", base, buzz: null };
+    if (gap >= (tIdle - a.t) + (b.t - plan.w.tUpStart) + 1e-4) {
+      if (t < tIdle) {
+        const s = clamp01((t - tHitEnd) / reb);
+        return { lift: 0, idle: travelEase(s, rebDist, reb), press: 0, grip: "single", base: a.target, face: faceA, scale: 1, idleFace: "don", idleShift, buzz: null };
+      }
+      const ph = rollApproachFromIdle(hand, t, b.t, tIdle, b.target, idleShift, "don");
+      if (ph.idle >= 1 - 1e-6) {
+        // 倒 V 上换握：single idle 与 roll idle 同姿势，不瞬切
+        return { lift: 0, idle: 1, press: 0, grip: "single", base: a.target, face: faceA, scale: 1, idleFace: "don", idleShift, buzz: null };
+      }
+      return ph;
     }
-    const s = clamp01((t - peakT) / Math.max(1e-6, down));
-    return { lift: 1 - easeInDown(s, rollH, down), idle: 0, press: 0, grip: "roll", base: b.target, buzz: null };
+    // 短间隔：从单击接触 morph 到滚奏顶点，再砸向滚奏落点
+    const pk = pickDenseRollPeak(tHitEnd, b.t, b.t - Math.min(CONFIG.ROLL_DOWN_MAX, gap * 0.45));
+    const peakPh = { lift: pk.peakLift, idle: 0, press: 0, grip: "roll", base: b.target };
+    const hitPh = { lift: 0, idle: 0, press: 0, grip: "roll", base: b.target };
+    const distUp = Math.max(pk.height, rollPhaseDist(hand, startSingle, peakPh));
+    if (t <= pk.peakT) {
+      const s = clamp01((t - tHitEnd) / pk.rise);
+      const u = travelEase(s, distUp, pk.rise);
+      return {
+        lift: pk.peakLift, idle: 0, press: 0, grip: "roll", base: b.target, buzz: null,
+        morphFrom: startSingle, morphU: u,
+      };
+    }
+    const distDown = Math.max(pk.height, rollPhaseDist(hand, peakPh, hitPh));
+    const s = clamp01((t - pk.peakT) / pk.down);
+    return { lift: pk.peakLift * (1 - easeInDown(s, distDown, pk.down)), idle: 0, press: 0, grip: "roll", base: b.target, buzz: null };
   }
 
   if (isRollContact(a) && !isRollContact(b)) {
-    const height = liftHeightPx(b);
     const faceB = b.face === "ka" ? "ka" : "don";
-    const tIdle = Math.max(a.t + (CONFIG.ROLL_END_GRIP_KEEP || 0.04), peakT - needUp);
-    if (t < tIdle) {
-      const dur = Math.max(1e-6, tIdle - a.t);
-      const s = travelEase(clamp01((t - a.t) / dur), Math.abs(rollH - idleH), dur);
-      const press = (a.idxInStroke === 1) ? (1 - s) : 0;
-      return { lift: 1 - s, idle: s, press, grip: "roll", base: a.target, buzz: null };
+    const height = liftHeightPx(b);
+    const press0 = a.idxInStroke === 1 ? 1 : 0;
+    const startRoll = { lift: 0, idle: 0, press: press0, grip: "roll", base: a.target };
+    const settle = rollSettleToIdle(hand, t, a, idleShift);
+    const tIdle = a.t + settle.reb;
+    const distUp = tipDistIdleToRaised(hand, faceB, height);
+    const distDown = tipDistContactToRaised(hand, faceB, height);
+    const tm = strikeTimes(prevGapOf(b));
+    const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.08, 0.22);
+    const down = downTravelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.14);
+    const w = windupLeadClamp(b.t, down, tm.hold || 0, up, tIdle);
+    if (gap >= (tIdle - a.t) + (b.t - w.tUpStart) + 1e-4) {
+      if (t < tIdle) return settle;
+      if (t < w.tUpStart) {
+        return { lift: 0, idle: 1, press: 0, grip: "single", base: b.target, face: faceB, scale: height, idleFace: faceB, idleShift, buzz: null };
+      }
+      if (t < w.tHoldStart) {
+        const s = (t - w.tUpStart) / Math.max(1e-6, w.upDur);
+        return { lift: travelEase(s, distUp, w.upDur), idle: 1 - travelEase(s, distUp, w.upDur), press: 0, grip: "single", base: b.target, face: faceB, scale: height, idleFace: faceB, idleShift, buzz: null };
+      }
+      if (t < w.tDown) {
+        return { lift: 1, idle: 0, press: 0, grip: "single", base: b.target, face: faceB, scale: height, idleFace: faceB, buzz: null };
+      }
+      const s = (t - w.tDown) / Math.max(1e-6, down);
+      return { lift: 1 - easeInDown(s, distDown, down), idle: 0, press: 0, grip: "single", base: b.target, face: faceB, scale: height, buzz: null };
     }
+    // 短间隔：从滚奏接触 morph 到单击顶点，再砸向单击落点
+    const tHitEnd = a.t;
+    const pk = pickDenseRollPeak(tHitEnd, b.t, b.t - Math.min(CONFIG.STRIKE_DOWN_MAX || 0.10, gap * 0.45));
+    const peakSingle = { lift: 1, idle: 0, press: 0, grip: "single", base: b.target, face: faceB, scale: height };
+    const distRise = Math.max(height, rollPhaseDist(hand, startRoll, peakSingle));
+    const rise = Math.max(1e-6, pk.rise);
+    const down2 = Math.max(1e-6, pk.down);
+    const peakT = b.t - down2;
     if (t <= peakT) {
-      const dur = Math.max(1e-6, peakT - tIdle);
-      const distUp = tipDistIdleToRaised(hand, faceB, height);
-      const s = travelEase(clamp01((t - tIdle) / dur), distUp, dur);
-      return { lift: s, idle: 1 - s, press: 0, grip: "single", base: b.target, scale: height, buzz: null };
+      const s = clamp01((t - tHitEnd) / rise);
+      const u = travelEase(s, distRise, rise);
+      return {
+        lift: 1, idle: 0, press: 0, grip: "single", base: b.target, face: faceB, scale: height, buzz: null,
+        morphFrom: startRoll, morphU: u,
+      };
     }
-    const s = clamp01((t - peakT) / Math.max(1e-6, down));
-    return { lift: 1 - easeInDown(s, tipDistContactToRaised(hand, faceB, height), down), idle: 0, press: 0, grip: "single", base: b.target, scale: height, buzz: null };
+    const s = clamp01((t - peakT) / down2);
+    return { lift: 1 - easeInDown(s, distRise, down2), idle: 0, press: 0, grip: "single", base: b.target, face: faceB, scale: height, buzz: null };
   }
 
+  const down = Math.min(CONFIG.STRIKE_DOWN_MAX, gap * 0.45);
+  const peakT = b.t - down;
+  const base = V.lerp(a.target, b.target, flattenMid(clamp01((t - a.t) / Math.max(1e-6, gap)), 0.85));
   const height = densityScale(gap);
-  const lift = t <= peakT ? easeOutQuad(clamp01((t - a.t) / Math.max(1e-6, peakT - a.t)))
-                          : 1 - easeInQuad(clamp01((t - peakT) / Math.max(1e-6, down)));
-  const press = (isRollContact(a) && a.idxInStroke === 1) ? (1 - easeOutQuad(clamp01(u * 2))) : 0;
+  const lift = t <= peakT
+    ? travelEase(clamp01((t - a.t) / Math.max(1e-6, peakT - a.t)), CONFIG.ROLL_LIFT_PX, Math.max(1e-6, peakT - a.t))
+    : 1 - easeInDown(clamp01((t - peakT) / Math.max(1e-6, down)), CONFIG.ROLL_LIFT_PX, down);
+  const press = (isRollContact(a) && a.idxInStroke === 1) ? (1 - clamp01((t - a.t) / Math.max(1e-6, 2 / 60))) : 0;
   return { lift, idle: 0, press, grip: isRollContact(a) || isRollContact(b) ? "roll" : "single", base, scale: height, buzz: null };
 }
 
@@ -1239,6 +1429,61 @@ function tmIdleFace(a, b, height, hand) {
   return tm.idleMid ? faceB : "don";
 }
 
+
+/** 滚奏段安全阀：把相邻 1/60 秒的棒尖步长卡在 JUMP 限额内。击中帧不限制，保证落点焊死。 */
+const poseStepCache = new Map();
+function clearPoseStepCache() { poseStepCache.clear(); }
+function poseStepKey(hand, t) { return hand + ":" + Math.round(t * 6000); }
+
+function capTipToward(prev, pose, cap) {
+  const d = V.len(V.sub(pose.tip, prev.tip));
+  if (d <= cap || d < 1e-6) return pose;
+  const mixed = lerpPose(prev, pose, cap / d);
+  return Object.assign({}, pose, { tip: mixed.tip, grip: mixed.grip, handDeg: mixed.deg, stickDeg: mixed.deg });
+}
+
+/** 滚奏段安全阀：相对「已经限速过的」上一帧卡在 JUMP 限额内。击中帧不限制，保证落点焊死。 */
+function limitRollTipStep(hand, track, t, pose, a, b) {
+  const dt = 1 / 60;
+  const hits = [];
+  if (a) hits.push(a.t);
+  if (b) hits.push(b.t);
+  if (hits.some((ht) => Math.abs(t - ht) <= dt * 1.01)) return pose;
+  const nxt = b ? b.t : 99;
+  const down = (nxt - t) <= 3 * dt * 1.01;
+  const cap = down ? 42.0 : 28.2;
+  const prevT = t - dt;
+  const prevKey = poseStepKey(hand, prevT);
+  let prev;
+  if (poseStepCache.has(prevKey)) {
+    prev = poseStepCache.get(prevKey);
+  } else {
+    // 从上一击（或 0.25s 前）正向填缓存，避免按帧递归爆栈
+    const seedT = a && isFinite(a.t) && a.t < t ? a.t : (t - 0.25);
+    let u0 = seedT;
+    let cur = poseAt(hand, track, u0, { noKick: true, noLimit: true, noWobble: true });
+    poseStepCache.set(poseStepKey(hand, u0), cur);
+    const steps = Math.max(1, Math.round((prevT - u0) / dt));
+    for (let i = 1; i <= steps; i++) {
+      const ut = u0 + i * dt;
+      const uk = poseStepKey(hand, ut);
+      if (poseStepCache.has(uk)) { cur = poseStepCache.get(uk); continue; }
+      let nxtP = poseAt(hand, track, ut, { noKick: false, noLimit: true, noWobble: true });
+      const hitNow = (a && Math.abs(ut - a.t) <= dt * 1.01) || (b && Math.abs(ut - b.t) <= dt * 1.01);
+      if (!hitNow) {
+        const downU = b && (b.t - ut) <= 3 * dt * 1.01;
+        nxtP = capTipToward(cur, nxtP, downU ? 42.0 : 28.2);
+      }
+      poseStepCache.set(uk, nxtP);
+      cur = nxtP;
+    }
+    prev = cur;
+  }
+  if (!prev || !prev.tip) return pose;
+  return capTipToward(prev, pose, cap);
+}
+
+
 function poseAt(hand, track, t, opts = {}) {
   const H = GEOM.hands[hand];
   const { a, b } = findSegment(track, t);
@@ -1246,23 +1491,34 @@ function poseAt(hand, track, t, opts = {}) {
   let follow = CONFIG.SINGLE_FOLLOW;
   let rollState = null;
   let singleState = null;
+  let phMorph = null;
   if (!a && !b) {
     lift = 0; base = H.don; grip = "single";
     singleState = { idle: 1, face: "don", idleFace: "don", idleShift: kaIdleShift(hand, t) };
   } else if (isRollContact(a) || isRollContact(b)) {
     const ph = rollPhase(hand, track, a, b, t);
     lift = ph.lift; base = ph.base; grip = ph.grip; buzz = ph.buzz;
+    phMorph = ph;
     if (grip === "roll") {
-      rollState = { lift: ph.lift, idle: ph.idle, press: ph.press };
-      // 一对内部：kd 内收 / dk 外甩走 routeBend；dd/kk 为 straight，残影无横向偏移
+      rollState = { lift: ph.lift, idle: ph.idle, press: ph.press, idleShift: ph.idleShift, idleFace: ph.idleFace || "don" };
+      // 一对内部：kd 内收 / dk 外甩走 routeBend；dd/kk 为 straight。短间隔按帧预算缩小弯曲，避免 1 帧甩出 50px。
       if (a && b && a.stroke === b.stroke && isRollContact(a) && isRollContact(b)) {
-        const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
+        const pairDt = Math.max(1e-6, b.t - a.t);
+        const u = clamp01((t - a.t) / pairDt);
         const route = a.route || rollTypeRoute(a.rollType);
-        bend = routeBend(a.target, b.target, route, Math.sin(Math.PI * u));
+        const frames = Math.max(1, pairDt * 60);
+        const maxBend = Math.min(CONFIG.BEND_PX, 18 * frames / Math.PI);
+        const k = Math.sin(Math.PI * u) * (maxBend / Math.max(1e-6, CONFIG.BEND_PX));
+        bend = routeBend(a.target, b.target, route, k);
       }
     } else {
-      const face = b ? targetFace(hand, ph.base) : "don";
-      singleState = { idle: ph.idle, face, scale: ph.scale || 1, idleShift: kaIdleShift(hand, t) };
+      const face = ph.face || (b ? targetFace(hand, ph.base) : "don");
+      singleState = {
+        idle: ph.idle, face, faceFrom: ph.faceFrom, faceTo: ph.faceTo || face,
+        faceU: ph.faceU, scale: ph.scale || 1,
+        idleShift: isFinite(+ph.idleShift) ? +ph.idleShift : kaIdleShift(hand, t),
+        idleFace: ph.idleFace || "don",
+      };
     }
   } else if (!a) {
     const phase = singleApproach(t, b, hand);
@@ -1311,8 +1567,27 @@ function poseAt(hand, track, t, opts = {}) {
     const snapped = weldSnap(V.add(p.tip, drift), V.add(p.grip, drift), L);
     p = Object.assign({}, p, { tip: snapped.tip, grip: snapped.grip, handDeg: snapped.deg, stickDeg: snapped.deg });
   }
+  if (phMorph && phMorph.morphFrom && isFinite(+phMorph.morphU)) {
+    const mu = clamp01(+phMorph.morphU);
+    const mf = phMorph.morphFrom;
+    const fromGrip = mf.grip || "single";
+    const fromRoll = fromGrip === "roll"
+      ? { lift: mf.lift || 0, idle: mf.idle || 0, press: mf.press || 0, idleShift: mf.idleShift || 0, idleFace: mf.idleFace || "don" }
+      : null;
+    const fromFace = mf.face || (mf.base ? targetFace(hand, mf.base) : "don");
+    const fromSingle = fromGrip === "single"
+      ? { idle: mf.idle || 0, face: fromFace, scale: isFinite(+mf.scale) ? +mf.scale : 1, idleShift: mf.idleShift || 0, idleFace: mf.idleFace || "don" }
+      : null;
+    const fromP = composePose(hand, mf.base, mf.lift || 0, { x: 0, y: 0 }, 0, fromGrip, 1, fromRoll, fromSingle);
+    const mixed = lerpPose(fromP, p, mu);
+    p = Object.assign({}, p, { tip: mixed.tip, grip: mixed.grip, handDeg: mixed.deg, stickDeg: mixed.deg });
+  }
   if (!opts.noKick) p = applyHitKickback(p, hand, track, t);
+  if (!opts.noLimit) {
+    p = limitRollTipStep(hand, track, t, p, a, b);
+  }
   p.buzz = buzz; p.wobble = opts.noWobble ? 0 : wobble;
+  if (!opts.noLimit) poseStepCache.set(poseStepKey(hand, t), p);
   return p;
 }
 
@@ -1378,7 +1653,11 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
   const contact = weldSnap(V.add(hit.tip, bnm), V.add(hit.grip, bnm), L);
   let pose = lerpPose(contact, raised, rLift, L);
   pose = applyWristTilt(pose, rLift * CONFIG.ROLL_WRIST_TILT_SCALE);
-  if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, 0), idleAmt, L);
+  if (idleAmt > 0) {
+    const sh = rollState && isFinite(+rollState.idleShift) ? +rollState.idleShift : 0;
+    const idleFace = (rollState && rollState.idleFace) || "don";
+    pose = lerpPose(pose, singleIdlePose(hand, sh, idleFace), idleAmt, L);
+  }
   return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift: rLift };
 }
 
@@ -2322,7 +2601,7 @@ function seek(t) { state.now = Math.max(state.start, Math.min(state.end, t)); re
 function setData(data) {
   state.events = normalizeEvents(data);
   state._compoundRoles = null;
-  state.tracks = buildHandTracks(state.events, state.route);
+  clearPoseStepCache(); state.tracks = buildHandTracks(state.events, state.route);
   const first = state.events.length ? state.events[0].t : 0;
   const last = state.events.length ? state.events[state.events.length - 1].t : 0;
   // Optional rangeStart / rangeEnd (seconds, same units as event.t) let the CLI
@@ -2345,7 +2624,7 @@ function bindControls() {
   };
   document.querySelectorAll("[data-rate]").forEach((b) => b.onclick = () => setRate(+b.dataset.rate));
   $("scroll").oninput = (e) => { state.scroll = +e.target.value; $("scrollVal").textContent = state.scroll + "×"; };
-  $("route").onchange = (e) => { state.route = e.target.value; state.tracks = buildHandTracks(state.events, state.route); };
+  $("route").onchange = (e) => { state.route = e.target.value; clearPoseStepCache(); state.tracks = buildHandTracks(state.events, state.route); };
   $("scrub").oninput = (e) => seek(state.start + (+e.target.value) * (state.end - state.start));
   setRate(state.rate); setPlaying(state.playing);
   $("btnLoop").classList.toggle("on", state.loop);
@@ -2361,6 +2640,7 @@ let engineStarted = false;
 function startEngine(data, meta) {
   window.__BACHI_DONE__ = false;
   window.__BACHI_READY__ = false;
+  clearPoseStepCache();
   setData(data || { events: [] });
   state.now = params.has("t") ? pickNum(params.get("t"), state.start, state.start, state.end) : state.start;
   if (els.stat && !els.stat.innerHTML) els.stat.innerHTML = renderStatic();

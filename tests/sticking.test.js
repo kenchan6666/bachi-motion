@@ -318,19 +318,13 @@ extra("BPM 270 eighths alternate from the dominant hand; BPM 269 eighths stay do
   assert.strictEqual(lo.pairs, "");
 });
 
-extra("24分滚奏 uses 1-2 for figures that are 2-2, 2-1, or 4-note groups elsewhere", function () {
-  const s16 = 0.25;
-  assertStick("16 dense was 2-2", "dddddddd", s16, "RLLRLLRL", "1-2,4-5", { 滚奏: "24分滚奏" });
-  assertStick("16 two xoo was 2-1", "kddkdd", s16, "RLLRLL", "1-2,4-5", { 滚奏: "24分滚奏" });
-  assertStick("16 two oxx was 2-1", "dkkdkk", s16, "RLLRLL", "1-2,4-5", { 滚奏: "24分滚奏" });
-  assertStick("16 oxxo", "dkkd", s16, "RLLR", "1-2", { 滚奏: "24分滚奏" });
-  assertStick("16 ooox", "dddk", s16, "RLLR", "1-2", { 滚奏: "24分滚奏" });
-  assertStick("16 xxxo", "kkkd", s16, "RLLR", "1-2", { 滚奏: "24分滚奏" });
-  assertStick("32 was 2-2", "dddddddd", 0.125, "RLLRLLRL", "1-2,4-5", { 滚奏: "24分滚奏" });
-  assertStick("24 stays 1-2", "dddddd", 1 / 6, "RLLRLL", "1-2,4-5", { 滚奏: "24分滚奏" });
-  assertStick("16 left", "dddddddd", s16, "LRRLRRLR", "1-2,4-5", { 滚奏: "24分滚奏", 惯用手: "L" });
+extra("24分滚奏 keeps the original pairing", function () {
+  // 32 分 2-2，24 分从段首 1-2，16 分和 12 分不滚。
+  assertStick("32 is 2-2", "dddddddd", 0.125, "RRLLRRLL", "0-1,2-3,4-5,6-7", { 滚奏: "24分滚奏" });
+  assertStick("24 is 1-2", "dddddd", 1 / 6, "RLLRLL", "1-2,4-5", { 滚奏: "24分滚奏" });
   assertStick("24 left", "dddddd", 1 / 6, "LRRLRR", "1-2,4-5", { 滚奏: "24分滚奏", 惯用手: "L" });
-  // 12 分不进本模式；拍头 1-2 仍只属于自动滚奏。
+  assertStick("16 stays singles", "dddddddd", 0.25, "RLRLRLRL", "", { 滚奏: "24分滚奏" });
+  assertStick("16 left stays singles", "dddddddd", 0.25, "LRLRLRLR", "", { 滚奏: "24分滚奏", 惯用手: "L" });
   assertStick("12 stays unrolled", "kddkdd", 1 / 3, "RLRLRL", "", { 滚奏: "24分滚奏" });
 });
 

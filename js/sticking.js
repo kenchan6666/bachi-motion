@@ -649,24 +649,28 @@
   }
 
   function choose24ModePairs(notes, start, end) {
-    // 24分滚奏：16 / 24 / 32 都从该小段第一颗做 1-2（单打，接着两颗同一只手）。
-    // 段首若是惯用手，对子就落在逆手，也就是逆手滚奏。
-    // 不再把 32 分做成 2-2，也不走自动滚奏的 16 分 2-2、两轮三连 2-1、四音型。
-    // 不对齐拍头。12 分仍不在本模式配对，拍头 1-2 只留给自动滚奏。
+    // 16 / 12: no roll. Each 24-subsegment from its first note 1-2 (no downbeat align).
+    // Each 32-subsegment from its first note 2-2.
     var parts = splitByDiv(notes, start, end);
     var pairs = [];
     for (var p = 0; p < parts.length; p++) {
       var part = parts[p];
-      if (part.div !== 16 && part.div !== 24 && part.div !== 32) continue;
       var n = part.end - part.start + 1;
       var canPair = function (localStart) {
         return function (i, j) {
           return !notes[localStart + i].big && !notes[localStart + j].big;
         };
       };
-      var rel = plan12From(n, 0, canPair(part.start));
-      for (var r = 0; r < rel.length; r++) {
-        pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
+      if (part.div === 24) {
+        var rel = plan12From(n, 0, canPair(part.start));
+        for (var r = 0; r < rel.length; r++) {
+          pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
+        }
+      } else if (part.div === 32) {
+        rel = plan22(n, canPair(part.start));
+        for (r = 0; r < rel.length; r++) {
+          pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
+        }
       }
     }
     return pairs;

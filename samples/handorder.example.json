@@ -1,6 +1,6 @@
 {
   "song": "手顺 JSON 示例（溯月模式）",
-  "passage": "格式说明：events 覆盖自动 1-1 手顺；grip 为 roll 表示滚奏捏棒；inserted 为 true 会画金色光圈",
+  "passage": "格式说明：events 覆盖自动 1-1 手顺；grip 为 roll 表示滚奏捏棒；inserted 为 true 会画金色光圈；big: true 标记大音符；hand: \"both\" 强制这一颗双手同时打",
   "bpm": 160,
   "note": "把这段（或溯溯写的完整手顺）贴进「溯月」模式的 JSON 框即可播放。t 单位是秒。",
   "events": [

@@ -176,7 +176,7 @@ function normalizeEvents(data) {
     face: e.face === "ka" ? "ka" : "don",
     grip: normGrip(e.grip), route: normRoute(e.route),
     inserted: !!e.inserted, src: e.src || "",
-    both: !!e.both, big: !!e.big || !!e.both,
+    both: !!e.both, big: !!e.big,
   })).sort((a, b) => a.t - b.t || (a.hand === "R" ? -1 : 1));
 }
 

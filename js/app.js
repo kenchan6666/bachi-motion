@@ -74,10 +74,25 @@
     if (bpm) appendMetaPart(songEl, "BPM " + bpm, false);
   }
 
+  function currentBigNote() {
+    const on = document.querySelector("[data-bignote].on");
+    return window.TaikoParser ? TaikoParser.normBigMode(on && on.dataset.bignote) : "single";
+  }
+
+  function setBigNote(mode) {
+    mode = window.TaikoParser ? TaikoParser.normBigMode(mode) : (mode || "single");
+    document.querySelectorAll("[data-bignote]").forEach((b) => {
+      const on = b.dataset.bignote === mode;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", String(on));
+    });
+  }
+
   function parseOpts() {
     const opts = {};
     if (pageParams.get("course")) opts.course = pageParams.get("course");
     if (pageParams.get("measures")) opts.measures = pageParams.get("measures");
+    opts.bigNote = currentBigNote();
     return opts;
   }
 
@@ -236,9 +251,30 @@
     });
   }
 
+  function regenerateKeepTime() {
+    const anim = window.taikoAnim;
+    const t = anim && anim.state ? anim.state.now : null;
+    const playing = !!(anim && anim.state && anim.state.playing);
+    generate(false);
+    if (t != null && typeof seek === "function") seek(t);
+    if (playing && typeof setPlaying === "function") setPlaying(true);
+  }
+
+  const bigNoteChips = $("bigNoteChips");
+  if (bigNoteChips) {
+    bigNoteChips.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-bignote]");
+      if (!btn) return;
+      setBigNote(btn.dataset.bignote);
+      regenerateKeepTime();
+    });
+  }
+
   async function boot() {
     if (pageParams.get("mode") === "suyue") setMode("suyue");
     else setMode("zhuren");
+
+    setBigNote(pageParams.get("bignote") || "single");
 
     syncChartPicker(DEFAULT_CHART);
 

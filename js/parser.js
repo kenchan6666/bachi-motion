@@ -14,7 +14,10 @@
  *   Start on R, then alternate R L R L…
  *   A rest longer than one beat (one quarter note at the current BPM)
  *     resets the next note to R. A gap of exactly one beat does not.
- *   Big notes (3/4) are both hands at once; the following note also starts on R.
+ *   Big notes (3/4) follow opts.bigNote (default "single"):
+ *     single — one hand in the R/L sequence, drawn big; do not reset to R afterwards
+ *     both   — both hands at once; the next note continues the sequence (no reset to R)
+ *     small  — treated as a normal small note (one hand, drawn small)
  *   All auto-assigned notes use the full-grip single hit.
  *   Rolls are NEVER auto-guessed from the TJA — they come only from
  *   `(xx)` pinch-pairs in 溯溯's 手顺 JSON (see loadHandJson / parseSticking).
@@ -365,15 +368,31 @@
     };
   }
 
+  /** Normalize the 大音符 setting: "single" (default) | "both" | "small". */
+  function normBigMode(v) {
+    const s = String(v == null ? "" : v).trim().toLowerCase();
+    if (s === "both" || s === "hands" || s === "双手" || s === "2") return "both";
+    if (s === "small" || s === "assmall" || s === "as-small" || s === "as_small" ||
+        s === "当小音符" || s === "3") return "small";
+    return "single";
+  }
+
   /**
    * Assign 1-1 手顺 to parsed notes (主人 mode).
    * Returns the event stream the animation engine consumes.
-   * Big notes emit two events (R and L) at the same t.
+   *
+   * bigMode (default "single"):
+   *   single — a big note is one hit by the hand that is up in the sequence,
+   *            drawn big; afterwards the sequence continues (no reset to R).
+   *   both   — a big note is both hands at once; the "main" hand is the one
+   *            that was up, and the next note continues from there (no reset).
+   *   small  — a big note is treated as a normal small note.
    *
    * Hand order is computed on the notes actually passed in (so a measure
    * crop starts fresh on R, matching "play this passage from the top").
    */
-  function assignHands(parsed) {
+  function assignHands(parsed, bigMode) {
+    bigMode = normBigMode(bigMode);
     const events = [];
     let nextHand = "R";
     let lastT = null;
@@ -384,7 +403,8 @@
       const face = (n.type === "don" || n.type === "bigdon") ? "don" : "ka";
       const src = n.measure + ":" + n.pos;
 
-      if (!isBig && lastT != null) {
+      // 超过一拍的休止：下一颗（含大音符）从右手起。大音符打完本身不再额外重置。
+      if (lastT != null) {
         const gap = n.t - lastT;
         if (gap > lastBeatDur + 1e-6) nextHand = "R";
       }
@@ -401,10 +421,13 @@
         bpm: n.bpm,
       };
 
-      if (isBig) {
+      if (isBig && bigMode === "both") {
         events.push(Object.assign({}, base, { hand: "R", both: true, big: true }));
         events.push(Object.assign({}, base, { hand: "L", both: true, big: true }));
-        nextHand = "R";
+        nextHand = nextHand === "R" ? "L" : "R";
+      } else if (isBig && bigMode === "single") {
+        events.push(Object.assign({}, base, { hand: nextHand, both: false, big: true }));
+        nextHand = nextHand === "R" ? "L" : "R";
       } else {
         events.push(Object.assign({}, base, { hand: nextHand, both: false, big: false }));
         nextHand = nextHand === "R" ? "L" : "R";
@@ -438,7 +461,7 @@
     const parsed = parseTja(text);
     const picked = pickCourse(parsed, opts && opts.course);
     const sliced = sliceCourse(picked, parseMeasuresOpt(opts && opts.measures));
-    const events = assignHands(sliced);
+    const events = assignHands(sliced, opts && (opts.bigNote || opts.bigMode || opts.bignote));
     return coursePayload(sliced, {
       events,
       courses: parsed.courses.map((c) => c.headers.course),
@@ -531,6 +554,35 @@
    * the sliced timeline (first selected bar → t = 0). Events without `src`
    * fall back to a relative-vs-absolute heuristic. No --measures → no shift.
    */
+
+  /**
+   * 溯月模式：手（左/右/双）一律跟 JSON 走，全局大音符开关只控制画大/画小。
+   * `hand: "both"` 把这一颗展开成同时刻的 R+L（both:true），无视全局开关。
+   * 已写成一对（两条 both:true、左右各一）的事件不会再展开。
+   */
+  function applyBigNoteToHandEvents(events, bigMode) {
+    bigMode = normBigMode(bigMode);
+    const out = [];
+    for (const e of events) {
+      const ev = Object.assign({}, e);
+      const handRaw = ev.hand == null ? "R" : String(ev.hand);
+      const forceBoth = handRaw.toLowerCase() === "both";
+      const bigType = ev.type === "bigdon" || ev.type === "bigka";
+      const markedBig = ev.big != null ? !!ev.big : !!(bigType || ev.both || forceBoth);
+      ev.big = bigMode === "small" ? false : markedBig;
+      if (forceBoth) {
+        ev.both = true;
+        out.push(Object.assign({}, ev, { hand: "R" }));
+        out.push(Object.assign({}, ev, { hand: "L" }));
+      } else {
+        ev.hand = handRaw === "L" || handRaw === "l" ? "L" : "R";
+        ev.both = !!ev.both;
+        out.push(ev);
+      }
+    }
+    return out;
+  }
+
   function loadHandJson(input, opts) {
     const data = typeof input === "string" ? JSON.parse(input) : input;
     if (!data || typeof data !== "object") throw new Error("手顺 JSON 是空的");
@@ -579,6 +631,8 @@
       }
       events = remapped;
     }
+
+    events = applyBigNoteToHandEvents(events, opts && (opts.bigNote || opts.bigMode || opts.bignote));
 
     return {
       song: data.song || "",
@@ -763,6 +817,44 @@
       failures.push("sticking without parentheses must not produce rolls, even if events said grip:roll");
     }
 
+    // 大音符三选一：1231 @120 四分 → R咚, L咔, 大咚, 下一颗。
+    // single: R, L, R(big), L ；both: R, L, 双手(主手 R), L（不重置成 R）；small: R, L, R(小), L。
+    const bigTja = ["BPM:120", "OFFSET:0", "#START", "1231,", "#END", ""].join("\n");
+    function handsOf(mode) {
+      return eventsFromTja(bigTja, { bigNote: mode }).events.map((e) =>
+        (e.both ? "both" : e.hand) + (e.big ? "*" : "") + e.face[0]);
+    }
+    const gotSingle = handsOf("single");
+    const wantSingle = ["Rd", "Lk", "R*d", "Ld"];
+    if (gotSingle.join(",") !== wantSingle.join(","))
+      failures.push("bigNote=single hands\n    got  " + gotSingle.join(",") + "\n    want " + wantSingle.join(","));
+    const gotBoth = handsOf("both");
+    const wantBoth = ["Rd", "Lk", "both*d", "both*d", "Ld"];
+    if (gotBoth.join(",") !== wantBoth.join(","))
+      failures.push("bigNote=both hands (no reset to R)\n    got  " + gotBoth.join(",") + "\n    want " + wantBoth.join(","));
+    const gotSmall = handsOf("small");
+    const wantSmall = ["Rd", "Lk", "Rd", "Ld"];
+    if (gotSmall.join(",") !== wantSmall.join(","))
+      failures.push("bigNote=small hands\n    got  " + gotSmall.join(",") + "\n    want " + wantSmall.join(","));
+    const defHands = handsOf(undefined);
+    if (defHands.join(",") !== wantSingle.join(","))
+      failures.push("bigNote default must be single, got " + defHands.join(","));
+
+    // 溯月：hand:"both" 展开为 R+L，开关只改画大/画小，不改单双手。
+    const jsonBoth = { events: [
+      { t: 0, hand: "R", face: "don", big: false },
+      { t: 0.5, hand: "both", face: "ka", big: true },
+      { t: 1, hand: "L", face: "don", big: true },
+    ]};
+    const jBoth = loadHandJson(jsonBoth, { bigNote: "single" });
+    const jTag = jBoth.events.map((e) => (e.both ? "both" : e.hand) + (e.big ? "*" : "") + e.face[0]).join(",");
+    if (jTag !== "Rd,both*k,both*k,L*d")
+      failures.push("hand:both expands; big:true kept in single mode\n    got  " + jTag);
+    const jSmall = loadHandJson(jsonBoth, { bigNote: "small" });
+    const jSmallTag = jSmall.events.map((e) => (e.both ? "both" : e.hand) + (e.big ? "*" : "") + e.face[0]).join(",");
+    if (jSmallTag !== "Rd,bothk,bothk,Ld")
+      failures.push("溯月 small mode draws small but keeps hand:both\n    got  " + jSmallTag);
+
     if (failures.length) {
       throw new Error("parser self-check failed:\n- " + failures.join("\n- "));
     }
@@ -779,6 +871,8 @@
         "sticking src-align follows mid-measure #BPMCHANGE",
         "assignHands never emits roll",
         "sticking (RR)(LL) marks pinch-pair rolls and hands",
+        "bigNote=single / both (no reset) / small + default single",
+        "hand:both expands; 溯月 switch only changes drawn size",
         "sticking without parentheses produces no rolls",
       ],
     }
@@ -796,6 +890,8 @@
     sliceCourse,
     parseMeasuresOpt,
     assignHands,
+    normBigMode,
+    applyBigNoteToHandEvents,
     eventsFromTja,
     loadHandJson,
     parseSticking,

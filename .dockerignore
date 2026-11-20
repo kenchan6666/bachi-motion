@@ -1,0 +1,27 @@
+# Keep the image to the static web app only.
+.git
+.github
+.gitignore
+.DS_Store
+.node
+node_modules
+tests
+.render-frames
+bachi-frames-*
+*.mp4
+# CLI export (headless Chrome + puppeteer) is not served in production.
+render.js
+package.json
+package-lock.json
+# Docs are not needed in the image.
+README.md
+本地部署.md
+DOCKER.md
+# Official / copyrighted charts must never be baked in. The repo only
+# ships original practice samples (suyue_*), which the UI fetches at
+# samples/*.tja and are copied explicitly. Ignore anything else that
+# looks like a user chart dropped in the tree.
+samples/**/*.mp4
+# Editor / OS junk
+*.swp
+*~

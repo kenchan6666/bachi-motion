@@ -95,8 +95,24 @@
     let items = [];
     const notes = [];
     const measures = [];
+    const bpmTimeline = [];
     let i = startIndex;
     let ended = false;
+
+    // Wall-clock pieces at constant BPM + current #MEASURE (quarter-note beats).
+    // Adjacent same-BPM pieces are merged later by TitleBarBpm; mid-measure
+    // #BPMCHANGE starts a new piece so the title-bar range does not count TJA lines.
+    function emitBpmPiece(tRawStart, duration, pieceBpm, meas) {
+      if (!isFinite(duration) || duration <= 1e-12) return;
+      if (!isFinite(pieceBpm) || pieceBpm <= 0) return;
+      const beats = (meas.num / meas.den) * 4;
+      bpmTimeline.push({
+        t: tRawStart - headers.offset,
+        duration,
+        bpm: pieceBpm,
+        beats,
+      });
+    }
 
     function inMeasure() {
       return items.some((it) => it.type === "slot");
@@ -127,6 +143,7 @@
           notes: 0,
           slotTimes: [],
         });
+        emitBpmPiece(t0, duration, curBpm, measure);
         time = t0 + duration;
         items = [];
         return;
@@ -134,9 +151,14 @@
 
       const slotBeats = beats / n;
       const slotTimes = [];
+      let pieceStart = tCursor;
+      let pieceBpm = curBpm;
       for (const it of items) {
         if (it.type === "bpm") {
+          emitBpmPiece(pieceStart, tCursor - pieceStart, pieceBpm, measure);
+          pieceStart = tCursor;
           curBpm = it.value;
+          pieceBpm = curBpm;
           continue;
         }
         if (it.type === "delay") {
@@ -164,6 +186,7 @@
         tCursor += slotBeats * beatDur;
         pos += 1;
       }
+      emitBpmPiece(pieceStart, tCursor - pieceStart, pieceBpm, measure);
 
       const duration = tCursor - t0;
       measures.push({
@@ -212,7 +235,10 @@
         const v = +delay[1];
         if (!isFinite(v)) throw new Error("无效的 #DELAY " + delay[1]);
         if (inMeasure()) items.push({ type: "delay", value: v });
-        else time += v;
+        else {
+          emitBpmPiece(time, v, bpm, measure);
+          time += v;
+        }
         continue;
       }
       if (line.charAt(0) === "#") continue;
@@ -228,6 +254,7 @@
     return {
       notes,
       measures,
+      bpmTimeline,
       duration: time - headers.offset,
       nextIndex: i,
     };
@@ -269,7 +296,7 @@
         if (pending.bpm === 120 && global.bpm !== 120) headers.bpm = global.bpm;
         if (pending.offset === 0 && global.offset !== 0) headers.offset = global.offset;
         const body = parseBody(rawLines, i, headers);
-        courses.push({ headers, notes: body.notes, measures: body.measures, duration: body.duration });
+        courses.push({ headers, notes: body.notes, measures: body.measures, duration: body.duration, bpmTimeline: body.bpmTimeline });
         i = body.nextIndex;
         pending = {
           title: global.title,
@@ -297,6 +324,7 @@
       notes: first.notes,
       measures: first.measures,
       duration: first.duration,
+      bpmTimeline: first.bpmTimeline,
       courses,
     };
   }
@@ -331,6 +359,26 @@
   }
 
   /**
+   * Crop a BPM timeline to [t0, t1) and shift times so t0 becomes 0.
+   * Pieces that straddle the cut are themselves cropped (duration adjusted).
+   */
+  function sliceBpmTimeline(timeline, t0, t1) {
+    const src = timeline || [];
+    const out = [];
+    for (let i = 0; i < src.length; i++) {
+      const p = src[i];
+      const a = p.t;
+      const b = p.t + p.duration;
+      const lo = Math.max(a, t0);
+      const hi = Math.min(b, t1);
+      if (hi - lo > 1e-12) {
+        out.push({ t: lo - t0, duration: hi - lo, bpm: p.bpm, beats: p.beats });
+      }
+    }
+    return out;
+  }
+
+  /**
    * Crop a course to an inclusive 1-based measure range and shift times so
    * the first selected measure starts at t = 0.
    */
@@ -341,6 +389,7 @@
         notes: course.notes.slice(),
         measures: course.measures.slice(),
         duration: course.duration,
+        bpmTimeline: (course.bpmTimeline || []).slice(),
         rangeStart: course.measures.length ? course.measures[0].t : 0,
         rangeEnd: course.measures.length
           ? course.measures[course.measures.length - 1].t + course.measures[course.measures.length - 1].duration
@@ -371,6 +420,7 @@
       notes,
       measures,
       duration: t1 - t0,
+      bpmTimeline: sliceBpmTimeline(course.bpmTimeline, t0, t1),
       rangeStart: 0,
       rangeEnd: t1 - t0,
       measureFrom: from,
@@ -461,6 +511,7 @@
       headers: course.headers,
       measures: course.measures,
       duration: course.duration,
+      bpmTimeline: course.bpmTimeline || [],
       rangeStart: course.rangeStart,
       rangeEnd: course.rangeEnd,
       timeShift: course.timeShift || 0,
@@ -654,6 +705,7 @@
       course: (opts && opts.course) || data.course,
       headers: (opts && opts.headers) || data.headers,
       events,
+      bpmTimeline: (opts && opts.bpmTimeline) || data.bpmTimeline,
       rangeStart: opts && opts.rangeStart,
       rangeEnd: opts && opts.rangeEnd,
       timeShift: range ? shift : 0,
@@ -930,6 +982,7 @@
     applyBigNoteToHandEvents,
     eventsFromTja,
     loadHandJson,
+    sliceBpmTimeline,
     parseSticking,
     parseSrc,
     slotTimeAbs,

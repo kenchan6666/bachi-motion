@@ -17,30 +17,12 @@
     return s + "×";
   }
 
-  function fmtBpmNum(n) {
-    if (!isFinite(n)) return "";
-    if (Math.abs(n - Math.round(n)) < 0.15) return String(Math.round(n));
-    const s = (Math.round(n * 10) / 10).toString();
-    return s;
-  }
-
-  /** Starting BPM, or "150–300" when the chart actually changes speed. */
   function formatBpm(data) {
-    if (!data) return "";
-    const start = +data.bpm;
-    let lo = start, hi = start;
-    const evs = data.events || [];
-    for (let i = 0; i < evs.length; i++) {
-      const b = +evs[i].bpm;
-      if (!isFinite(b)) continue;
-      if (!isFinite(lo) || b < lo) lo = b;
-      if (!isFinite(hi) || b > hi) hi = b;
+    if (window.TitleBarBpm && typeof window.TitleBarBpm.formatDisplayBpm === "function") {
+      return window.TitleBarBpm.formatDisplayBpm(data);
     }
-    if (!isFinite(start) && !isFinite(lo)) return "";
-    if (isFinite(lo) && isFinite(hi) && hi - lo > 0.05) {
-      return "BPM " + fmtBpmNum(lo) + "–" + fmtBpmNum(hi);
-    }
-    return "BPM " + fmtBpmNum(isFinite(start) ? start : lo);
+    const start = data && +data.bpm;
+    return isFinite(start) && start > 0 ? "BPM " + String(Math.round(start)) : "";
   }
 
   function songTitle(data) {
@@ -111,7 +93,11 @@
       width = Math.max(100, leftSpace - 16);
     }
 
-    const padY = Math.max(6, 8 * s);
+    // Second-line size is set so "BPM" caps measure 15–16px at 1080p
+    // (this face's cap-height is ~0.76em, so 16.8*s ≈ 21.1px font-size → 16px caps).
+    // padY grows with the line; top and bottom padding stay equal.
+    // First-line title size is unchanged (30*s).
+    const padY = Math.max(8, 11 * s);
     const padX = Math.max(10, 14 * s);
     bar.style.left = left + "px";
     bar.style.top = top + "px";
@@ -121,7 +107,7 @@
 
     const innerW = Math.max(40, width - 2 * padX - 6);
     fitSize(titleEl, Math.max(16, 30 * s), Math.max(11, 12 * s), innerW);
-    fitSize(metaEl, Math.max(11, 14 * s), Math.max(10, 10 * s), innerW);
+    fitSize(metaEl, Math.max(13, 16.8 * s), Math.max(12, 12.5 * s), innerW);
   }
 
   function updateTitleBar(data) {
@@ -142,17 +128,42 @@
     bar.hidden = false;
     bar.classList.add("is-on");
     layoutTitleBar();
+    loadTitleBarFonts().then(layoutTitleBar);
+  }
+
+  function titleBarSampleText() {
+    const titleEl = $("titlebarTitle");
+    const metaEl = $("titlebarMeta");
+    return ((titleEl && titleEl.textContent) || "") + ((metaEl && metaEl.textContent) || "");
+  }
+
+  /**
+   * Load only the unicode-range slices needed for the current title +
+   * second line. Waiting on document.fonts.ready alone is not enough:
+   * unused slices stay unloaded, and the needed ones may still be in flight.
+   */
+  function loadTitleBarFonts() {
+    const text = titleBarSampleText();
+    if (!text || !document.fonts || typeof document.fonts.load !== "function") {
+      return Promise.resolve();
+    }
+    return document.fonts.load('bold 1em "Bachi Serif CJK"', text);
+  }
+
+  function prepareTitleBarFonts() {
+    return loadTitleBarFonts().then(function () { layoutTitleBar(); });
   }
 
   window.updateTitleBar = updateTitleBar;
   window.layoutTitleBar = layoutTitleBar;
+  window.prepareTitleBarFonts = prepareTitleBarFonts;
   window.formatTitleBarRate = formatRate;
   window.formatTitleBarBpm = formatBpm;
 
   function bind() {
     window.addEventListener("resize", layoutTitleBar);
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(layoutTitleBar);
+      document.fonts.ready.then(function () { loadTitleBarFonts().then(layoutTitleBar); });
     }
     if (typeof ResizeObserver === "function") {
       const svg = $("stage");

@@ -34,6 +34,8 @@ const MIME = {
   ".txt": "text/plain; charset=utf-8",
   ".wav": "audio/wav",
   ".md": "text/plain; charset=utf-8",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
 };
 
 function defaultWorkers() {
@@ -363,16 +365,21 @@ async function setupExportPage(page, url, size, data, rate, preloadAssets) {
     if (typeof window.setPlaying === "function") window.setPlaying(false);
   }, data, rate);
 
-  // Wait for the title-bar face (and any other page fonts) before the first screenshot.
+  // Wait for the title-bar slices that cover the current song name +
+  // second line. fonts.ready alone does not guarantee those files are in.
   await page.evaluate(async () => {
-    if (document.fonts && document.fonts.ready) {
-      await document.fonts.ready;
+    if (typeof window.prepareTitleBarFonts === "function") {
+      await window.prepareTitleBarFonts();
+    } else {
+      const title = (document.getElementById("titlebarTitle") || {}).textContent || "";
+      const meta = (document.getElementById("titlebarMeta") || {}).textContent || "";
+      const text = title + meta;
+      try {
+        if (document.fonts && document.fonts.load) {
+          await document.fonts.load('bold 1em "Bachi Serif CJK"', text);
+        }
+      } catch (err) { /* ignore */ }
     }
-    try {
-      if (document.fonts && document.fonts.load) {
-        await document.fonts.load('700 32px "Bachi Serif CJK"');
-      }
-    } catch (err) { /* ignore */ }
     if (typeof window.layoutTitleBar === "function") window.layoutTitleBar();
   });
 

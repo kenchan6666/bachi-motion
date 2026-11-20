@@ -113,6 +113,7 @@
           opts.headers = base.headers;
           opts.bpm = base.bpm;
           if (base.course) opts.course = base.course;
+          if (base.bpmTimeline) opts.bpmTimeline = base.bpmTimeline;
         } catch (err) { /* 手顺 can still load without a companion TJA */ }
       }
       return TaikoParser.loadHandJson(raw, opts);

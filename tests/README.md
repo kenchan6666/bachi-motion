@@ -15,7 +15,8 @@ npm test
 5. `node tests/hand-edits.test.js`（编辑器纯函数：拖选滚奏/交互/恢复、单音换手、撤销重做）
 6. `node tests/roll-dot-cache.test.js`（滚奏点 720 点采样缓存必须与逐帧未缓存结果完全一致）
 7. `node js/check-single-weld.js`（握点到棒尖 cluster span 必须是 0.0000）
-8. 对 `tests/charts/{trest,t160,t220,t280}.tja` 导出逐帧手部数据并用 `check.py` 检查 JUMP / REST / EARLY / HOVER，全部须 `PASS 0`
+8. `python3 tests/check-hover-exempt.test.py`（HOVER 窄豁免：休息接密串且顶点叠在待机高度不报；密串中间真定格、以及顶点不在待机高度时仍报）
+9. 对 `tests/charts/{trest,t160,t220,t280}.tja` 导出逐帧手部数据并用 `check.py` 检查 JUMP / REST / EARLY / HOVER，全部须 `PASS 0`
 
 需要本机或 CI 上的 Chrome，可通过 `CHROME_PATH` 指定。单独导出一谱：
 

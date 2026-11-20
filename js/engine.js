@@ -169,7 +169,6 @@ const CONFIG = {
   KA_DUR: 0.032, KA_W: 14, KA_SPAN: 60,     // 咔：鼓边青光只留在击中帧附近（紧贴 1/11 点钟外侧）
   GOLD_DUR: 0.35, GOLD_W: 16, GOLD_KA_SPAN: 68,  // 插音金光；咔插音弧略宽于青光，仍留在落点一侧
   SECOND_HIT: 0.8,                          // 滚奏第二下亮度/光宽 80%
-  REBOUND_ARC_FADE: 0.15,
   TRAIL_STEP: 1 / 60,   // 单击残影每 1 帧（60fps）留 1 层
   TRAIL_ALPHA: [0.48, 0.30, 0.16],  // 白色短拖影；浅灰底上纯 35% 几乎看不见，略提到约 50% 并加柔光
   TRAIL_ARC_SPAN: 0.1,  // 单击方向弧线回溯 0.1s
@@ -1828,24 +1827,6 @@ function activeHits(events, now, maxAge) {
   return events.filter((e) => now - e.t >= 0 && now - e.t <= maxAge).map((e) => ({ e, age: now - e.t }));
 }
 
-/** 滚奏回弹弧线：第一下 → 第二下 期间显示，第二下后 0.15s 消失 */
-function activeReboundArcs(tracks, now) {
-  const out = [];
-  for (const hand of ["R", "L"]) {
-    const tr = tracks[hand];
-    for (let k = 0; k + 1 < tr.length; k++) {
-      const a = tr[k], b = tr[k + 1];
-      if (a.stroke !== b.stroke) continue;
-      if (a.rollType === "kd" || a.rollType === "dk") continue; // 内外刷已有方向箭头，不再叠一截小白拱
-      const end = b.t + CONFIG.REBOUND_ARC_FADE;
-      if (now >= a.t && now <= end)
-        out.push({ hand, a, b, draw: clamp01((now - a.t) / (b.t - a.t)),
-                   fade: now <= b.t ? 1 : 1 - (now - b.t) / CONFIG.REBOUND_ARC_FADE });
-    }
-  }
-  return out;
-}
-
 /* ===================================================================
  * 3. 渲染
  * =================================================================== */
@@ -2653,22 +2634,6 @@ function renderHitFx(events, second, now, shake) {
   return s;
 }
 
-/** 滚奏回弹弧：同手颜色、虚线、3px，从落点鼓起一个小拱 */
-function renderReboundArcs(tracks, now) {
-  let s = "";
-  for (const r of activeReboundArcs(tracks, now)) {
-    const p = r.a.target, H = GEOM.hands[r.hand];
-    // 画在棒子外侧一点，免得被鼓棒挡住
-    const ox = p.x + 26 * H.out;
-    const a = { x: ox - 14, y: p.y - 2 }, b = { x: ox + 14, y: p.y - 2 };
-    const c = { x: ox, y: p.y - 26 };
-    const d = `M${f1(a.x)},${f1(a.y)} Q${f1(c.x)},${f1(c.y)} ${f1(b.x)},${f1(b.y)}`;
-    s += `<path d="${d}" fill="none" stroke="#6B5A4A" stroke-width="6" stroke-linecap="round" opacity="${f1(0.6 * r.fade)}"/>`;  // 暖灰描边，防止白弧被米色鼓皮/高光吃掉（汐月定）
-    s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" opacity="${f1(r.fade)}"/>`;  // 方向弧白色实线，颜色只留鼓面红圈/青弧
-  }
-  return s;
-}
-
 /** R/L 小标签（打击时出现在落点旁边） */
 function renderLabels(events, now) {
   let s = "";
@@ -2786,7 +2751,6 @@ function renderFrame(now) {
   s += renderTrail("L", tracks.L, now) + renderTrail("R", tracks.R, now);
   s += renderSwipeArrows(tracks, now);
   s += renderRollDots(tracks, now);
-  s += renderReboundArcs(tracks, now);
   for (const hand of ["L", "R"]) {
     const pose = poseAt(hand, tracks[hand], now);
     applyGripCrossfade(hand, tracks[hand], now, pose);

@@ -1,6 +1,8 @@
 /**
  * Persistent title bar (always on, no intro animation).
- * Sits in the left beige letterbox, top-aligned with the chart track.
+ * Webpage: sits in the top letterbox above the chart track.
+ * Export (body.export): sits in the left beige letterbox, top-aligned
+ * with the chart track when there is room beside the stage.
  * Fields: title, BPM, playback rate, technique (手法).
  */
 (function () {
@@ -98,12 +100,17 @@
     const leftSpace = r.left;
 
     let left, width, top = trackTop;
-    if (leftSpace >= 180) {
+    // Finished video (body.export) keeps the left-of-track plate when the
+    // stage has a wide beige margin. The webpage always uses the top
+    // letterbox, including at desktop widths, so the title never sits
+    // beside the highway or covers the notes.
+    const exporting = document.body.classList.contains("export");
+    if (exporting && leftSpace >= 180) {
       left = Math.max(12, Math.min(padL, leftSpace * 0.12));
       width = Math.max(120, leftSpace - left - gap);
-    } else if (r.top >= 56) {
-      // Width-constrained viewport: sit in the top letterbox, still left-aligned
-      // with the stage, so we never cover the track or the drum card.
+    } else if (!exporting || r.top >= 56) {
+      // Above the stage, left-aligned with it. Webpage: every width.
+      // Export: only when the left margin is tight and there is room above.
       left = Math.max(12, r.left);
       width = Math.min(r.width * 0.62, Math.max(200, r.width - 24));
       top = Math.max(6, r.top - Math.max(52, 58 * s));

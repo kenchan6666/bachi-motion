@@ -33,6 +33,10 @@ echo "== title-bar BPM range =="
 node tests/titlebar-bpm.test.js
 echo
 
+echo "== title-bar placement (webpage above track, export left of track) =="
+node tests/titlebar-layout.test.js
+echo
+
 echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo

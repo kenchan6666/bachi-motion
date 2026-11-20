@@ -363,11 +363,21 @@ async function setupExportPage(page, url, size, data, rate, preloadAssets) {
     if (typeof window.setPlaying === "function") window.setPlaying(false);
   }, data, rate);
 
+  // Wait for the title-bar face (and any other page fonts) before the first screenshot.
+  await page.evaluate(async () => {
+    if (document.fonts && document.fonts.ready) {
+      await document.fonts.ready;
+    }
+    try {
+      if (document.fonts && document.fonts.load) {
+        await document.fonts.load('700 32px "Bachi Serif CJK"');
+      }
+    } catch (err) { /* ignore */ }
+    if (typeof window.layoutTitleBar === "function") window.layoutTitleBar();
+  });
+
   if (preloadAssets) {
     await page.evaluate(async () => {
-      if (document.fonts && document.fonts.ready) {
-        await document.fonts.ready;
-      }
       const hrefs = new Set();
       if (typeof CONFIG !== "undefined" && CONFIG.HAND_IMG) {
         for (const side of Object.values(CONFIG.HAND_IMG)) {

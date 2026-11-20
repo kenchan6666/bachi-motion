@@ -59,6 +59,17 @@
   }
 
   function applyHeader(headers, line) {
+    // Longer TITLE* keys first so TITLEJA / TITLEZH are not swallowed by TITLE.
+    const titleja = parseHeaderValue(line, "TITLEJA");
+    if (titleja != null) { headers.titleja = titleja; return true; }
+    const titlezhTw = parseHeaderValue(line, "TITLEZH_TW");
+    if (titlezhTw != null) { headers.titlezh_tw = titlezhTw; return true; }
+    const titlezh = parseHeaderValue(line, "TITLEZH");
+    if (titlezh != null) { headers.titlezh = titlezh; return true; }
+    const titleen = parseHeaderValue(line, "TITLEEN");
+    if (titleen != null) { headers.titleen = titleen; return true; }
+    const titleko = parseHeaderValue(line, "TITLEKO");
+    if (titleko != null) { headers.titleko = titleko; return true; }
     const title = parseHeaderValue(line, "TITLE");
     if (title != null) { headers.title = title; return true; }
     const subtitle = parseHeaderValue(line, "SUBTITLE");
@@ -441,7 +452,7 @@
 
   function coursePayload(course, extra) {
     return Object.assign({
-      song: course.headers.title || "",
+      song: course.headers.title || course.headers.titleja || course.headers.titlezh || "",
       passage: course.headers.subtitle || "",
       bpm: course.headers.bpm,
       offset: course.headers.offset,
@@ -635,9 +646,13 @@
     events = applyBigNoteToHandEvents(events, opts && (opts.bigNote || opts.bigMode || opts.bignote));
 
     return {
-      song: data.song || "",
-      passage: data.passage || "",
-      bpm: data.bpm,
+      // Prefer the companion TJA TITLE when the caller passed it in; the JSON
+      // song field may have course/editor suffixes (e.g. "千本桜 Edit").
+      song: (opts && opts.song) || data.song || "",
+      passage: (opts && opts.passage) || data.passage || "",
+      bpm: (opts && isFinite(+opts.bpm)) ? +opts.bpm : data.bpm,
+      course: (opts && opts.course) || data.course,
+      headers: (opts && opts.headers) || data.headers,
       events,
       rangeStart: opts && opts.rangeStart,
       rangeEnd: opts && opts.rangeEnd,

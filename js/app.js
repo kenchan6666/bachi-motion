@@ -109,6 +109,10 @@
           opts.timeShift = base.timeShift || 0;
           opts.rangeStart = base.rangeStart;
           opts.rangeEnd = base.rangeEnd;
+          opts.song = base.song;
+          opts.headers = base.headers;
+          opts.bpm = base.bpm;
+          if (base.course) opts.course = base.course;
         } catch (err) { /* 手顺 can still load without a companion TJA */ }
       }
       return TaikoParser.loadHandJson(raw, opts);

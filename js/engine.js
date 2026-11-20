@@ -67,13 +67,13 @@ const CONFIG = {
   WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
   WINDUP: 0.10,         // 兼容旧调用：默认上抬（实际走 WINDUP_UP_*）
   // 起手时机：抬到顶 0.08–0.12s，顶点可停 0–0.1s（≤6 帧），下砸 0.07–0.1s；整段 ≤0.33s。
-  WINDUP_UP_MIN: 0.08,  // 5 帧，越密越短
-  WINDUP_UP_MAX: 0.12,  // 7 帧，散音
-  WINDUP_HOLD_MAX: 0.10,// 最多 6 帧停在顶点
-  WINDUP_LEAD_MAX: 0.33,// 起手不早于击打前 0.33s（EARLY 门槛）
-  STRIKE_UPFLICK: 0.10,
-  STRIKE_DOWN_MIN: 0.070,
-  STRIKE_DOWN_MAX: 0.100,
+  WINDUP_UP_MIN: 6 / 60,  // 6 帧，越密越短
+  WINDUP_UP_MAX: 8 / 60,  // 8 帧，散音
+  WINDUP_HOLD_MAX: 0.10,  // 最多 6 帧停在顶点
+  WINDUP_LEAD_MAX: 0.33,  // 起手不早于击打前 0.33s（EARLY 门槛）
+  STRIKE_UPFLICK: 8 / 60,
+  STRIKE_DOWN_MIN: 5 / 60,// 下砸 5–6 帧（快才有力）
+  STRIKE_DOWN_MAX: 6 / 60,
   STRIKE_HIT: 0.0,      // 接触瞬间零停顿，下一帧立刻反向弹起（发光/波纹由 FX 计时负责）
   STRIKE_HIT_DENSE: 0.0,
   STRIKE_REBOUND: 0.133,
@@ -96,7 +96,7 @@ const CONFIG = {
   IDLE_KA_SHIFT_RX: 0.15, // 对方打咔时，闲置棒尖往自己一侧偏 0.15 个面半径，避免两棒交叉
   IDLE_SETTLE: 0.22,    // 同手间隔够宽时，中间回到鼓心倒V；实际是否回预备由 strikeFit 按相位时值判断
   SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
-  DRUM_Y_SHIFT: 0,      // 鼓+手整体下移（px，正值向下）。最高抬手棒尖离谱面条下沿还需约 10px；具体数值等汐月量完再填。
+  DRUM_Y_SHIFT: 60,     // 鼓+手整体下移（px，正值向下，汐月定值 60）。
   SCENE_CLIP_PAD_TOP: 170, // 卡片上沿额外留白：单击最高点抬高后棒尖不裁切
   KA_GLOW_GROW: 12,     // 青光沿鼓边外侧（中心对齐棒尖接触点，不落在鼓面里）
   // 同手相邻击的间隔 → 抬起高度（8 分及更疏 = 满幅，16 分起收小，32/48 分贴住）
@@ -285,16 +285,23 @@ function followFromScale(_scale) {
   return 1;
 }
 
-/** 单击举起方向。咚、咔走同一张 gap→px 表，从待机位起抬，heightPx 为棒尖比击中位置高出的像素。 */
+/** 咔顶点封顶：让棒尖顶点停在谱面条下沿 y=108 再往下 10px 的高度（不伸进谱面条，且约齐咚 188 顶点）。 */
+function kaMaxLiftPx(hand) {
+  const ka = singleContactPose(hand, "ka");
+  const minLocalY = sceneInvPt({ x: 0, y: 108 + 10 }).y;
+  return Math.max(0, ka.tip.y - minLocalY);
+}
+
+/** 单击举起方向。咚、咔走同一张 gap→px 表，从待机位起抬；咔高度封顶至谱面条下沿留 10px。 */
 function liftVec(hand, face, heightPx) {
   const H = GEOM.hands[hand];
   const refH = CONFIG.LIFT_PX_SPARSE || CONFIG.LIFT_PX_SLOW || 115;
   const h = isFinite(heightPx) ? heightPx : refH;
   if (face === "ka") {
-    // 外移随高度略增，但封顶以免 160px 时横跳过大
+    const hCap = Math.min(h, kaMaxLiftPx(hand));
     const outRef = CONFIG.KA_LIFT_OUT_PX || 9;
-    const out = outRef * Math.min(h / (CONFIG.LIFT_PX_8TH || 70), 2);
-    return { x: H.out * out, y: -h };
+    const out = outRef * Math.min(hCap / (CONFIG.LIFT_PX_8TH || 70), 2);
+    return { x: H.out * out, y: -hCap };
   }
   const out = (CONFIG.LIFT_OUT_PX || 12) * (refH > 1e-6 ? h / refH : 1);
   return { x: H.out * out, y: -h };
@@ -626,29 +633,43 @@ function travelEase(s, dist, dur) {
   return 0.15 * x * x + 0.85 * x;
 }
 
-/** 下砸曲线：能加速就加速，但击中前倒数第 2 帧及更早单帧不得超过验收 30px。 */
+/** 下砸曲线：优先纯二次加速；大距离时切 C1 分段加速（前半 ≤28.7px、后 3 帧 ≤42px），保持 5–6 帧高速下砸。 */
 function easeInDown(s, dist, dur) {
   const x = clamp01(s);
-  const frames = Math.max(2, Math.round((isFinite(dur) ? dur : 0) * 60) || 6);
+  const frames = Math.max(2, (isFinite(dur) && dur > 0 ? dur * 60 : 6));
   const d = isFinite(dist) ? Math.max(0, dist) : 0;
-  const maxStep = (CONFIG.REBOUND_MAX_STEP_PX || 30) - 1.5;
-  const stepAt = (e, k) => d * (Math.pow(k / frames, e) - Math.pow(Math.max(0, k - 1) / frames, e));
-  let exp = 2.0;
-  for (let n = 0; n < 16; n++) {
-    let worst = 0;
-    for (let k = 1; k <= frames - 1; k++) worst = Math.max(worst, stepAt(exp, k));
-    if (worst <= maxStep) break;
-    exp = Math.max(1.0, exp - 0.2);
+  const limEarly = (CONFIG.REBOUND_MAX_STEP_PX || 30) - 1.3;
+  const limLate = 45 - 2.0;
+  const evalBlend = (u, a) => a * u + (1 - a) * u * u;
+  const evalSplit = (u) => {
+    const m = 0.39, a1 = 0.90, a2 = m * (2 - a1) / (1 - m);
+    if (u <= 0.5) { const t = 2 * u; return m * (a1 * t + (1 - a1) * t * t); }
+    const t = 2 * u - 1;
+    return m + (1 - m) * (a2 * t + (1 - a2) * t * t);
+  };
+  const okCurve = (fn) => {
+    for (let rem = 1.02; rem < frames; rem += 0.15) {
+      const s1 = (frames - rem) / frames;
+      const s0 = Math.max(0, (frames - rem - 1) / frames);
+      const step = d * (fn(s1) - fn(s0));
+      const lim = rem <= 3.0 ? limLate : limEarly;
+      if (step > lim) return false;
+    }
+    return true;
+  };
+  if (okCurve((u) => evalBlend(u, 0))) {
+    let a = 0;
+    const first = d * evalBlend(Math.min(1, 1 / frames), 0);
+    if (first < 2.2 && d > 4) {
+      const needA = clamp01((2.2 / Math.max(d, 1e-6) - Math.pow(1 / frames, 2)) / Math.max(1e-6, (1 / frames) - Math.pow(1 / frames, 2)));
+      if (okCurve((u) => evalBlend(u, needA))) a = needA;
+    }
+    return evalBlend(x, a);
   }
-  const first = stepAt(exp, 1);
-  if (first < 2 && d > 4 && exp > 1.05) {
-    const cap = Math.log(Math.max(2.2 / Math.max(d, 1e-6), 1e-6)) / Math.log(1 / frames);
-    const lifted = Math.min(exp, Math.max(1.0, cap));
-    let worst = 0;
-    for (let k = 1; k <= frames - 1; k++) worst = Math.max(worst, stepAt(lifted, k));
-    if (worst <= maxStep) exp = lifted;
+  for (let a = 0.1; a <= 0.6; a += 0.1) {
+    if (okCurve((u) => evalBlend(u, a))) return evalBlend(x, a);
   }
-  return Math.pow(x, exp);
+  return evalSplit(x);
 }
 
 function tipDistIdleToRaised(hand, face, heightPx) {
@@ -685,11 +706,24 @@ function reboundMinDur(hand, face, toIdleFace) {
   return Math.max(need, 1e-4);
 }
 
-/** 同一只手上一下的间隔。不取 min(prev, next)。 */
+/** 同一只手上一下的间隔（时值/节拍拟合用）。 */
 function prevGapOf(contact) {
   if (contact && isFinite(contact.prevGap)) return contact.prevGap;
   if (contact && isFinite(contact.gap)) return contact.gap;
   return Infinity;
+}
+
+/** 谱面全局相邻音符的前间隔（高度查表用：1-1 交替 16 分按谱面 16 分算，不按同手 8 分）。 */
+function chartPrevGapOf(contact) {
+  const ev = eventOfContact(contact);
+  const evs = (typeof state !== "undefined" && state.events) ? state.events : [];
+  if (!ev || !evs.length) return prevGapOf(contact);
+  let prevT = -Infinity;
+  for (let i = 0; i < evs.length; i++) {
+    const t = evs[i].t;
+    if (t < ev.t - 1e-6 && t > prevT) prevT = t;
+  }
+  return isFinite(prevT) ? ev.t - prevT : Infinity;
 }
 
 /** 单击事件按时间排序（不含滚奏）。用来判定 8+16 复合。 */
@@ -707,20 +741,34 @@ function eventIndex(evs, ev) {
     (e.t === ev.t && e.hand === ev.hand && e.face === ev.face));
 }
 
-/** 8+16 一组：这颗与下一颗相隔 8 分，再紧跟一对 16 分。
- *  若 16 分对之后仍是密串（整段 16 分滚串的段首），不算复合，避免把段首 8 分抬到 188px 在短同手间隔里跳帧。 */
-function isCompoundHeavyAt(evs, k) {
-  if (k < 0 || k + 2 >= evs.length) return false;
+/** 将单击事件按同时刻（处理双手大音符）分组。 */
+function singleTimeGroups(evs) {
+  const groups = [];
+  for (const e of evs) {
+    if (!groups.length || e.t - groups[groups.length - 1].t > 1e-5) {
+      groups.push({ t: e.t, evs: [e] });
+    } else {
+      groups[groups.length - 1].evs.push(e);
+    }
+  }
+  return groups;
+}
+
+/** 8+16 复合组：前面空隙 ≥8 分（>密串阈值），后面紧跟 1–2 个 16 分间隔（2–3 颗如 1120）；
+ *  若紧跟 ≥3 个连续密间隔（整段 16 分滚串），则是段首，走普通查表（70/115），不标成复合。 */
+function compoundLightRunAt(groups, k) {
+  if (k < 0 || k + 1 >= groups.length) return 0;
   const dense = CONFIG.LIFT_DT_DENSE || 0.10;
-  const eighth = CONFIG.LIFT_DT_8TH || 0.20;
-  const g = (i) => evs[i + 1].t - evs[i].t;
-  if (!(g(k) > dense + 1e-6 && g(k) <= eighth + 1e-6)) return false;
-  if (!(g(k + 1) > 1e-6 && g(k + 1) <= dense + 1e-6)) return false;
-  if (k + 3 >= evs.length) return true;
-  if (!(g(k + 2) > 1e-6 && g(k + 2) <= dense + 1e-6)) return true;
-  // 对后仍密：只有下一组又从 8 分起（重复的 8+16）才算复合重音
-  if (k + 4 >= evs.length) return true;
-  return g(k + 3) > dense + 1e-6;
+  const g = (i) => groups[i + 1].t - groups[i].t;
+  const prevG = k > 0 ? groups[k].t - groups[k - 1].t : Infinity;
+  if (!(prevG > dense + 1e-6)) return 0;
+  if (!(g(k) > 1e-6 && g(k) <= dense + 1e-6)) return 0;
+  let denseRun = 1;
+  while (k + denseRun + 1 < groups.length && g(k + denseRun) <= dense + 1e-6) {
+    denseRun++;
+    if (denseRun >= 3) return 0;
+  }
+  return denseRun;
 }
 
 /** 给每个单击标上复合角色。谱面载入后只算一次。 */
@@ -728,19 +776,22 @@ function compoundRoleMap() {
   const evs = singleEventList();
   const cache = typeof state !== "undefined" ? state : null;
   if (cache && cache._compoundRoles && cache._compoundRoles.n === evs.length) return cache._compoundRoles.map;
+  const groups = singleTimeGroups(evs);
   const map = new Map();
-  for (let k = 0; k < evs.length; k++) {
-    if (!isCompoundHeavyAt(evs, k)) continue;
-    map.set(evs[k], { role: "heavy", heavy: evs[k] });
-    // 同组轻点只标紧跟的那一对 16 分，不把后面的纯密串算进来
-    if (k + 1 < evs.length) map.set(evs[k + 1], { role: "light", heavy: evs[k] });
-    if (k + 2 < evs.length) map.set(evs[k + 2], { role: "light", heavy: evs[k] });
+  for (let k = 0; k < groups.length; k++) {
+    const lightRun = compoundLightRunAt(groups, k);
+    if (!lightRun) continue;
+    const heavyEv = groups[k].evs[0];
+    for (const e of groups[k].evs) map.set(e, { role: "heavy", heavy: heavyEv });
+    for (let j = 1; j <= lightRun && k + j < groups.length; j++) {
+      for (const e of groups[k + j].evs) map.set(e, { role: "light", heavy: heavyEv });
+    }
   }
   if (cache) cache._compoundRoles = { n: evs.length, map };
   return map;
 }
 
-/** 复合段角色：heavy / light / null（走普通查表）。轻点只标同组那一对 16 分。 */
+/** 复合段角色：heavy / light / null（走普通查表）。轻点只标同组那 1–2 颗 16 分。 */
 function compoundRole(contact) {
   const ev = eventOfContact(contact);
   if (!ev || ev.grip === "roll") return null;
@@ -752,7 +803,7 @@ function compoundRole(contact) {
   return null;
 }
 
-/** 只按同一只手上一下间隔查表（不含复合加重）。 */
+/** 按谱面相邻间隔查表（不含复合加重）。 */
 function liftHeightFromGap(dt) {
   const anchors = [
     [0, CONFIG.LIFT_PX_DENSE],
@@ -776,31 +827,19 @@ function liftHeightFromGap(dt) {
 }
 
 function compoundHeavyHeight(heavyEv) {
-  const table = liftHeightFromGap(heavyEv && isFinite(heavyEv.prevGap) ? heavyEv.prevGap : Infinity);
-  // 事件上可能没有 prevGap（那是 track contact 的字段）；再从 tracks 找
-  let dt = Infinity;
-  if (heavyEv) {
-    const tracks = (typeof state !== "undefined" && state.tracks) ? state.tracks : null;
-    const arr = tracks && heavyEv.hand && tracks[heavyEv.hand];
-    if (arr) {
-      const c = arr.find((x) => x.ev === heavyEv || (x.ev && x.ev.i === heavyEv.i) ||
-        (x.t === heavyEv.t && x.face === heavyEv.face));
-      if (c) dt = prevGapOf(c);
-    }
-  }
-  if (!isFinite(dt) || dt === Infinity) dt = (heavyEv && isFinite(heavyEv.prevGap)) ? heavyEv.prevGap : Infinity;
+  const dt = heavyEv ? chartPrevGapOf(heavyEv) : Infinity;
   return Math.max(liftHeightFromGap(dt), CONFIG.LIFT_PX_COMPOUND_HEAVY || 188);
 }
 
-/** 这下单击的抬手高度（棒尖比击中位置高出的像素）。 */
+/** 这下单击的抬手高度（棒尖比击中位置高出的像素）。按谱面相邻间隔判定，不再按同手间隔。 */
 function liftHeightPx(contact) {
   const acc = compoundRole(contact);
-  if (acc && acc.role === "heavy") return Math.max(liftHeightFromGap(prevGapOf(contact)), CONFIG.LIFT_PX_COMPOUND_HEAVY || 188);
+  if (acc && acc.role === "heavy") return Math.max(liftHeightFromGap(chartPrevGapOf(contact)), CONFIG.LIFT_PX_COMPOUND_HEAVY || 188);
   if (acc && acc.role === "light") {
     const ratio = CONFIG.LIFT_COMPOUND_LIGHT_RATIO || 0.4;
     return compoundHeavyHeight(acc.heavy) * ratio;
   }
-  return liftHeightFromGap(prevGapOf(contact));
+  return liftHeightFromGap(chartPrevGapOf(contact));
 }
 
 /** 固定起手窗口：抬到顶 0.08–0.12s（越密越短），顶点可停 0–0.1s，下砸 0.07–0.1s；总长 ≤0.33s。 */
@@ -890,6 +929,15 @@ function travelDur(dist, preferred, lo, hi) {
   return Math.max(lo, Math.min(hi, Math.max(pref, need)));
 }
 
+/** 下砸用 5–6 帧高速砸下：最后 3 帧放宽到 45px 档、更早帧 ≤30px，不再把 188px 拉慢到 8–9 帧。 */
+function downTravelDur(dist, preferred, lo, hi) {
+  const d = isFinite(dist) ? Math.max(0, dist) : 0;
+  // 6 帧内 C1 下砸曲线可稳定消化 ~210px（前半 ≤28.7px，后 3 帧 ≤42px）；仅超大跨面再放宽
+  const need = d > 210 ? (3 / 60 + (d - 126) / (28 * 60)) : (d > 140 ? 6 / 60 : d / (40 * 60));
+  const pref = isFinite(preferred) ? preferred : lo;
+  return Math.max(lo, Math.min(hi, Math.max(pref, need)));
+}
+
 function windupLeadClamp(tb, down, hold, up, notBefore) {
   const leadMax = (CONFIG.WINDUP_LEAD_MAX || 0.33) - 0.012;
   const tDown = tb - down;
@@ -921,8 +969,8 @@ function singleApproach(t, b, hand) {
   const height = liftHeightPx(b);
   const distUp = tipDistIdleToRaised(h, face, height);
   const distDown = tipDistContactToRaised(h, face, height);
-  const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.08, 0.22);
-  const down = travelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 0.07, 0.16);
+  const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.10, 0.22);
+  const down = downTravelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.14);
   const w = windupLeadClamp(b.t, down, tm.hold || 0, up, -Infinity);
   if (t >= b.t) return { lift: 0, idle: 0 };
   if (t >= w.tDown) {
@@ -965,8 +1013,8 @@ function singleBetween(t, a, b, scale, hand) {
     const tRebEnd = ta + tm.hit + tm.rebound;
     const distUp = tipDistIdleToRaised(h, faceB, heightB);
     const distDown = tipDistContactToRaised(h, faceB, heightB);
-    const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.08, 0.22);
-    const down = travelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 0.07, 0.16);
+    const up = travelDur(distUp, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.10, 0.22);
+    const down = downTravelDur(distDown, tm.down, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.14);
     const w = windupLeadClamp(tb, down, tm.hold || 0, up, tRebEnd);
     if (t < tRebEnd) {
       const dur = Math.max(1e-6, tm.rebound);
@@ -992,8 +1040,8 @@ function singleBetween(t, a, b, scale, hand) {
   const dist = tipDistContacts(h, faceA, faceB);
   const distRise = tipDistContactToRaised(h, faceB, heightB) + (faceA === faceB ? 0 : dist);
   const tHitEnd = ta + tm.hit;
-  const up2 = travelDur(distRise, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.08, 0.22);
-  const down2 = travelDur(distRise, tm.down, CONFIG.STRIKE_DOWN_MIN || 0.07, 0.16);
+  const up2 = travelDur(distRise, tm.upflick, CONFIG.WINDUP_UP_MIN || 0.10, 0.22);
+  const down2 = downTravelDur(distRise, tm.down, CONFIG.STRIKE_DOWN_MIN || 5 / 60, 0.14);
   const w = windupLeadClamp(tb, down2, tm.hold || 0, up2, tHitEnd);
   if (t < w.tUpStart) {
     return { lift: 0, idle: 0, base: mid, drift: zero };

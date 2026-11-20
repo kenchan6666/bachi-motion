@@ -123,8 +123,8 @@ const CONFIG = {
   //   band    = 可选的腕带矩形（图片像素坐标 {x,y,w,h}），null = 腕带画在胶带上
   HAND_IMG: {   // 只有手的 PNG（棒子位置留空）。pinch = 拇指和食指之间缝隙在捏点那一行的中心（图片像素）= 鼓棒旋转轴；
                 //   锚点.txt 给的是缝隙最下端（胶带在手里的最下端），棒尾比它再往下一截，藏在手背下面
-    R: { roll:   { href: "assets/右手_滚奏捏棒.png", w: 435, h: 1142, pinch: [164, 672], axisDeg: -102.4, scale: 0.48, band: null },
-         single: { href: "assets/右手_单击握拳.png", w: 421, h: 1139, pinch: [142, 662], axisDeg: -100.6, scale: 0.48, band: null } },
+    R: { roll:   { href: "assets/右手_滚奏捏棒.png", w: 835, h: 1942, pinch: [164, 672], axisDeg: -102.4, scale: 0.48, band: null },
+         single: { href: "assets/右手_单击握拳.png", w: 849, h: 1939, pinch: [142, 662], axisDeg: -100.6, scale: 0.48, band: null } },
     L: { roll:   { href: "assets/左手_滚奏捏棒.png", w: 435, h: 1142, pinch: [270, 672], axisDeg: -77.6, scale: 0.48, band: null },
          single: { href: "assets/左手_单击握拳.png", w: 421, h: 1139, pinch: [278, 662], axisDeg: -79.4, scale: 0.48, band: null } },
   },

@@ -9,7 +9,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check import check_data, DT, REST_AFTER, DENSE_DT  # noqa: E402
 
-IDLE_Y = 218.0
+# 待机棒尖 y：锁定的咚落点 314 减去 IDLE_HOVER_PX 40。
+# 只用于自制 dump；check.py 仍从这段 dump 自己量待机高度，门槛不改。
+IDLE_Y = 274.0
 HIGH_Y = 140.0
 
 

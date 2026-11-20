@@ -8,8 +8,8 @@ const COL = {
   skin: "#FFE3CC", tint: "#FFC9B8",      // 指尖/指节一点点浅粉（α0.4）
   shaft: "#F3E6C8", tape: "#B9A6E8", tapeLine: "#8F7BC8",   // 鼓棒 v2.3：米白棒身、浅紫缠胶带、黑环
   don: "#E8503A", ka: "#4FE0E6", gold: "#F5C542",
-  R: "#5FC99A",                        // 右手（正手）袖口 + 残影：薄荷绿
-  L: "#F49AC1",                        // 左手（逆手）袖口 + 残影：樱花粉（v2.3 起，避开浅紫胶带）
+  R: "#5FC99A",                        // 右手（正手）袖口 + 握把粉/绿标记
+  L: "#F49AC1",                        // 左手（逆手）袖口 + 握把粉/绿标记（v2.3 起，避开浅紫胶带）
   face: "#F6EEDC", studBand: "#E9C48A", body: "#C8342A", bodyDark: "#9E2620", stud: "#2B2320",
   noteDon: "#E8503A", noteKa: "#3FB6E8",   // 谱面音符颜色（和谱面图一致）
 };
@@ -49,7 +49,8 @@ const CONFIG = {
   LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
   KA_STICK_OUT_DEG: 10, // 咔棒近竖直，只外倾一点（不再靠长棒斜着从画面下方够鼓边）
   KA_GRIP_Y: 536,       // 咔接触时握点高度：至少抬到鼓下缘（bodyBottom=548）附近
-  KA_TIP_OUT_PX: 14,    // 咔棒尖压在 1 点钟鼓边黑线上，只露一小截棒头（不戳到 12 点半）
+  KA_TIP_OUT_PX: 14,    // 咔接触点相对 H.ka 沿棒伸出的距离：校准后接触点落在 1/11 点钟鼓边黑线上
+  KA_TIP_PAST_RATIO: 0.20, // 棒尖再沿棒伸出接触点，长度为可见棒身（黑环→接触点）的约 1/5；冲击光仍用接触点
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
   WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
   WINDUP: 0.066,        // 兼容旧调用：等于 STRIKE_UPFLICK（快速上挑，不是慢抬蓄力）
@@ -84,9 +85,11 @@ const CONFIG = {
   LIFT_SCALE_16: 1 / 3, // 16 分幅度约单击的 1/3（规格）
   LIFT_SCALE_MIN: 0.18,
   BLUR_DT: 0.04,        // 32 分及更密（两下间隔 < 40ms）且 rate==1 → 汐月扇形残影；16 分不合并
-  ROLL_TRAIL_COUNT: 6,  // 滚奏残影比单击更长、更淡（刷刷刷）
-  ROLL_TRAIL_ALPHA: [0.20, 0.15, 0.11, 0.08, 0.05, 0.03],
-  ROLL_TRAIL_ARC_SPAN: 0.18,
+  ROLL_TRAIL_COUNT: 4,  // 滚奏残影缩短，只留棒尖附近一小截
+  ROLL_TRAIL_ALPHA: [0.48, 0.34, 0.22, 0.12],
+  ROLL_TRAIL_ARC_SPAN: 0.18, // 内刷/外刷残影弧的回溯时长；符号由 kd 内收 / dk 外甩决定
+  TRAIL_TIP_LEN: 52,    // 拖影只画棒尖往回这一段（不画握把/手臂）
+  TRAIL_COLOR: "#FFFFFF",
   // 画师手图（默认 hands=img）。按文件名加载（相对路径，file:// 也能显示），换图只要同名覆盖即可。
   //   anchor  = 图里的捏点像素坐标（鼓棒旋转轴，棒子从拇指下面穿过）—— 锚点.txt 给的是拇指尖，这里微调到棒子中线上
   //   axisDeg = 图里「棒尖方向」的角度（屏幕坐标，-90 = 正上）；画的时候把它转到当前鼓棒的方向
@@ -106,7 +109,7 @@ const CONFIG = {
   SECOND_HIT: 0.8,                          // 滚奏第二下亮度/光宽 80%
   REBOUND_ARC_FADE: 0.15,
   TRAIL_STEP: 1 / 60,   // 单击残影每 1 帧（60fps）留 1 层
-  TRAIL_ALPHA: [0.40, 0.25, 0.12],
+  TRAIL_ALPHA: [0.48, 0.30, 0.16],  // 白色短拖影；浅灰底上纯 35% 几乎看不见，略提到约 50% 并加柔光
   TRAIL_ARC_SPAN: 0.1,  // 单击方向弧线回溯 0.1s
   LABEL_DUR: 0.22,
   LEAD_IN: 0.7, TAIL_TIME: 0.5,
@@ -175,8 +178,29 @@ function normalizeEvents(data) {
   })).sort((a, b) => a.t - b.t || (a.hand === "R" ? -1 : 1));
 }
 
+/** 滚奏一对的四类：读两颗音的 face 自判，不加新 JSON 标记。 */
+function rollPairType(face0, face1) {
+  const a = face0 === "ka" ? "k" : "d";
+  const b = face1 === "ka" ? "k" : "d";
+  return a + b; // dd 滚红 / kk 滚蓝 / kd 内刷 / dk 外刷
+}
+function rollTypeRoute(type) {
+  if (type === "kd") return "inner";
+  if (type === "dk") return "outer";
+  return "straight";
+}
+/** 滚奏落点：咚用鼓面中心 H.don，咔用鼓边黑线上的接触点（不是伸出鼓外的棒尖）。 */
+function rollLanding(hand, face) {
+  if (face === "ka") {
+    const p = singleContactPose(hand, "ka");
+    return p.contact || p.tip;
+  }
+  return GEOM.hands[hand].don;
+}
+
 /**
  * 每只手的落点序列。滚奏：同手相邻两个 roll 音（间隔 ≤ ROLL_PAIR_GAP）= 一次落下打两下。
+ * 成对时按两音 face 自判 dd/kk/kd/dk，并写入 rollType / route（内收/外甩）。
  * 返回 { R:[...], L:[...], second:Set(事件 i) } —— second 是滚奏第二下（效果缩到 80%）。
  */
 function buildHandTracks(events, routeOverride = "data") {
@@ -187,15 +211,24 @@ function buildHandTracks(events, routeOverride = "data") {
     for (let k = 0; k < evs.length; k++) {
       const e = evs[k], next = evs[k + 1];
       const route = routeOverride === "data" ? e.route : routeOverride;
-      const mk = (ev, idx) => ({ t: ev.t, ev, face: ev.face, grip: ev.grip, route,
-                                 target: GEOM.hands[hand][ev.face], stroke: strokeId, idxInStroke: idx });
+      const mk = (ev, idx, rt, extra) => ({
+        t: ev.t, ev, face: ev.face, grip: ev.grip, route: rt,
+        target: ev.grip === "roll" ? rollLanding(hand, ev.face) : GEOM.hands[hand][ev.face],
+        stroke: strokeId, idxInStroke: idx, ...(extra || {}),
+      });
       if (e.grip === "roll" && next && next.grip === "roll" && next.t - e.t <= CONFIG.ROLL_PAIR_GAP) {
-        const c0 = mk(e, 0), c1 = mk(next, 1);
+        const type = rollPairType(e.face, next.face);
+        const pairRoute = routeOverride === "data" ? rollTypeRoute(type) : routeOverride;
+        const c0 = mk(e, 0, pairRoute, { rollType: type });
+        const c1 = mk(next, 1, pairRoute, { rollType: type });
         c0.pairDt = c1.pairDt = next.t - e.t;      // 滚奏两下的间隔（晃动用）
         tracks[hand].push(c0, c1);
         tracks.second.add(next.i);
         k++;
-      } else tracks[hand].push(mk(e, 0));
+      } else {
+        const loneType = e.grip === "roll" ? rollPairType(e.face, e.face) : undefined;
+        tracks[hand].push(mk(e, 0, route, loneType ? { rollType: loneType } : {}));
+      }
       strokeId++;
     }
     const arr = tracks[hand];
@@ -270,9 +303,10 @@ function unshakenToShakenLocal(p, shake) {
   };
 }
 
-/** 咔冲击特效中心：棒尖压在鼓边黑线上的接触点（不是鼓面内的 H.ka）。 */
+/** 咔冲击特效中心：鼓边黑线上的接触点（不是伸出鼓外的棒尖，也不是鼓面内的 H.ka）。 */
 function kaImpactPt(hand, shake) {
-  return unshakenToShakenLocal(singleContactPose(hand, "ka").tip, shake);
+  const pose = singleContactPose(hand, "ka");
+  return unshakenToShakenLocal(pose.contact || pose.tip, shake);
 }
 
 function sceneCardClipRect() {
@@ -288,7 +322,7 @@ function targetFace(hand, base) {
   return V.len(V.sub(base, H.ka)) < V.len(V.sub(base, H.don)) ? "ka" : "don";
 }
 
-/** 单击落点姿势（未抬、未后倒）。咚：原来的焊死持棒。咔：棒几乎竖直、往外倒 KA_STICK_OUT_DEG，棒头伸出鼓边，手连棒一起外移。 */
+/** 单击落点姿势（未抬、未后倒）。咚：原来的焊死持棒。咔：棒几乎竖直、往外倒 KA_STICK_OUT_DEG，接触点在鼓边，棒头再伸出鼓外，手连棒一起外移。 */
 function singleContactPose(hand, face) {
   const H = GEOM.hands[hand];
   const L = stickLen(hand);
@@ -298,18 +332,24 @@ function singleContactPose(hand, face) {
     const dirBack = V.len(back) > 1 ? V.norm(back) : { x: 0, y: 1 };
     const grip = V.add(tip, V.mul(dirBack, L));
     const d = V.sub(tip, grip);
-    return { tip, grip, deg: Math.atan2(d.y, d.x) * 180 / Math.PI };
+    return { tip, grip, deg: Math.atan2(d.y, d.x) * 180 / Math.PI, contact: tip };
   }
-  const C = H.ka; // 接触点在鼓边黑线上（kaAng 约 1 / 11 点钟）
-  // 手抬到鼓下缘高度，棒短而近竖直（只外倾一点）。棒尖仍贴 1/11 点钟黑线。
+  const C0 = H.ka; // H.ka 在椭圆上；再沿棒走 KA_TIP_OUT_PX，接触点落在已校准的 1/11 点钟鼓边黑线上
+  // 手抬到鼓下缘高度，棒短而近竖直（只外倾一点）。
   // 不改全局 don 棒长：咔这一击的握点离棒尖更近，整只手停在鼓右侧，不再从画面下方用长棒斜着够边。
   const deg = -90 - CONFIG.KA_STICK_OUT_DEG * H.out;
   const r = deg * Math.PI / 180;
   const dir = { x: Math.cos(r), y: Math.sin(r) };
-  const tip = V.add(C, V.mul(dir, CONFIG.KA_TIP_OUT_PX));
-  const kaLen = Math.max(220, (CONFIG.KA_GRIP_Y - tip.y) / Math.max(0.25, -dir.y));
-  const grip = V.sub(tip, V.mul(dir, kaLen));
-  return { tip, grip, deg };
+  const contact = V.add(C0, V.mul(dir, CONFIG.KA_TIP_OUT_PX));
+  // 握点高度仍按接触点算，手的位置不变。棒尖再沿棒伸出：约可见棒身（黑环→接触点）的 1/5，
+  // 让接触点在离棒尖约 1/5 棒身处、棒头露出鼓边外，冲击光仍落在接触点。
+  const lenToContact = Math.max(220, (CONFIG.KA_GRIP_Y - contact.y) / Math.max(0.25, -dir.y));
+  const ringFromGrip = CONFIG.TAPE_LEN - CONFIG.STUB;
+  const shaftToContact = Math.max(80, lenToContact - ringFromGrip);
+  const past = shaftToContact * (CONFIG.KA_TIP_PAST_RATIO || 0);
+  const tip = V.add(contact, V.mul(dir, past));
+  const grip = V.sub(contact, V.mul(dir, lenToContact));
+  return { tip, grip, deg, contact };
 }
 
 /** 预备/闲置：两棒回到鼓心咚位，倒V悬在鼓面上方。shiftOut=1 时棒尖往自己一侧微偏（对方打咔用）。 */
@@ -408,16 +448,15 @@ function wobbleAfter(contact, t) {
   return amp / 0.77 * Math.sin(2 * Math.PI * s) * (1 - s);
 }
 
-/** 内刷/外刷：棒尖在两个落点之间往鼓心弯（inner）或往外甩（outer） */
+/** 内刷/外刷：落点之间的中段沿鼓的径向往鼓心收（inner）或往鼓外甩（outer）。 */
 function routeBend(pa, pb, route, k) {
   if (route === "straight" || k <= 0) return { x: 0, y: 0 };
-  let chord = V.sub(pb, pa);
-  if (V.len(chord) < 1) chord = { x: 0, y: -1 };          // 同一落点：抬起方向（往上）
-  const perp = V.norm({ x: -chord.y, y: chord.x });
   const mid = V.lerp(pa, pb, 0.5);
   const C = { x: GEOM.face.cx, y: GEOM.face.cy };
-  const towardC = V.dot(perp, V.sub(C, mid)) > 0 ? 1 : -1;
-  return V.mul(perp, (route === "inner" ? towardC : -towardC) * CONFIG.BEND_PX * k);
+  const toC = V.sub(C, mid);
+  const radial = V.len(toC) > 1 ? V.norm(toC) : { x: 0, y: 1 };
+  const sign = route === "inner" ? 1 : -1;
+  return V.mul(radial, sign * CONFIG.BEND_PX * k);
 }
 
 /**
@@ -541,12 +580,15 @@ function singleBetween(t, a, b, scale) {
 }
 
 /** 滚奏接触姿势：基准在咚落点（鼓心V不交叉），第二下 press=1 时整手再往下补压一点（仍焊死、不穿鼓）。 */
-function rollContactPose(hand, press) {
-  const base = singleContactPose(hand, "don");
-  if (!press || press <= 1e-6) return base;
+/** 滚奏接触姿势：保持咚的刚体棒长，把整组平移到 tipTarget（dd 鼓心 / kk 鼓边 / 刷的当前插值点）。 */
+function rollContactPose(hand, tipTarget, press) {
   const L = stickLen(hand);
-  const tip = { x: base.tip.x, y: base.tip.y + 8 * press };
-  const grip = { x: base.grip.x, y: base.grip.y + CONFIG.ROLL_SECOND_PRESS_PX * press };
+  const base = singleContactPose(hand, "don");
+  const src = tipTarget || base.tip;
+  const shift = V.sub(src, base.tip);
+  const p = press || 0;
+  const tip = { x: src.x, y: src.y + 8 * p };
+  const grip = { x: base.grip.x + shift.x, y: base.grip.y + shift.y + CONFIG.ROLL_SECOND_PRESS_PX * p };
   return weldSnap(tip, grip, L);
 }
 
@@ -679,6 +721,12 @@ function poseAt(hand, track, t, opts = {}) {
     lift = ph.lift; base = ph.base; grip = ph.grip; buzz = ph.buzz;
     if (grip === "roll") {
       rollState = { lift: ph.lift, idle: ph.idle, press: ph.press };
+      // 一对内部：kd 内收 / dk 外甩走 routeBend；dd/kk 为 straight，残影无横向偏移
+      if (a && b && a.stroke === b.stroke && isRollContact(a) && isRollContact(b)) {
+        const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
+        const route = a.route || rollTypeRoute(a.rollType);
+        bend = routeBend(a.target, b.target, route, Math.sin(Math.PI * u));
+      }
     } else {
       const face = b ? targetFace(hand, ph.base) : "don";
       singleState = { idle: ph.idle, face, scale: ph.scale || 1, idleShift: kaIdleShift(hand, t) };
@@ -731,14 +779,17 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
   }
   // 滚奏全程焊死：手与棒一体，不再绕捏点单独转 12°。
   // 下→小弹→再下(第二下补压)→大抬回，全按刚体焊死平移+微绕手腕转动，handDeg === stickDeg。
+  // 落点跟 base（一对两音 face 对应的鼓心/鼓边）；bend 给 kd 内收 / dk 外甩弧。
   const L = stickLen(hand);
   const rLift = rollState && isFinite(+rollState.lift) ? clamp01(+rollState.lift) : clamp01(lift);
   const press = rollState && isFinite(+rollState.press) ? clamp01(+rollState.press) : 0;
   const idleAmt = rollState && isFinite(+rollState.idle) ? clamp01(+rollState.idle) : 0;
-  const hit = rollContactPose(hand, press);
+  const hit = rollContactPose(hand, base, press);
   const lv = { x: H.out * CONFIG.ROLL_LIFT_OUT_PX, y: -CONFIG.ROLL_LIFT_PX };
-  const raised = weldSnap(V.add(hit.tip, lv), V.add(hit.grip, lv), L);
-  let pose = lerpPose(hit, raised, rLift, L);
+  const bnm = bend || { x: 0, y: 0 };
+  const raised = weldSnap(V.add(V.add(hit.tip, lv), bnm), V.add(V.add(hit.grip, lv), bnm), L);
+  const contact = weldSnap(V.add(hit.tip, bnm), V.add(hit.grip, bnm), L);
+  let pose = lerpPose(contact, raised, rLift, L);
   pose = applyWristTilt(pose, rLift * CONFIG.ROLL_WRIST_TILT_SCALE);
   if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, 0), idleAmt, L);
   return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift: rLift };
@@ -1154,22 +1205,50 @@ function handSVG(handSide, pose, ghost = null) {
   return s + `</g>`;
 }
 
-/* ---------- 残影：3 层剪影 + 方向弧线 + 箭头尖 ---------- */
+/* ---------- 残影：棒尖附近白色短拖影；内刷/外刷再叠一条不过棒尖的方向弧 ---------- */
+/** 只画棒尖往回 TRAIL_TIP_LEN 的一小截，不画握把、手臂、粉绿胶带。 */
+function tipTrailSilhouette(pose, fill) {
+  const g = stickGeom(pose);
+  const len = CONFIG.TRAIL_TIP_LEN || 52;
+  const half = Math.min(g.sw / 2, 8) + 2;
+  const r = 6;
+  const start = V.sub(g.tip, V.mul(g.dir, len));
+  const near = V.sub(g.tip, V.mul(g.dir, 4));
+  const a = V.add(start, V.mul(g.n, half)), b = V.sub(start, V.mul(g.n, half));
+  const c = V.add(near, V.mul(g.n, r)), d = V.sub(near, V.mul(g.n, r));
+  return `<path d="M${f1(a.x)},${f1(a.y)} L${f1(c.x)},${f1(c.y)} A${f1(r)},${f1(r)} 0 0 0 ${f1(d.x)},${f1(d.y)} L${f1(b.x)},${f1(b.y)} Z" fill="${fill}" stroke="${fill}" stroke-width="1.6" filter="url(#softGlow)"/>`;
+}
+
 function renderTrail(hand, track, now) {
-  const col = COL[hand];
+  const col = CONFIG.TRAIL_COLOR || "#FFFFFF";
   const p0 = poseAt(hand, track, now);
   const rolling = p0.gripType === "roll";
-  const count = rolling ? CONFIG.ROLL_TRAIL_COUNT : 3;
+  const count = rolling ? CONFIG.ROLL_TRAIL_COUNT : CONFIG.TRAIL_ALPHA.length;
   const alphas = rolling ? CONFIG.ROLL_TRAIL_ALPHA : CONFIG.TRAIL_ALPHA;
-  const pN = poseAt(hand, track, now - count * CONFIG.TRAIL_STEP);
+  const seg = findSegment(track, now);
+  const hit = seg.a || seg.b;
+  const type = hit && hit.rollType;
+  // 滚奏残影回溯一对之内，避免把上一对的大抬回画进弧里；内刷/外甩才能看出往鼓心/鼓外的方向。
+  const pairSpan = hit && hit.pairDt ? hit.pairDt * 1.25 : CONFIG.ROLL_TRAIL_ARC_SPAN;
+  const span = rolling ? Math.max(count * CONFIG.TRAIL_STEP, Math.min(CONFIG.ROLL_TRAIL_ARC_SPAN, pairSpan)) : count * CONFIG.TRAIL_STEP;
+  const pN = poseAt(hand, track, now - span);
   if (V.len(V.sub(p0.tip, pN.tip)) < (rolling ? 2 : 3)) return "";          // 几乎没动就不画（停手时没有残影）
   let s = "";
-  for (let k = count; k >= 1; k--) {                              // 越早越淡，外层混白
-    const p = poseAt(hand, track, now - k * CONFIG.TRAIL_STEP);
-    const fill = mixWhite(col, 0.15 * Math.min(k - 1, 2));
-    s += `<g opacity="${alphas[k - 1]}">${stickSilhouette(p, fill)}${state.hands === "none" ? "" : state.hands === "img" ? "" : handSVG(hand, p, fill)}</g>`;
+  for (let k = count; k >= 1; k--) {                              // 越早越淡；只留棒尖短截
+    const p = poseAt(hand, track, now - k * span / count);
+    s += `<g opacity="${alphas[k - 1]}">${tipTrailSilhouette(p, col)}</g>`;
   }
-  // 只保留拖影带（棒/手剪影）。不再画棒尖往外的彩色细直线+箭头：那条线会一直伸到画面外，像棒子变长或打穿了鼓。
+  // kd 内收 / dk 外甩：用一对时长（ROLL_TRAIL_ARC_SPAN 为上限）画白色弧，终点就是当前棒尖，不向外伸箭头。
+  if (type === "kd" || type === "dk") {
+    const A = poseAt(hand, track, now - span, { noWobble: true }).tip;
+    const M = poseAt(hand, track, now - span / 2, { noWobble: true }).tip;
+    const B = poseAt(hand, track, now, { noWobble: true }).tip;
+    if (V.len(V.sub(B, A)) + V.len(V.sub(M, A)) >= 8) {
+      const Q = V.sub(V.mul(M, 2), V.mul(V.add(A, B), 0.5));
+      const d = `M${f1(A.x)},${f1(A.y)} Q${f1(Q.x)},${f1(Q.y)} ${f1(B.x)},${f1(B.y)}`;
+      s += `<path d="${d}" fill="none" stroke="${col}" stroke-width="6" stroke-linecap="round" opacity=".35"/>`;
+    }
+  }
   return s;
 }
 
@@ -1324,7 +1403,7 @@ function renderRollFx(hand, pose, track, now, layer) {
       const L = V.len(V.sub(pose.tip, P)), a0 = pose.stickDeg - CONFIG.ROLL_ROCK_DEG, a1 = pose.stickDeg + CONFIG.ROLL_ROCK_DEG;
       const pt = (deg, r) => V.add(P, { x: Math.cos(deg * Math.PI / 180) * r, y: Math.sin(deg * Math.PI / 180) * r });
       const A = pt(a0, L * 0.35), B = pt(a0, L), C = pt(a1, L), D = pt(a1, L * 0.35);
-      s += `<path d="M${f1(A.x)},${f1(A.y)} L${f1(B.x)},${f1(B.y)} L${f1(C.x)},${f1(C.y)} L${f1(D.x)},${f1(D.y)} Z" fill="${col}" opacity=".28" filter="url(#softGlow)"/>`;
+      s += `<path d="M${f1(A.x)},${f1(A.y)} L${f1(B.x)},${f1(B.y)} L${f1(C.x)},${f1(C.y)} L${f1(D.x)},${f1(D.y)} Z" fill="${CONFIG.TRAIL_COLOR || "#FFFFFF"}" opacity=".28" filter="url(#softGlow)"/>`;
     }
     return s;
   }
@@ -1482,7 +1561,7 @@ function startEngine(data, meta) {
   window.taikoAnim = {
     state, seek, setPlaying, setRate, setData, startEngine,
     renderAt, signalBachiDone, poseAt, buildHandTracks, stickGeom, checkSingleWeld,
-    singleContactPose, singleIdlePose, CONFIG, GEOM,
+    singleContactPose, singleIdlePose, rollPairType, rollLanding, rollTypeRoute, CONFIG, GEOM,
     raw: data, meta: info,
   };
   window.renderAt = renderAt;

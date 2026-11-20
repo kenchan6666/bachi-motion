@@ -18,11 +18,18 @@ const OUT = 3;   // 描边宽度
 const CONFIG = {
   RISE: 0.10,           // 兼容旧调用：等于 STRIKE_DOWN_MAX（稀疏下砸）
   FULL_LIFT: 1,
-  ROLL_REBOUND: 1 / 3,  // 滚奏手腕点头幅度 = 单击抬起的 1/3（ROLL_BOB_SCALE）
+  ROLL_REBOUND: 1 / 3,  // 保留兼容字段
   ROLL_PAIR_GAP: 0.12,  // 同手相邻两个滚奏音 ≤ 这个间隔 = 一对 (RR)/(LL)
-  ROLL_ROCK_DEG: 12,    // 棒绕捏点回弹的角度（10–15°；不焊死）
-  ROLL_BOB_SCALE: 1 / 3, // 手腕上下点头 = 单击 LIFT_PX 的 1/3
-  ROLL_RISE: 0.06,      // 一对结束后抬到手停、下一对前落下的用时
+  ROLL_ROCK_DEG: 0,     // 滚奏全程焊死：棒不再绕捏点单独转 12°（保留键名供模糊计算兼容）
+  ROLL_BOB_SCALE: 1,    // 滚奏改为整只手带棒大抬回（不再缩成 1/3 点头）
+  ROLL_RISE: 0.05,      // 滚奏对间下砸参考时长（BPM300 16分=50ms）
+  ROLL_DOWN_MAX: 0.075, // 滚奏对间从最高点加速下砸的最大用时
+  ROLL_BOUNCE_RATIO: 0.32, // 一对内部「小弹」高度占滚奏大抬回的比例
+  ROLL_BOUNCE_PEAK_U: 0.42,// 小弹顶点在一对间隔里的归一化时刻（碰完立刻弹起再加速压下）
+  ROLL_SECOND_PRESS_PX: 12,// 第二下手再往下补压的像素（保持焊死、不穿鼓）
+  ROLL_LIFT_OUT_PX: 8,  // 滚奏大抬回时略微外带
+  ROLL_WRIST_TILT_SCALE: 0.7, // 滚奏大抬回时整手+棒微后倒比例（焊死）
+  ROLL_END_GRIP_KEEP: 0.04,   // 滚奏最后一下结束后多久切回单击握拳手图
   BEND_PX: 50,          // 内刷/外刷弧线弯曲幅度
   WOBBLE_DEG: 4,        // 保留：32 分扇形模糊的张角参考
   WOBBLE_DEG_SHORT: 4,
@@ -36,27 +43,34 @@ const CONFIG = {
   NOD_PX: 1.5,          // 旧滚奏点头（像素）；新滚奏手腕用 LIFT_PX * ROLL_BOB_SCALE
   SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
-  LIFT_PX: 95,          // 咚全幅度（≥8 分）抬起高度；16 分及更密仍用 LIFT_SCALE_* 去乘
-  KA_LIFT_PX: 48,       // 咔在落点之上的过冲（略加高；太大棒尖会插进谱面轨道）
-  ROLL_LIFT_PX: 70,     // 滚奏手腕点头仍按 70px 的 1/3 算，不随单击 LIFT_PX 变
+  LIFT_PX: 110,         // 咚全幅度（≥8 分）抬起高度（拉大最高点→打中落差）
+  KA_LIFT_PX: 96,       // 咔举起上抬高度：整只手搬到鼓右侧上方高度
+  ROLL_LIFT_PX: 64,     // 滚奏一对结束后的整手大抬回高度（清晰一高一低、比单音紧凑）
   LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
-  KA_STICK_OUT_DEG: 14, // 咔棒近竖直，往外倒约 13–15°（手在外侧，宽站位）
-  KA_TIP_OUT_PX: 42,    // 咔棒头伸出鼓边黑线外（接触点仍在黑线上；略加长，打中姿势稍高一点）
+  KA_STICK_OUT_DEG: 21, // 咔手搬到鼓右侧外，棒从右外侧斜向 1 点钟黑线（横移一眼看出）
+  KA_TIP_OUT_PX: 14,    // 咔棒尖压在 1 点钟鼓边黑线上，只露一小截棒头（不戳到 12 点半）
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
   WRIST_PX: 100,        // 握点沿棒往下到手腕的距离
   WINDUP: 0.066,        // 兼容旧调用：等于 STRIKE_UPFLICK（快速上挑，不是慢抬蓄力）
-  // 打击节奏「打下去」（秒）。稀疏单击用看得见的时值；16 分及更密去掉上挑、按间隔压缩。
-  // 规格：单音 上挑 66ms → 加速下砸 66–100ms → 击中 66ms（发光不停顿）→ 回弹 133ms；16 分 无上挑、幅度约 1/3。
+  // 打击节奏「打下去」（秒）。越砸越快，碰到那一帧不停顿、立刻反向回弹（高光留在接触点）。
   STRIKE_UPFLICK: 0.066,
   STRIKE_DOWN_MIN: 0.066,
   STRIKE_DOWN_MAX: 0.100,
-  STRIKE_HIT: 0.066,
-  STRIKE_HIT_DENSE: 0.033,
+  STRIKE_HIT: 0.0,      // 接触瞬间零停顿，下一帧立刻反向弹起（发光/波纹由 FX 计时负责）
+  STRIKE_HIT_DENSE: 0.0,
   STRIKE_REBOUND: 0.133,
   STRIKE_REBOUND_DENSE: 0.066,
-  KA_LIFT_OUT_PX: 44,   // 咔举起时整只手再往外送：斜上外侧平移要一眼看得出。落点仍用已定的 14° / 42px / 1 点钟
-  IDLE_HOVER_PX: 36,    // 预备悬高一档：约 0.3 个纵向鼓半径（1/4–1/3 鼓径）
-  IDLE_V_DEG: 20,       // 倒V：每根棒相对竖直往内倾的角度（两棒夹角约 40°；参考视频是近竖直的倒V，不是45°大撇）
+  HIT_KICK_DUR: 0.042,  // 击中后力道传回：手带棒整体微回顿的窗口（t>hitTime，不破坏接触帧贴面）
+  HIT_KICK_BACK_PX: 4,  // 回顿沿棒退回像素
+  HIT_KICK_LIFT_PX: 8,  // 回顿顺势弹出像素
+  DRUM_SHAKE_DUR: 0.028,// 鼓轻震只在击中那一帧出现，不延到回弹帧
+  DRUM_SHAKE_SCALE: 0.020, // 接触帧鼓轻震约 2%（scale = 0.980）
+  DRUM_SHAKE_DY: 2.2,   // 接触帧鼓皮下沉像素
+  IMPACT_DUR: 0.028,    // 击中光+波纹只在击中那一帧亮起（绝不延到回弹帧）
+  IMPACT_ROLL_DUR: 0.020,
+  KA_LIFT_OUT_PX: 44,   // 咔举起时整只手往斜上外侧送
+  IDLE_HOVER_PX: 56,    // 闲手/预备棒尖明显悬在鼓面上方（远离落点 y=258，不压在鼓面上像也在打）
+  IDLE_V_DEG: 16,       // 倒V：近平行微收（两棒不交叉）
   IDLE_KA_SHIFT_RX: 0.15, // 对方打咔时，闲置棒尖往自己一侧偏 0.15 个面半径，避免两棒交叉
   IDLE_SETTLE: 0.22,    // 同手间隔够宽时，中间回到鼓心倒V；实际是否回预备由 strikeFit 按相位时值判断
   SCENE_SCALE: 0.95,    // 鼓+手整组缩小，咔高举时棒尖不容易顶到卡片上沿
@@ -85,8 +99,8 @@ const CONFIG = {
          single: { href: "assets/左手_单击握拳.png", w: 421, h: 1139, pinch: [278, 662], axisDeg: -79.4, scale: 0.48, band: null } },
   },
   PIVOT_Y: { img: 700, vector: 806, none: 806 },   // 捏点高度：图片手露到手腕；矢量手裁到指关节
-  DON_RISE: 0.05, DON_FALL: 0.2,            // 咚：半边鼓面 0.05s 亮起，0.2s 退回
-  KA_DUR: 0.25, KA_W: 14, KA_SPAN: 60,      // 咔：鼓边青光，紧贴落点同侧近端鼓边（约 60°，不跨过顶点到对侧）
+  DON_RISE: 0.025, DON_FALL: 0.2,           // 咚：接触帧即亮起(0.75→1.0)，0.2s 退回
+  KA_DUR: 0.032, KA_W: 14, KA_SPAN: 60,     // 咔：鼓边青光只留在击中帧附近（紧贴 1/11 点钟外侧）
   GOLD_DUR: 0.35, GOLD_W: 16, GOLD_KA_SPAN: 68,  // 插音金光；咔插音弧略宽于青光，仍留在落点一侧
   SECOND_HIT: 0.8,                          // 滚奏第二下亮度/光宽 80%
   REBOUND_ARC_FADE: 0.15,
@@ -112,8 +126,8 @@ const GEOM = {
     // kaAng：咔在近端鼓边的位置（0=右，-90=上）。右手约 1 点钟 -55°，左手镜像 11 点钟 235°。
     // 闲置/预备：棒尖在鼓心咚位上方悬停，两棒倒V；idle 坐标已不用（姿势由 singleIdlePose 算）。
     // don 是落点；donLen 只用来定棒长（跟手焊死用），避免把落点上提时把棒拉长。
-    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 258 }, donLen: { x: 350, y: 272 }, kaAng: 235, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
-    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 258 }, donLen: { x: 450, y: 272 }, kaAng: -55, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
+    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 258 }, donLen: { x: 350, y: 272 }, kaAng: 226, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
+    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 258 }, donLen: { x: 450, y: 272 }, kaAng: -46, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
   },
 };
 // 咔接触点：鼓边黑线上（grow=0）。棒头再沿棒伸出 KA_TIP_OUT_PX。
@@ -219,9 +233,12 @@ function liftVec(hand, face) {
   return { x: GEOM.hands[hand].out * CONFIG.LIFT_OUT_PX, y: -CONFIG.LIFT_PX };
 }
 
-function sceneTransform() {
+function sceneTransform(shake) {
   const F = GEOM.face, s = CONFIG.SCENE_SCALE;
-  return `translate(${F.cx},${F.cy}) scale(${s}) translate(${-F.cx},${-F.cy})`;
+  if (!shake || (Math.abs(shake.scale - 1) < 1e-5 && Math.abs(shake.dx) < 1e-3 && Math.abs(shake.dy) < 1e-3)) {
+    return `translate(${F.cx},${F.cy}) scale(${s}) translate(${-F.cx},${-F.cy})`;
+  }
+  return `translate(${f1(F.cx + shake.dx)},${f1(F.cy + shake.dy)}) scale(${(s * shake.scale).toFixed(4)}) translate(${-F.cx},${-F.cy})`;
 }
 
 /** 屏幕坐标 → 场景缩放后的本地坐标（卡片裁剪要对齐未缩放的画框，上沿再放宽）。 */
@@ -389,8 +406,8 @@ function rollBobBetween(t, ta, tb) {
 }
 
 function easeInOut(s) { const x = clamp01(s); return 1 - (1 - x) * (1 - x); }
-function easeInQuad(s) { const x = clamp01(s); return x * x; }
-function easeOutQuad(s) { const x = clamp01(s); return 1 - (1 - x) * (1 - x); }
+function easeInQuad(s) { const x = clamp01(s); return Math.pow(x, 3.0); }  // 越砸越快，最后1-2帧加速最明显
+function easeOutQuad(s) { const x = clamp01(s); return 1 - Math.pow(1 - x, 2.2); } // 碰到立刻高速弹回
 
 /** 间隔 → 0（≤16 分）.. 1（≥8 分）。和 densityScale 同一条分界，连续。 */
 function strikeSparseU(dt) {
@@ -488,51 +505,147 @@ function singleBetween(t, a, b, scale) {
   return { lift: 1 - easeInQuad(s), idle: 0, base: mid };
 }
 
+/** 滚奏接触姿势：基准在咚落点（鼓心V不交叉），第二下 press=1 时整手再往下补压一点（仍焊死、不穿鼓）。 */
+function rollContactPose(hand, press) {
+  const base = singleContactPose(hand, "don");
+  if (!press || press <= 1e-6) return base;
+  const L = stickLen(hand);
+  const tip = { x: base.tip.x, y: base.tip.y + 8 * press };
+  const grip = { x: base.grip.x, y: base.grip.y + CONFIG.ROLL_SECOND_PRESS_PX * press };
+  return weldSnap(tip, grip, L);
+}
+
+/** 查对侧手在 (tLo, tHi) 内最后一个滚奏击中时刻，用来让「一手最低点 = 另一手最高点开始往下」。 */
+function otherHandRollPeak(hand, tLo, tHi, fallbackDown) {
+  const other = hand === "R" ? "L" : "R";
+  const otr = state.tracks && state.tracks[other];
+  if (!otr || !otr.length) return tHi - fallbackDown;
+  let last = null;
+  for (const c of otr) {
+    if (c.grip === "roll" && c.t > tLo + 1e-4 && c.t < tHi - 1e-4) last = c;
+  }
+  if (last && tHi - last.t >= 0.015 && tHi - last.t <= (tHi - tLo) * 0.7) return last.t;
+  return tHi - fallbackDown;
+}
+
+/** 滚奏相位：一对内部「下→小弹→再下(补压)」，两对之间「大抬回→最高点→加速往下砸」。 */
+function rollPhase(hand, track, a, b, t) {
+  if (!a && isRollContact(b)) {
+    const bNext = track[1];
+    const pairDt = (bNext && bNext.stroke === b.stroke) ? (bNext.t - b.t) : CONFIG.ROLL_RISE;
+    const down = Math.min(CONFIG.ROLL_DOWN_MAX, Math.max(0.025, pairDt));
+    const peakT = otherHandRollPeak(hand, b.t - 3 * down, b.t, down);
+    const upDur = Math.max(0.08, 2 * down);
+    const upStart = peakT - upDur;
+    const grip = t >= b.t - 0.25 ? "roll" : "single";
+    if (t >= peakT) {
+      const s = clamp01((t - peakT) / Math.max(1e-6, b.t - peakT));
+      return { lift: 1 - easeInQuad(s), idle: 0, press: 0, grip, base: b.target, buzz: null };
+    }
+    if (t >= upStart) {
+      const s = clamp01((t - upStart) / upDur);
+      return { lift: 1, idle: 1 - easeOutQuad(s), press: 0, grip, base: b.target, buzz: null };
+    }
+    return { lift: 0, idle: 1, press: 0, grip, base: b.target, buzz: null };
+  }
+
+  if (a && !b && isRollContact(a)) {
+    const reboundDur = 0.12;
+    const s = clamp01((t - a.t) / reboundDur);
+    const press = (a.idxInStroke === 1 ? 1 : 0) * (1 - easeOutQuad(s));
+    const grip = t <= a.t + CONFIG.ROLL_END_GRIP_KEEP ? "roll" : "single";
+    return { lift: 0, idle: easeOutQuad(s), press, grip, base: a.target, buzz: null };
+  }
+
+  if (a.stroke === b.stroke && isRollContact(a) && isRollContact(b)) {
+    // 成对内部 (RR)/(LL)：下(a) → 立刻小弹 → 加速再下(b, 补压)
+    const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
+    const uPeak = CONFIG.ROLL_BOUNCE_PEAK_U;
+    let lift, press;
+    if (u <= uPeak) {
+      lift = CONFIG.ROLL_BOUNCE_RATIO * easeOutQuad(u / uPeak);
+      press = 0;
+    } else {
+      const s = (u - uPeak) / (1 - uPeak);
+      lift = CONFIG.ROLL_BOUNCE_RATIO * (1 - easeInQuad(s));
+      press = easeInQuad(s);
+    }
+    return { lift, idle: 0, press, grip: "roll", base: V.lerp(a.target, b.target, smooth(u)), buzz: a };
+  }
+
+  if (isRollContact(a) && isRollContact(b)) {
+    // 两对之间：大抬回 → 对侧第二下时正好到达最高点 → 加速砸向下一对第一下
+    const gap = b.t - a.t;
+    const fallbackDown = Math.min(CONFIG.ROLL_DOWN_MAX, gap / 3);
+    const peakT = otherHandRollPeak(hand, a.t, b.t, fallbackDown);
+    const u = clamp01((t - a.t) / Math.max(1e-6, gap));
+    const base = V.lerp(a.target, b.target, smooth(u));
+    if (t <= peakT) {
+      const s = clamp01((t - a.t) / Math.max(1e-6, peakT - a.t));
+      const press = (a.idxInStroke === 1 ? 1 : 0) * (1 - easeOutQuad(s));
+      return { lift: easeOutQuad(s), idle: 0, press, grip: "roll", base, buzz: null };
+    }
+    const s = clamp01((t - peakT) / Math.max(1e-6, b.t - peakT));
+    return { lift: 1 - easeInQuad(s), idle: 0, press: 0, grip: "roll", base, buzz: null };
+  }
+
+  // 滚奏 ↔ 单击交接：滚奏结束马上切回单击握拳
+  const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
+  const scale = densityScale(b.t - a.t);
+  const gap = b.t - a.t;
+  const down = Math.min(CONFIG.STRIKE_DOWN_MAX, gap * 0.45);
+  const peakT = b.t - down;
+  const lift = t <= peakT ? easeOutQuad(clamp01((t - a.t) / Math.max(1e-6, peakT - a.t)))
+                          : 1 - easeInQuad(clamp01((t - peakT) / Math.max(1e-6, down)));
+  const grip = isRollContact(a)
+    ? (t <= a.t + CONFIG.ROLL_END_GRIP_KEEP ? "roll" : "single")
+    : (u >= 0.45 ? "roll" : "single");
+  const press = (isRollContact(a) && a.idxInStroke === 1) ? (1 - easeOutQuad(clamp01(u * 2))) : 0;
+  return { lift, idle: 0, press, grip, base: V.lerp(a.target, b.target, smooth(u)), scale, buzz: null };
+}
+
+/** 击中瞬间后的刚性反冲：力道从鼓面传回，手带着棒整体往回顿一下（t>hitTime，保证接触帧零缝隙且保持焊死）。 */
+function applyHitKickback(pose, hand, track, t) {
+  let last = null, next = null;
+  for (const c of track) { if (c.t <= t) last = c; else { next = c; break; } }
+  if (!last) return pose;
+  const age = t - last.t;
+  const nextGap = next ? (next.t - last.t) : Infinity;
+  const dur = Math.min(CONFIG.HIT_KICK_DUR, nextGap * 0.52);
+  if (age <= 1e-5 || age >= dur) return pose;
+  const u = age / dur;
+  // u=0 为 0（贴鼓），紧接着 u≈0.28 冲到峰值 1.0，然后快速融入回弹
+  const k = Math.sin(Math.PI * u) * (1 - u) * 2.598;
+  const L = stickLen(hand);
+  const r = pose.stickDeg * Math.PI / 180;
+  const dir = { x: Math.cos(r), y: Math.sin(r) };
+  const amp = last.grip === "roll" ? 0.65 : clamp01(0.45 + 0.55 * densityScale(last.gap));
+  const shift = V.add(
+    V.mul(dir, -CONFIG.HIT_KICK_BACK_PX * amp * k),
+    { x: 0, y: -CONFIG.HIT_KICK_LIFT_PX * amp * k }
+  );
+  const snapped = weldSnap(V.add(pose.tip, shift), V.add(pose.grip, shift), L);
+  return { tip: snapped.tip, grip: snapped.grip, gripType: pose.gripType, handDeg: snapped.deg, stickDeg: snapped.deg, lift: pose.lift };
+}
+
 function poseAt(hand, track, t, opts = {}) {
   const H = GEOM.hands[hand];
   const { a, b } = findSegment(track, t);
-  let lift, base, bend = { x: 0, y: 0 }, grip, wobble = 0, buzz = null;   // buzz = 正在滚奏的那一对（画震动线/残影用）
+  let lift, base, bend = { x: 0, y: 0 }, grip, wobble = 0, buzz = null;
   let follow = CONFIG.SINGLE_FOLLOW;
   let rollState = null;
   let singleState = null;
-  if (!a && !b) { lift = 0; base = H.don; grip = "single"; singleState = { idle: 1, face: "don", idleShift: kaIdleShift(hand, t) }; }
-  else if (isRollContact(a) || isRollContact(b)) {
-    const rise = CONFIG.ROLL_RISE;
-    if (!a) {
-      const s = clamp01((b.t - t) / rise);
-      const bob = 1 - (1 - s) * (1 - s);
-      lift = bob; base = b.target; grip = "roll";
-      rollState = { bob, rock: 0 };
-    } else if (!b) {
-      const s = clamp01((t - a.t) / rise);
-      const bob = 1 - (1 - s) * (1 - s);
-      lift = bob; base = a.target; grip = "roll";
-      rollState = { bob, rock: 0 };
-    } else if (a.stroke === b.stroke && isRollContact(a) && isRollContact(b)) {
-      // (RR)/(LL) 一对内部：棒绕捏点回弹 10–15°，手几乎不动（第二下）
-      const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
-      const rock = arcHeight(t, a.t, b.t, 1);
-      lift = rock; base = V.lerp(a.target, b.target, smooth(u)); grip = "roll";
-      rollState = { bob: 0, rock };
-      buzz = a;
-    } else if (isRollContact(a) && isRollContact(b)) {
-      // 两对之间：这只手停下（大约一半时间），等另一只手打完它的一对
-      const u = clamp01((t - a.t) / Math.max(1e-6, b.t - a.t));
-      const bob = rollBobBetween(t, a.t, b.t);
-      lift = bob; base = V.lerp(a.target, b.target, smooth(u)); grip = "roll";
-      rollState = { bob, rock: 0 };
+  if (!a && !b) {
+    lift = 0; base = H.don; grip = "single";
+    singleState = { idle: 1, face: "don", idleShift: kaIdleShift(hand, t) };
+  } else if (isRollContact(a) || isRollContact(b)) {
+    const ph = rollPhase(hand, track, a, b, t);
+    lift = ph.lift; base = ph.base; grip = ph.grip; buzz = ph.buzz;
+    if (grip === "roll") {
+      rollState = { lift: ph.lift, idle: ph.idle, press: ph.press };
     } else {
-      // 滚奏 ↔ 单击交接：沿用单击插值，握型在中点切换
-      const u = clamp01((t - a.t) / (b.t - a.t));
-      const scale = densityScale(b.t - a.t);
-      const peak = CONFIG.FULL_LIFT * scale;
-      lift = arcHeight(t, a.t, b.t, peak);
-      base = V.lerp(a.target, b.target, smooth(u));
-      grip = u < 0.5 ? a.grip : b.grip;
-      follow = 1;
-      if (!isRollContact({ grip })) rollState = null;
-      else rollState = { bob: lift, rock: 0 };
-      if (!isRollContact({ grip })) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * peak);
+      const face = b ? targetFace(hand, ph.base) : "don";
+      singleState = { idle: ph.idle, face, scale: ph.scale || 1, idleShift: kaIdleShift(hand, t) };
     }
   } else if (!a) {
     const phase = singleApproach(t, b);
@@ -550,22 +663,12 @@ function poseAt(hand, track, t, opts = {}) {
     singleState = { idle: phase.idle, face: targetFace(hand, phase.base), scale, idleShift: kaIdleShift(hand, t) };
     if (!phase.idle) bend = routeBend(a.target, b.target, b.route, Math.sin(Math.PI * u) * lift);
   }
-  const p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState, singleState);
+  let p = composePose(hand, base, lift, bend, opts.noWobble ? 0 : wobble, grip, follow, rollState, singleState);
+  if (!opts.noKick) p = applyHitKickback(p, hand, track, t);
   p.buzz = buzz; p.wobble = opts.noWobble ? 0 : wobble;
   return p;
 }
 
-/** 让棒尖绕捏点转时往上抬（离开鼓面），返回角度符号。 */
-function rollRockSign(gripPt, base, L) {
-  const deg = Math.atan2(base.y - gripPt.y, base.x - gripPt.x);
-  const tip = (d) => {
-    const r = d * Math.PI / 180;
-    return { x: gripPt.x + Math.cos(r) * L, y: gripPt.y + Math.sin(r) * L };
-  };
-  return tip(deg + 1).y < tip(deg).y ? 1 : -1;
-}
-
-/** 落点 + 抬起 + 弯曲 + 晃动 → 棒尖、握点、角度。手在鼓下方，从下往上握棒。 */
 function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, singleState) {
   const H = GEOM.hands[hand];
   if (grip === "single") {
@@ -590,19 +693,19 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
     if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, singleState && singleState.idleShift), idleAmt, L);
     return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift };
   }
-  // 滚奏：捏点钉在胶带约 1/4、不滑动；拇指+食指是轴。棒绕轴回弹 10–15°（不焊死）。
-  // 手腕叠一层小幅上下点头（单击抬起的 1/3）。手的朝向不跟着棒的回弹走。
-  const bob = rollState && isFinite(+rollState.bob) ? +rollState.bob : lift;
-  const rock = rollState && isFinite(+rollState.rock) ? +rollState.rock : 0;
-  const gripPt = V.add(H.pivot, V.mul({ x: H.out * CONFIG.LIFT_OUT_PX, y: -CONFIG.ROLL_LIFT_PX }, CONFIG.ROLL_BOB_SCALE * bob));
-  const L = V.len(V.sub(base, H.pivot)) || stickLen(hand);
-  const contactDeg = Math.atan2(base.y - H.pivot.y, base.x - H.pivot.x) * 180 / Math.PI;
-  const sign = rollRockSign(gripPt, base, L);
-  const stickDeg = contactDeg + sign * CONFIG.ROLL_ROCK_DEG * rock;
-  const r = stickDeg * Math.PI / 180;
-  const tip = V.add(gripPt, { x: Math.cos(r) * L, y: Math.sin(r) * L });
-  const handDeg = contactDeg;
-  return { tip, grip: gripPt, gripType: grip, handDeg, stickDeg, lift: bob };
+  // 滚奏全程焊死：手与棒一体，不再绕捏点单独转 12°。
+  // 下→小弹→再下(第二下补压)→大抬回，全按刚体焊死平移+微绕手腕转动，handDeg === stickDeg。
+  const L = stickLen(hand);
+  const rLift = rollState && isFinite(+rollState.lift) ? clamp01(+rollState.lift) : clamp01(lift);
+  const press = rollState && isFinite(+rollState.press) ? clamp01(+rollState.press) : 0;
+  const idleAmt = rollState && isFinite(+rollState.idle) ? clamp01(+rollState.idle) : 0;
+  const hit = rollContactPose(hand, press);
+  const lv = { x: H.out * CONFIG.ROLL_LIFT_OUT_PX, y: -CONFIG.ROLL_LIFT_PX };
+  const raised = weldSnap(V.add(hit.tip, lv), V.add(hit.grip, lv), L);
+  let pose = lerpPose(hit, raised, rLift, L);
+  pose = applyWristTilt(pose, rLift * CONFIG.ROLL_WRIST_TILT_SCALE);
+  if (idleAmt > 0) pose = lerpPose(pose, singleIdlePose(hand, 0), idleAmt, L);
+  return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift: rLift };
 }
 
 function noteX(tNote, now, scroll) {
@@ -614,14 +717,38 @@ function faceGlow(events, second, now) {
   const g = { L: 0, R: 0 };
   for (const e of events) {
     if (e.face !== "don") continue;
-    if (e.grip === "roll") continue;   // 滚奏用下面的节奏脉冲，不要一下一闪
+    if (e.grip === "roll") continue;   // 滚奏半边鼓面用下面的脉冲，接触点冲击圈另画
     const age = now - e.t;
     if (age < 0 || age > CONFIG.DON_RISE + CONFIG.DON_FALL) continue;
-    let v = age < CONFIG.DON_RISE ? age / CONFIG.DON_RISE : 1 - (age - CONFIG.DON_RISE) / CONFIG.DON_FALL;
+    // 接触帧 age=0 立刻亮起 0.75，避免击中那一帧鼓面还是全白
+    let v = age < CONFIG.DON_RISE ? 0.75 + 0.25 * (age / CONFIG.DON_RISE) : 1 - (age - CONFIG.DON_RISE) / CONFIG.DON_FALL;
     if (second.has(e.i)) v *= CONFIG.SECOND_HIT;
     g[e.hand] = Math.max(g[e.hand], v);
   }
   return g;
+}
+
+/** 鼓面/鼓体受击微震：咚/咔/滚奏每下接触帧瞬间压沉微缩，1-2帧后回弹归零（只作用在鼓层，不改棒长）。 */
+function drumShake(events, now) {
+  let maxEnv = 0;
+  let signed = 0;
+  for (const e of events) {
+    const age = now - e.t;
+    if (age < 0 || age > CONFIG.DRUM_SHAKE_DUR) continue;
+    const u = age / CONFIG.DRUM_SHAKE_DUR;
+    // 只在击中那一帧(age≈0)有约2%轻震，迅速归零，不延到回弹帧
+    const wave = Math.pow(1 - u, 1.5);
+    const weight = e.grip === "roll" ? 0.75 : 1;
+    if (Math.abs(wave * weight) > maxEnv) {
+      maxEnv = Math.abs(wave * weight);
+      signed = wave * weight;
+    }
+  }
+  return {
+    scale: 1 - CONFIG.DRUM_SHAKE_SCALE * signed,
+    dx: 0,
+    dy: CONFIG.DRUM_SHAKE_DY * signed,
+  };
 }
 
 /** 滚奏期间鼓面/鼓边持续微光，跟着节奏轻轻脉冲，不是每一下开关。 */
@@ -916,7 +1043,7 @@ function handImg(handSide, pose) {
   // 单击：手图和棒共用 stickDeg（handDeg === stickDeg），棒在手里永远是 0°。
   // 旋转中心是捏点（棒轴上的握点）；手腕在图里、捏点下方，跟着整只手一起转、一起抬。
   // 滚奏：仍用手朝向 handDeg（手几乎不动，只有棒绕捏点晃）。
-  const alignDeg = pose.gripType === "single" ? pose.stickDeg : pose.handDeg;
+  const alignDeg = pose.stickDeg; // 无论单击还是滚奏，手棒全程焊死：handDeg === stickDeg
   const rot = alignDeg - I.axisDeg;
   const T = `translate(${f1(pose.grip.x)},${f1(pose.grip.y)}) rotate(${f1(rot)}) scale(${I.scale}) translate(${-I.pinch[0]},${-I.pinch[1]})`;
   let s = `<g transform="${T}">`;
@@ -1009,37 +1136,54 @@ function renderTrail(hand, track, now) {
 }
 
 /* ---------- 打击效果 ---------- */
-function renderFaceGlow(events, second, now) {
-  const g = faceGlow(events, second, now), F = GEOM.face;
-  let s = `<g clip-path="url(#sceneFaceClip)">`;
-  if (g.L > 0) s += `<rect x="${F.cx - F.rx - 5}" y="${F.cy - F.ry - 5}" width="${F.rx + 5}" height="${2 * F.ry + 10}" fill="${COL.don}" opacity="${f1(g.L)}"/>`;
-  if (g.R > 0) s += `<rect x="${F.cx}" y="${F.cy - F.ry - 5}" width="${F.rx + 5}" height="${2 * F.ry + 10}" fill="${COL.don}" opacity="${f1(g.R)}"/>`;
-  s += `</g>`;
-  // 鼓面描边压在上面
-  s += `<ellipse cx="${F.cx - 70}" cy="${F.cy - 62}" rx="72" ry="21" fill="#fff" opacity=".55" transform="rotate(-10 ${F.cx - 70} ${F.cy - 62})"/>`;
+function renderFaceGlow(_events, _second, _now) {
+  const F = GEOM.face;
+  // 去掉旧的半边橙红/粉色染色残留（不再整半边鼓染色），只保留鼓面高光和外圈描边；击中光集中在落点侧。
+  let s = `<ellipse cx="${F.cx - 70}" cy="${F.cy - 62}" rx="72" ry="21" fill="#fff" opacity=".55" transform="rotate(-10 ${F.cx - 70} ${F.cy - 62})"/>`;
   s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="none" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
   return s;
 }
 
 function renderHitFx(events, second, now) {
   let s = "";
-  const pulse = rollGlowPulse(events, now);
-  if (pulse > 0) {
-    const F = GEOM.face;
-    s += `<g clip-path="url(#sceneFaceClip)" opacity="${f1(pulse)}">
-            <rect x="${F.cx - F.rx - 5}" y="${F.cy - F.ry - 5}" width="${2 * F.rx + 10}" height="${2 * F.ry + 10}" fill="${COL.don}"/>
-          </g>`;
-    s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="none" stroke="${COL.ka}" stroke-width="6" opacity="${f1(pulse * 0.7)}" filter="url(#softGlow)"/>`;
-  }
-  const maxAge = Math.max(CONFIG.KA_DUR, CONFIG.GOLD_DUR, CONFIG.LABEL_DUR);
+  // 不在滚奏期间整面染红；每一下的落点侧击中光+波纹在下方循环里单独按接触帧画出。
+  const maxAge = Math.max(CONFIG.KA_DUR, CONFIG.GOLD_DUR, CONFIG.LABEL_DUR, CONFIG.IMPACT_DUR);
   for (const { e, age } of activeHits(events, now, maxAge)) {
-    if (e.grip === "roll") continue;                  // 滚奏不用单击那种一下一灭的咔光
     const H = GEOM.hands[e.hand], k2 = second.has(e.i) ? CONFIG.SECOND_HIT : 1;
+    const isRoll = e.grip === "roll";
+    const impDur = isRoll ? CONFIG.IMPACT_ROLL_DUR : CONFIG.IMPACT_DUR;
+    if (age <= impDur) {
+      // 接触点小冲击圈（咚打鼓面 / 咔打鼓边 / 滚奏每一下都有）
+      const u = clamp01(age / impDur);
+      const fade = (1 - u) * (1 - 0.35 * u) * k2;
+      const pt = e.face === "ka" ? H.ka : H.don;
+      const col = e.face === "ka" ? COL.ka : COL.don;
+      const maxR = isRoll ? 24 : 34;
+      const r = 10 + maxR * easeOutQuad(u);
+      const ry = e.face === "ka" ? r * 0.85 : r * 0.62;
+      // 落点侧局部击中光晕（仅在接触帧亮，不染半边鼓）
+      s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1((isRoll ? 34 : 46))}" ry="${f1((isRoll ? 22 : 30))}" fill="${col}" opacity="${f1(0.32 * fade)}" filter="url(#softGlow)"/>`;
+      s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(r)}" ry="${f1(ry)}" fill="none" stroke="${col}" stroke-width="${f1((isRoll ? 3.4 : 4.5) * (1 - 0.4 * u))}" opacity="${f1(0.95 * fade)}"/>`;
+      s += `<ellipse cx="${f1(pt.x)}" cy="${f1(pt.y)}" rx="${f1(9.5 * (1 - 0.2 * u))}" ry="${f1(6.5 * (1 - 0.2 * u))}" fill="#fff" stroke="${col}" stroke-width="2.2" opacity="${f1(0.98 * fade)}"/>`;
+      // 4条短放射冲击线（咚沿着鼓面散开，咔朝鼓边外侧放射）
+      const baseAng = e.face === "ka" ? H.kaAng : -90;
+      const offsets = e.face === "ka" ? [-55, -18, 18, 55] : [-145, -35, 35, 145];
+      const r0 = 7 + maxR * 0.45 * easeOutQuad(u);
+      const r1 = r0 + (isRoll ? 6 : 9) * (1 - 0.3 * u);
+      for (const da of offsets) {
+        const rad = (baseAng + da) * Math.PI / 180;
+        const x0 = pt.x + Math.cos(rad) * r0, y0 = pt.y + Math.sin(rad) * r0 * (e.face === "ka" ? 0.9 : 0.65);
+        const x1 = pt.x + Math.cos(rad) * r1, y1 = pt.y + Math.sin(rad) * r1 * (e.face === "ka" ? 0.9 : 0.65);
+        s += `<line x1="${f1(x0)}" y1="${f1(y0)}" x2="${f1(x1)}" y2="${f1(y1)}" stroke="${col}" stroke-width="2.4" stroke-linecap="round" opacity="${f1(0.85 * fade)}"/>`;
+      }
+    }
+    if (isRoll) continue;                             // 滚奏不用单击那种一下一灭的大咔光
     if (e.face === "ka" && age <= CONFIG.KA_DUR) {
       // 青光沿鼓边外侧亮一段弧（右手约 12 点到 4 点，左手镜像 8 点到 12 点），亮在鼓外侧、不在鼓面。
       const k = age / CONFIG.KA_DUR;
-      const a0 = e.hand === "R" ? -90 : 150;
-      const a1 = e.hand === "R" ? 30 : 270;
+      const halfSpan = CONFIG.KA_SPAN / 2;
+      const a0 = H.kaAng - halfSpan;
+      const a1 = H.kaAng + halfSpan;
       const d = ellipseArcD(a0, a1, CONFIG.KA_GLOW_GROW);
       s += `<path d="${d}" fill="none" stroke="${COL.ka}" stroke-width="${f1(CONFIG.KA_W * k2)}" stroke-linecap="round"
             opacity="${f1(0.9 * (1 - k) * k2)}" filter="url(#softGlow)"/>`;
@@ -1067,7 +1211,7 @@ function renderReboundArcs(tracks, now) {
     // 画在棒子外侧一点，免得被鼓棒挡住
     const ox = p.x + 26 * H.out;
     const a = { x: ox - 14, y: p.y - 2 }, b = { x: ox + 14, y: p.y - 2 };
-    const c = { x: ox, y: p.y - 70 };
+    const c = { x: ox, y: p.y - 26 };
     const d = `M${f1(a.x)},${f1(a.y)} Q${f1(c.x)},${f1(c.y)} ${f1(b.x)},${f1(b.y)}`;
     s += `<path d="${d}" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" opacity="${f1(0.7 * r.fade)}"/>`;
     s += `<path d="${d}" fill="none" stroke="${COL[r.hand]}" stroke-width="3" stroke-dasharray="6 5" stroke-linecap="round" opacity="${f1(r.fade)}"/>`;
@@ -1157,9 +1301,14 @@ function renderRollFx(hand, pose, track, now, layer) {
 function renderFrame(now) {
   const { events, tracks } = state;
   els.chart.innerHTML = renderChart(events, now, state.scroll);
-  let s = `<g id="sceneDyn" transform="${sceneTransform()}">`;
+  const shake = drumShake(events, now);
+  const drumEl = document.getElementById("sceneDrum");
+  if (drumEl) drumEl.setAttribute("transform", sceneTransform(shake));
+  let s = `<g id="sceneFaceFx" transform="${sceneTransform(shake)}">`;
   s += renderFaceGlow(events, tracks.second, now);
   s += renderHitFx(events, tracks.second, now);
+  s += `</g>`;
+  s += `<g id="sceneDyn" transform="${sceneTransform()}">`;
   s += `<g clip-path="url(#sceneCardClip)">`;       // 左右下仍齐卡片；上沿放宽，咔棒尖可略画出框
   s += renderTrail("L", tracks.L, now) + renderTrail("R", tracks.R, now);
   s += renderReboundArcs(tracks, now);

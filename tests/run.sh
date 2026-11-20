@@ -33,6 +33,10 @@ echo "== title-bar BPM range =="
 node tests/titlebar-bpm.test.js
 echo
 
+echo "== section loop + playback rate =="
+node tests/loop-range.test.js
+echo
+
 echo "== auto-sticking (55 cases from suyue@ebd21a0) =="
 node tests/sticking.test.js
 echo

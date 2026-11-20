@@ -2653,6 +2653,10 @@ const params = new URLSearchParams(location.search);
 const state = {
   events: [], tracks: { R: [], L: [], second: new Set() },
   now: 0, start: 0, end: 1,
+  // Section loop on the progress bar. Defaults to the whole song.
+  // Does not change start/end — those stay the export/render window.
+  loopStart: 0, loopEnd: 1,
+  measures: [], bpmTimeline: [],
   playing: false,   // app.js starts playback when ?autoplay=1, after the chart is loaded
   autoplay: params.get("autoplay") === "1",
   loop: params.get("autoplay") === "1" ? false : params.get("loop") !== "0",
@@ -2769,15 +2773,25 @@ function renderFrame(now) {
   const srcEl = $("src");
   if (srcEl) srcEl.textContent = cur ? `上一个音：#${cur.i + 1} ${cur.src} ${cur.both ? "双手" : cur.hand} ${cur.face === "don" ? (cur.big ? "大咚" : "咚") : (cur.big ? "大咔" : "咔")} ${cur.grip === "roll" ? "滚奏(捏)" : "单击(握)"}${cur.inserted ? " ★插音" : ""}` : "";
   $("scrub").value = String((now - state.start) / (state.end - state.start));
+  syncLoopUi(false);
 }
 
 function tick(ts) {
   if (state.lastTs !== null && state.playing) {
     const realDt = Math.min(0.1, (ts - state.lastTs) / 1000);
-    state.now += realDt * state.rate;                       // 唯一的时钟累加（实时播放）
-    if (state.now > state.end) {
-      if (state.loop) state.now = state.start + (state.now - state.end);
-      else { state.now = state.end; setPlaying(false); signalBachiDone({ ok: true }); }
+    // 唯一的时钟累加（实时播放）。循环开着时只在进度条选区内走，不改导出用的 start/end。
+    const step = LoopRange.advancePlayback(state.now, realDt, {
+      rate: state.rate,
+      loop: state.loop,
+      loopStart: state.loopStart,
+      loopEnd: state.loopEnd,
+      songStart: state.start,
+      songEnd: state.end,
+    });
+    state.now = step.now;
+    if (!step.playing) {
+      setPlaying(false);
+      if (step.done) signalBachiDone({ ok: true });
     }
   }
   state.lastTs = ts;
@@ -2876,19 +2890,159 @@ function setData(data) {
   const rangeEnd = data && isFinite(+data.rangeEnd) ? +data.rangeEnd : last;
   state.start = rangeStart - CONFIG.LEAD_IN;
   state.end = rangeEnd + CONFIG.TAIL_TIME;
+  state.measures = data && Array.isArray(data.measures) ? data.measures : [];
+  state.bpmTimeline = data && Array.isArray(data.bpmTimeline) ? data.bpmTimeline : [];
+  const whole = LoopRange.defaultLoopRange(state.start, state.end);
+  state.loopStart = whole.start;
+  state.loopEnd = whole.end;
+  syncLoopUi(true);
+}
+
+function loopGrid() {
+  return LoopRange.buildSnapGrid({
+    measures: state.measures,
+    bpmTimeline: state.bpmTimeline,
+  }, state.start, state.end);
+}
+
+function syncLoopUi(rebuildTicks) {
+  const span = $("loopSpan");
+  const capA = $("loopCapStart");
+  const capB = $("loopCapEnd");
+  if (!span || !capA || !capB) return;
+  const songSpan = state.end - state.start;
+  const pct = (t) => songSpan > 0 ? ((t - state.start) / songSpan) * 100 : 0;
+  const p0 = pct(state.loopStart);
+  const p1 = pct(state.loopEnd);
+  span.style.left = p0 + "%";
+  span.style.width = Math.max(0, p1 - p0) + "%";
+  capA.style.left = p0 + "%";
+  capB.style.left = p1 + "%";
+  const sec = (t) => (Math.round(t * 1000) / 1000).toFixed(3);
+  capA.setAttribute("aria-valuemin", String(state.start));
+  capA.setAttribute("aria-valuemax", String(state.loopEnd));
+  capA.setAttribute("aria-valuenow", String(state.loopStart));
+  capA.setAttribute("aria-valuetext", sec(state.loopStart) + " s");
+  capB.setAttribute("aria-valuemin", String(state.loopStart));
+  capB.setAttribute("aria-valuemax", String(state.end));
+  capB.setAttribute("aria-valuenow", String(state.loopEnd));
+  capB.setAttribute("aria-valuetext", sec(state.loopEnd) + " s");
+  const head = $("scrubPlayhead");
+  if (head) {
+    const u = songSpan > 0 ? (state.now - state.start) / songSpan : 0;
+    head.style.left = (Math.max(0, Math.min(1, u)) * 100) + "%";
+  }
+  if (!rebuildTicks) return;
+  const host = $("scrubTicks");
+  if (!host) return;
+  host.replaceChildren();
+  const grid = loopGrid();
+  for (const t of grid.measureTimes) {
+    if (t < state.start - 1e-6 || t > state.end + 1e-6) continue;
+    const tick = document.createElement("span");
+    tick.className = "scrub-tick";
+    tick.style.left = pct(t) + "%";
+    host.appendChild(tick);
+  }
+}
+
+function applyLoopDrag(which, time) {
+  const next = LoopRange.dragLoopHandle(
+    { start: state.loopStart, end: state.loopEnd },
+    which,
+    time,
+    loopGrid()
+  );
+  state.loopStart = next.start;
+  state.loopEnd = next.end;
+  if (state.loop && (state.now < state.loopStart || state.now > state.loopEnd)) {
+    state.now = state.loopStart;
+  }
+  renderFrame(state.now);
+}
+
+function bindLoopCap(el, which) {
+  if (!el) return;
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try { el.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    const at = (ev) => {
+      const bar = $("scrubBar");
+      if (!bar) return;
+      const rect = bar.getBoundingClientRect();
+      const time = LoopRange.timeFromClientX(ev.clientX, rect.left, rect.width, state.start, state.end);
+      applyLoopDrag(which, time);
+    };
+    const up = () => {
+      el.removeEventListener("pointermove", at);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
+    };
+    el.addEventListener("pointermove", at);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
+  });
+  el.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    const grid = loopGrid();
+    const cur = which === "start" ? state.loopStart : state.loopEnd;
+    const beat = LoopRange.localBeatDur(cur, grid.pieces, 0.5);
+    const dir = e.key === "ArrowRight" ? 1 : -1;
+    applyLoopDrag(which, cur + dir * beat);
+  });
+}
+
+function bindScrubSeek() {
+  const bar = $("scrubBar");
+  if (!bar) return;
+  bar.addEventListener("pointerdown", (e) => {
+    if (e.button != null && e.button !== 0) return;
+    if (e.target.closest && e.target.closest(".loop-cap")) return;
+    e.preventDefault();
+    const at = (ev) => {
+      const rect = bar.getBoundingClientRect();
+      seek(LoopRange.timeFromClientX(ev.clientX, rect.left, rect.width, state.start, state.end));
+    };
+    try { bar.setPointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    const up = () => {
+      bar.removeEventListener("pointermove", at);
+      bar.removeEventListener("pointerup", up);
+      bar.removeEventListener("pointercancel", up);
+    };
+    bar.addEventListener("pointermove", at);
+    bar.addEventListener("pointerup", up);
+    bar.addEventListener("pointercancel", up);
+    at(e);
+  });
 }
 
 function bindControls() {
   $("btnPlay").onclick = () => setPlaying(!state.playing);
-  $("btnRestart").onclick = () => { seek(state.start); setPlaying(true); };
+  $("btnRestart").onclick = () => {
+    seek(LoopRange.restartTime({
+      loop: state.loop,
+      songStart: state.start,
+      loopStart: state.loopStart,
+    }));
+    setPlaying(true);
+  };
   $("btnLoop").onclick = () => {
     state.loop = !state.loop;
     const loopBtn = $("btnLoop");
     loopBtn.classList.toggle("on", state.loop);
     loopBtn.setAttribute("aria-pressed", String(state.loop));
     loopBtn.setAttribute("aria-label", state.loop ? "循环（开）" : "循环（关）");
+    if (state.loop && (state.now < state.loopStart || state.now > state.loopEnd)) {
+      seek(state.loopStart);
+    }
   };
-  document.querySelectorAll("[data-rate]").forEach((b) => b.onclick = () => setRate(+b.dataset.rate));
+  document.querySelectorAll("[data-rate]").forEach((b) => b.onclick = () => setRate(LoopRange.rateFromSpeedButton(b.dataset.rate, state.rate)));
+  bindLoopCap($("loopCapStart"), "start");
+  bindLoopCap($("loopCapEnd"), "end");
+  bindScrubSeek();
   $("scroll").oninput = (e) => { state.scroll = +e.target.value; $("scrollVal").textContent = state.scroll + "×"; };
   $("route").onchange = (e) => { state.route = e.target.value; clearPoseStepCache(); state.tracks = buildHandTracks(state.events, state.route); };
   $("scrub").oninput = (e) => seek(state.start + (+e.target.value) * (state.end - state.start));
@@ -2909,6 +3063,7 @@ function startEngine(data, meta) {
   clearPoseStepCache();
   setData(data || { events: [] });
   state.now = params.has("t") ? pickNum(params.get("t"), state.start, state.start, state.end) : state.start;
+  syncLoopUi(false);
   if (els.stat && !els.stat.innerHTML) els.stat.innerHTML = renderStatic();
   if (!engineStarted) {
     bindControls();

@@ -19,6 +19,7 @@
     --line: #E2D5C6;
     --line-strong: #D4C4B0;
     --wood: #C4A574;
+    --wood-pale: #E7D3B0;
     --don: #C44536;
     --ka: #2EADC4;
     --grip-r: #5FC99A;
@@ -310,6 +311,96 @@
     font-size: 11px;
     color: var(--ink-soft);
     margin-bottom: 4px;
+  }
+  .scrub-bar {
+    position: relative;
+    height: 18px;
+    display: flex;
+    align-items: center;
+  }
+  .scrub-rail {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    height: 8px;
+    transform: translateY(-50%);
+    border-radius: 99px;
+    background: var(--line);
+    overflow: hidden;
+    pointer-events: none;
+  }
+  .scrub-span {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: var(--wood-pale);
+  }
+  .scrub-ticks {
+    position: absolute;
+    inset: 0;
+  }
+  .scrub-tick {
+    position: absolute;
+    top: 0;
+    width: 1px;
+    height: 100%;
+    background: rgba(62, 50, 40, 0.45);
+  }
+  .loop-cap {
+    position: absolute;
+    z-index: 2;
+    top: 50%;
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    transform: translate(-50%, -50%);
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  .loop-cap::before {
+    content: "";
+    display: block;
+    width: 10px;
+    height: 10px;
+    margin: 3px;
+    border-radius: 50%;
+    background: var(--ink);
+  }
+  /* The range input stays for keyboard / AT. Its native thumb is inset from the
+     track ends, so the visible playhead is drawn in the same 0–100% space as
+     the loop caps and measure ticks. */
+  #scrub {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    pointer-events: none;
+  }
+  .scrub-playhead {
+    position: absolute;
+    z-index: 1;
+    top: 50%;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--ink-deep);
+    border: 2px solid var(--paper);
+    box-shadow: 0 0 0 1px var(--line-strong);
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+  }
+  .scrub-bar:has(#scrub:focus-visible) .scrub-playhead {
+    outline: 2px solid var(--ink-deep);
+    outline-offset: 2px;
   }
   input[type="range"] {
     -webkit-appearance: none;
@@ -720,7 +811,16 @@
           </button>
           <div class="scrub-wrap">
             <div class="clock"><span id="clock">t = 0.000 s</span><span id="clockEnd"></span></div>
-            <input id="scrub" type="range" min="0" max="1" step="0.001" value="0" aria-label="进度">
+            <div class="scrub-bar" id="scrubBar">
+              <div class="scrub-rail" aria-hidden="true">
+                <div class="scrub-span" id="loopSpan"></div>
+                <div class="scrub-ticks" id="scrubTicks"></div>
+              </div>
+              <input id="scrub" type="range" min="0" max="1" step="0.001" value="0" aria-label="进度">
+              <div class="scrub-playhead" id="scrubPlayhead" aria-hidden="true" style="left:0%"></div>
+              <button type="button" class="loop-cap" id="loopCapStart" role="slider" aria-label="循环起点" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0" style="left:0%"></button>
+              <button type="button" class="loop-cap" id="loopCapEnd" role="slider" aria-label="循环终点" aria-valuemin="0" aria-valuemax="1" aria-valuenow="1" style="left:100%"></button>
+            </div>
           </div>
         </div>
 
@@ -973,6 +1073,7 @@ LEVEL:6
 <script src="js/sticking.js"></script>
 <script src="js/parser.js"></script>
 <script src="js/hand-edits.js"></script>
+<script src="js/loop-range.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/titlebar-bpm.js"></script>
 <script src="js/titlebar.js"></script>

@@ -31,13 +31,32 @@
     return h.title || data.song || h.titleja || h.titlezh || h.titleen || "";
   }
 
+  function displayTechnique(name) {
+    if (window.TaikoParser && typeof TaikoParser.displayTechnique === "function") {
+      return TaikoParser.displayTechnique(name);
+    }
+    const s = String(name == null ? "" : name).trim();
+    if (!s) return "";
+    const compact = s.replace(/\s+/g, "");
+    if (compact === "半换A" || compact === "半换a") return "半换 A";
+    if (compact === "半换B" || compact === "半换b") return "半换 B";
+    return s;
+  }
+
   function techniqueOf() {
-    if (window.TITLEBAR && window.TITLEBAR.technique) return String(window.TITLEBAR.technique);
-    const api = window.taikoAnim;
-    if (api && api.state && api.state.technique) return api.state.technique;
-    const data = api && api.raw;
-    if (data && data.technique) return String(data.technique);
-    return DEFAULT_TECHNIQUE;
+    let raw;
+    if (window.TITLEBAR && Object.prototype.hasOwnProperty.call(window.TITLEBAR, "technique")) {
+      raw = window.TITLEBAR.technique;
+    } else {
+      const api = window.taikoAnim;
+      if (api && api.state && Object.prototype.hasOwnProperty.call(api.state, "technique")) {
+        raw = api.state.technique;
+      } else {
+        const data = api && api.raw;
+        if (data && Object.prototype.hasOwnProperty.call(data, "technique")) raw = data.technique;
+      }
+    }
+    return displayTechnique(raw);
   }
 
   function rateOf() {

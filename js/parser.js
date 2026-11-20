@@ -518,17 +518,265 @@
     }, extra || {});
   }
 
-  /** Parse TJA and return the engine-ready payload. opts: { course, measures }. */
+  function getAutoSticking() {
+    if (typeof require === "function") {
+      try {
+        const mod = require("./sticking.js");
+        if (mod && typeof mod.autoSticking === "function") return mod.autoSticking;
+      } catch (err) { /* fall through to global */ }
+    }
+    const g = typeof globalThis !== "undefined" ? globalThis
+      : (typeof window !== "undefined" ? window : {});
+    if (g.BachiSticking && typeof g.BachiSticking.autoSticking === "function") {
+      return g.BachiSticking.autoSticking;
+    }
+    throw new Error("找不到 autoSticking（请加载 js/sticking.js）");
+  }
+
+  function normTechnique(v) {
+    const s = String(v == null ? "" : v).trim();
+    const compact = s.replace(/\s+/g, "");
+    if (!s || compact === "全换" || compact.toLowerCase() === "quan" || /^quan[-_]?huan$/i.test(s)) return "全换";
+    if (compact === "半换A" || compact === "半换a" || /^ban[-_]?huan[-_]?a$/i.test(s) || compact === "半换-a") return "半换A";
+    if (compact === "半换B" || compact === "半换b" || /^ban[-_]?huan[-_]?b$/i.test(s) || compact === "半换-b") return "半换B";
+    if (compact === "半换" || /^ban[-_]?huan$/i.test(s)) return "半换A";
+    if (compact === "炒菜" || compact.toLowerCase() === "chao" || /^chao[-_]?cai$/i.test(s)) return "炒菜";
+    return "全换";
+  }
+
+  /** Title-bar label. Empty input stays empty (do not default to 全换). 半换 A / 半换 B 中间半角空格. */
+  function displayTechnique(v) {
+    if (v == null || String(v).trim() === "") return "";
+    const t = normTechnique(v);
+    if (t === "半换A") return "半换 A";
+    if (t === "半换B") return "半换 B";
+    return t;
+  }
+
+  function jsonTechniqueOf(input) {
+    try {
+      const data = typeof input === "string" ? JSON.parse(input) : input;
+      if (!data || typeof data !== "object" || Array.isArray(data)) return "";
+      const v = data.technique != null ? data.technique : data.手法;
+      return v == null ? "" : String(v).trim();
+    } catch (err) {
+      return "";
+    }
+  }
+
+  /**
+   * Title-bar 手法 source when a 手顺 JSON is loaded:
+   *   JSON optional top-level "technique" (or 手法)
+   *     > explicit --technique / ?technique= (title text only, does not change sticking)
+   *     > omit (do not default to 全换).
+   * Without JSON, use autoTechnique (the dropdown).
+   */
+  function titleTechniqueFromSources(opts) {
+    opts = opts || {};
+    if (opts.locked) {
+      if (opts.jsonTechnique) return displayTechnique(opts.jsonTechnique);
+      if (opts.titleTechnique) return displayTechnique(opts.titleTechnique);
+      return "";
+    }
+    return displayTechnique(opts.autoTechnique || "全换");
+  }
+
+  function normDominant(v) {
+    const s = String(v == null ? "" : v).trim().toUpperCase();
+    if (s === "L" || s === "LEFT" || s === "左") return "L";
+    return "R";
+  }
+
+  function normRoll(v) {
+    const s = String(v == null ? "" : v).trim();
+    if (!s) return "自动滚奏";
+    if (s === "不滚奏" || s === "off" || s === "none" || s === "no" || /^no[-_]?roll$/i.test(s)) return "不滚奏";
+    if (s === "24分滚奏" || s === "24 分滚奏" || s === "24" || s === "24th" || /^24[-_]?roll$/i.test(s)) return "24分滚奏";
+    if (s === "自动滚奏" || s === "auto" || /^auto[-_]?roll$/i.test(s)) return "自动滚奏";
+    return "自动滚奏";
+  }
+
+  function stickingOptsFrom(opts) {
+    opts = opts || {};
+    return {
+      手法: normTechnique(opts.手法 || opts.technique),
+      惯用手: normDominant(opts.惯用手 || opts.hand),
+      滚奏: normRoll(opts.滚奏 || opts.roll),
+    };
+  }
+
+  /**
+   * Musical beat of the first note (measure/slot) so 12 分拍头对齐不漂。
+   * Later notes: 入间隔 = Δt × 前一音 BPM / 60（秒换算成拍，谱中变速按各音自己的 BPM）。
+   */
+  function measureBeatStarts(measures) {
+    const map = Object.create(null);
+    let acc = 0;
+    const list = (measures || []).slice().sort((a, b) => a.index - b.index);
+    for (const m of list) {
+      map[m.index] = acc;
+      acc += m.beats != null ? m.beats : 4;
+    }
+    return map;
+  }
+
+  function notesToStickingInput(notes, measures, asSmall) {
+    const starts = measureBeatStarts(measures);
+    const out = [];
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
+      let beat;
+      if (i === 0) {
+        const base = starts[n.measure] || 0;
+        const slots = n.slots || 1;
+        const mb = n.measureBeats != null ? n.measureBeats : 4;
+        beat = base + (slots ? (n.pos / slots) * mb : 0);
+      } else {
+        const prev = notes[i - 1];
+        const dt = n.t - prev.t;
+        const prevBpm = prev.bpm > 0 ? prev.bpm : n.bpm;
+        beat = out[i - 1].beat + dt * prevBpm / 60;
+      }
+      const isBig = n.type === "bigdon" || n.type === "bigka";
+      const colour = (n.type === "don" || n.type === "bigdon") ? "don" : "ka";
+      out.push({
+        beat: beat,
+        colour: colour,
+        big: asSmall ? false : isBig,
+        bpm: n.bpm,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Replace the old 1-1 assignHands path: run autoSticking and map
+   * hands + rollPairs onto engine events (grip:"roll" on each side of a
+   * pair, same as 手顺 JSON 的 (RR)(LL)；引擎再按颜色自判 dd/kk/kd/dk）。
+   */
+  function eventsFromAutoSticking(parsed, opts) {
+    const bigMode = normBigMode(opts && (opts.bigNote || opts.bigMode || opts.bignote));
+    const stick = stickingOptsFrom(opts);
+    const notes = parsed.notes || [];
+    const input = notesToStickingInput(notes, parsed.measures, bigMode === "small");
+    const result = getAutoSticking()(input, {
+      bpm: parsed.headers && parsed.headers.bpm,
+      手法: stick.手法,
+      惯用手: stick.惯用手,
+      滚奏: stick.滚奏,
+    });
+    const paired = Object.create(null);
+    const pairs = result.rollPairs || [];
+    for (let i = 0; i < pairs.length; i++) {
+      paired[pairs[i][0]] = true;
+      paired[pairs[i][1]] = true;
+    }
+    const events = [];
+    for (let i = 0; i < notes.length; i++) {
+      const n = notes[i];
+      const isBig = n.type === "bigdon" || n.type === "bigka";
+      const face = (n.type === "don" || n.type === "bigdon") ? "don" : "ka";
+      const src = n.measure + ":" + n.pos;
+      const base = {
+        t: n.t,
+        face: face,
+        grip: paired[i] ? "roll" : "single",
+        inserted: false,
+        src: src,
+        type: n.type,
+        measure: n.measure,
+        pos: n.pos,
+        bpm: n.bpm,
+        hand: result.hands[i] === "L" ? "L" : "R",
+        big: bigMode === "small" ? false : isBig,
+        both: false,
+      };
+      if (isBig && bigMode === "both") {
+        // 大音符双手：autoSticking 只给出轮到的主手，这里展开为同时刻 R+L，不进滚奏对。
+        events.push(Object.assign({}, base, { hand: "R", both: true, grip: "single" }));
+        events.push(Object.assign({}, base, { hand: "L", both: true, grip: "single" }));
+      } else {
+        events.push(base);
+      }
+    }
+    return {
+      events: events,
+      technique: displayTechnique(stick.手法),
+      手法: stick.手法,
+      惯用手: stick.惯用手,
+      滚奏: stick.滚奏,
+      stickingWarnings: result.warnings || [],
+      source: "auto-sticking",
+    };
+  }
+
+  /** Parse TJA and return the engine-ready payload.
+   *  opts: { course, measures, bigNote, 手法/technique, 惯用手/hand, 滚奏/roll }.
+   *  When no 手顺 JSON is supplied, hands come from autoSticking (default 自动滚奏).
+   */
   function eventsFromTja(text, opts) {
     const parsed = parseTja(text);
     const picked = pickCourse(parsed, opts && opts.course);
     const sliced = sliceCourse(picked, parseMeasuresOpt(opts && opts.measures));
-    const events = assignHands(sliced, opts && (opts.bigNote || opts.bigMode || opts.bignote));
-    return coursePayload(sliced, {
-      events,
+    const auto = eventsFromAutoSticking(sliced, opts);
+    return coursePayload(sliced, Object.assign({
       courses: parsed.courses.map((c) => c.headers.course),
       chartMeasures: picked.measures,
-    });
+    }, auto));
+  }
+
+  /**
+   * Load a chart, optionally overlaying a 手顺 JSON.
+   * 有 JSON 时完全跟 JSON，手法/惯用手/滚奏三个控件都无效。
+   */
+  function chartFromTjaAndHands(tjaText, handJson, opts) {
+    opts = opts || {};
+    if (tjaText && handJson) {
+      const base = eventsFromTja(tjaText, opts);
+      const hands = loadHandJson(handJson, Object.assign({}, opts, {
+        chartMeasures: opts.chartMeasures || base.chartMeasures,
+        timeShift: opts.timeShift != null ? opts.timeShift : (base.timeShift || 0),
+        rangeStart: opts.rangeStart != null ? opts.rangeStart : base.rangeStart,
+        rangeEnd: opts.rangeEnd != null ? opts.rangeEnd : base.rangeEnd,
+        song: opts.song || base.song,
+        passage: opts.passage || base.passage,
+        headers: opts.headers || base.headers,
+        bpm: opts.bpm != null ? opts.bpm : base.bpm,
+        course: opts.course || base.course,
+        bpmTimeline: opts.bpmTimeline || base.bpmTimeline,
+        measures: opts.measures,
+        bigNote: opts.bigNote || opts.bigMode || opts.bignote,
+      }));
+      return Object.assign({}, base, hands, {
+        rangeStart: base.rangeStart,
+        rangeEnd: base.rangeEnd,
+        timeShift: base.timeShift || 0,
+        source: "hand-json",
+        technique: titleTechniqueFromSources({
+          locked: true,
+          jsonTechnique: jsonTechniqueOf(handJson),
+          titleTechnique: opts.titleTechnique,
+        }),
+        手法: undefined,
+        惯用手: undefined,
+        滚奏: undefined,
+        stickingLocked: true,
+      });
+    }
+    if (handJson) {
+      const hands = loadHandJson(handJson, opts);
+      return Object.assign({}, hands, {
+        source: "hand-json",
+        technique: titleTechniqueFromSources({
+          locked: true,
+          jsonTechnique: jsonTechniqueOf(handJson),
+          titleTechnique: opts.titleTechnique,
+        }),
+        stickingLocked: true,
+      });
+    }
+    if (!tjaText) throw new Error("请先提供 TJA 谱面或手顺 JSON");
+    return eventsFromTja(tjaText, opts);
   }
 
   /** Parse a 手顺 `src` string ("119:12") into { measure, pos }. */
@@ -865,11 +1113,22 @@
     });
     expect("sticking src-align follows mid-measure #BPMCHANGE slot times", midAligned.events.map((e) => e.t), [0, 0.5, 1, 2]);
 
-    // Auto 1-1 never emits rolls; (RR)(LL) in hand JSON marks pinch-pairs; no parens → no roll.
-    const tja16 = ["BPM:300", "OFFSET:0", "COURSE:Oni", "#START", "11111111,", "#END", ""].join("\n");
+    // Default autoSticking (自动滚奏) now emits 16th 2-2 rolls on a no-JSON chart.
+    // 不滚奏 keeps singles. (RR)(LL) in hand JSON still marks pinch-pairs; no parens → no roll.
+    const tja16 = ["BPM:300", "OFFSET:0", "COURSE:Oni", "#START", "1111111111111111,", "#END", ""].join("\n");
     const auto16 = eventsFromTja(tja16);
-    if (auto16.events.some((e) => e.grip === "roll")) {
-      failures.push("assignHands must never emit grip:roll (rolls come only from JSON parentheses)");
+    const auto16Tag = auto16.events.map((e) => e.grip + e.hand).join(",");
+    const wantAuto16 = "rollR,rollR,rollL,rollL,rollR,rollR,rollL,rollL,rollR,rollR,rollL,rollL,rollR,rollR,rollL,rollL";
+    if (auto16Tag !== wantAuto16) {
+      failures.push("autoSticking default 自动滚奏 should 2-2 roll 16ths\n    got  " + auto16Tag + "\n    want " + wantAuto16);
+    }
+    const noRoll16 = eventsFromTja(tja16, { 滚奏: "不滚奏" });
+    if (noRoll16.events.some((e) => e.grip === "roll")) {
+      failures.push("滚奏=不滚奏 must not emit grip:roll");
+    }
+    const noRollHands = noRoll16.events.map((e) => e.hand).join("");
+    if (noRollHands !== "RLRLRLRLRLRLRLRL") {
+      failures.push("滚奏=不滚奏 全换 16ths should stay RLRL…, got " + noRollHands);
     }
     const evs8 = [];
     for (let i = 0; i < 8; i++) evs8.push({ t: i * 0.05, hand: "R", face: "don", grip: "single", src: "1:" + i });
@@ -884,23 +1143,24 @@
       failures.push("sticking without parentheses must not produce rolls, even if events said grip:roll");
     }
 
-    // 大音符三选一：1231 @120 四分 → R咚, L咔, 大咚, 下一颗。
-    // single: R, L, R(big), L ；both: R, L, 双手(主手 R), L（不重置成 R）；small: R, L, R(小), L。
+    // 大音符三选一：1231 @120 四分。四分彼此隔恰好 1 拍，全是休息段，自动手顺
+    // 四种手法都打惯用手（默认 R），不再按旧 1-1 交替成 R L R L。
+    // single: R, R, R(big), R ；both: R, R, 双手, R ；small: R, R, R(小), R。
     const bigTja = ["BPM:120", "OFFSET:0", "#START", "1231,", "#END", ""].join("\n");
     function handsOf(mode) {
       return eventsFromTja(bigTja, { bigNote: mode }).events.map((e) =>
         (e.both ? "both" : e.hand) + (e.big ? "*" : "") + e.face[0]);
     }
     const gotSingle = handsOf("single");
-    const wantSingle = ["Rd", "Lk", "R*d", "Ld"];
+    const wantSingle = ["Rd", "Rk", "R*d", "Rd"];
     if (gotSingle.join(",") !== wantSingle.join(","))
       failures.push("bigNote=single hands\n    got  " + gotSingle.join(",") + "\n    want " + wantSingle.join(","));
     const gotBoth = handsOf("both");
-    const wantBoth = ["Rd", "Lk", "both*d", "both*d", "Ld"];
+    const wantBoth = ["Rd", "Rk", "both*d", "both*d", "Rd"];
     if (gotBoth.join(",") !== wantBoth.join(","))
-      failures.push("bigNote=both hands (no reset to R)\n    got  " + gotBoth.join(",") + "\n    want " + wantBoth.join(","));
+      failures.push("bigNote=both hands (rest-section dominant, no reset)\n    got  " + gotBoth.join(",") + "\n    want " + wantBoth.join(","));
     const gotSmall = handsOf("small");
-    const wantSmall = ["Rd", "Lk", "Rd", "Ld"];
+    const wantSmall = ["Rd", "Rk", "Rd", "Rd"];
     if (gotSmall.join(",") !== wantSmall.join(","))
       failures.push("bigNote=small hands\n    got  " + gotSmall.join(",") + "\n    want " + wantSmall.join(","));
     const defHands = handsOf(undefined);
@@ -922,8 +1182,8 @@
     if (jSmallTag !== "Rd,bothk,bothk,Ld")
       failures.push("溯月 small mode draws small but keeps hand:both\n    got  " + jSmallTag);
 
-    // 休止重置：主人模式超过一拍后下一颗（含大音符）从右手起；溯月模式手完全跟 JSON，不被重置覆盖。
-    // 4/4 @120、8 分：10000003 → t=0 咚、t=1.75 大咚，间隔 1.75s > 一拍 0.5s。
+    // 休止：主人模式里间隔 ≥ 1 拍的音是休息段，下一句惯用手起（含大音符）；溯月模式手完全跟 JSON。
+    // 4/4 @120、8 分：10000003 → t=0 咚、t=1.75 大咚，间隔 1.75s / 3.5 拍。
     const restTja = ["BPM:120", "OFFSET:0", "#START", "10000003,", "#END", ""].join("\n");
     const restAuto = eventsFromTja(restTja, { bigNote: "single" }).events.map((e) =>
       e.hand + (e.big ? "*" : "") + "@" + e.t.toFixed(2)).join(",");
@@ -956,7 +1216,7 @@
         "sticking src-align --measures 119-120 (passage-relative, first t≈0 not -94)",
         "sticking without --measures keeps JSON t",
         "sticking src-align follows mid-measure #BPMCHANGE",
-        "assignHands never emits roll",
+        "autoSticking default 自动滚奏 16ths 2-2; 不滚奏 stays singles",
         "sticking (RR)(LL) marks pinch-pair rolls and hands",
         "bigNote=single / both (no reset) / small + default single",
         "hand:both expands; 溯月 switch only changes drawn size",
@@ -979,8 +1239,17 @@
     parseMeasuresOpt,
     assignHands,
     normBigMode,
+    normTechnique,
+    displayTechnique,
+    jsonTechniqueOf,
+    titleTechniqueFromSources,
+    normDominant,
+    normRoll,
+    notesToStickingInput,
+    eventsFromAutoSticking,
     applyBigNoteToHandEvents,
     eventsFromTja,
+    chartFromTjaAndHands,
     loadHandJson,
     sliceBpmTimeline,
     parseSticking,

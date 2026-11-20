@@ -54,6 +54,8 @@
   }
 
   function connected(delta, laterBpm) {
+    // 0 或负间隔：同一拍重复 / 乱序残差，不能当成连音或滚奏对。
+    if (!gt(delta, 0)) return false;
     if (laterBpm >= 270) return le(delta, 0.5);
     return lt(delta, 0.5);
   }
@@ -701,22 +703,109 @@
     return { hands: hands, rollPairs: rollPairs, warnings: warnings };
   }
 
+  function sortOrder(notes) {
+    var order = [];
+    for (var i = 0; i < notes.length; i++) order.push(i);
+    order.sort(function (a, b) {
+      var da = +notes[a].beat || 0;
+      var db = +notes[b].beat || 0;
+      if (da < db) return -1;
+      if (da > db) return 1;
+      return a - b;
+    });
+    return order;
+  }
+
+  function sameBeatWarnings(notes, order) {
+    var warnings = [];
+    var i = 0;
+    while (i < order.length) {
+      var j = i + 1;
+      while (j < order.length && near(notes[order[j]].beat, notes[order[i]].beat, EPS)) j++;
+      if (j - i >= 2) {
+        var orig = order.slice(i, j);
+        var lo = orig[0], hi = orig[0];
+        for (var k = 1; k < orig.length; k++) {
+          if (orig[k] < lo) lo = orig[k];
+          if (orig[k] > hi) hi = orig[k];
+        }
+        warnings.push([lo, hi, "同拍重复"]);
+      }
+      i = j;
+    }
+    return warnings;
+  }
+
+  function remapHands(hands, order, n) {
+    var out = new Array(n);
+    for (var s = 0; s < order.length; s++) out[order[s]] = hands[s];
+    return out;
+  }
+
+  function remapPairs(pairs, order) {
+    var out = [];
+    for (var i = 0; i < (pairs || []).length; i++) {
+      var a = order[pairs[i][0]], b = order[pairs[i][1]];
+      out.push(a < b ? [a, b] : [b, a]);
+    }
+    out.sort(function (p, q) { return p[0] - q[0] || p[1] - q[1]; });
+    return out;
+  }
+
+  function remapWarnings(warnings, order) {
+    var out = [];
+    for (var i = 0; i < (warnings || []).length; i++) {
+      var w = warnings[i];
+      var a = order[w[0]], b = order[w[1]];
+      out.push([Math.min(a, b), Math.max(a, b), w[2]]);
+    }
+    return out;
+  }
+
+  /**
+   * autoSticking(notes, { bpm, 手法, 惯用手, 滚奏, 补16分洞 })
+   *   → { hands, rollPairs, warnings, insertedNotes? }
+   *
+   * 入口先拷一份按 beat 排序；同一拍重复写入 warnings（type「同拍重复」），
+   * 0 / 负间隔不当连音、也不进滚奏对。hands / rollPairs / warnings 的下标
+   * 仍对应调用者传入的原始顺序（未开补 16 分洞时）。
+   */
   function autoSticking(notes, opts) {
     notes = notes || [];
     opts = opts || {};
-    var 补 = !!(opts.补16分洞);
-    var working = notes;
+    var n = notes.length;
+    var order = sortOrder(notes);
+    var sorted = order.map(function (i) { return notes[i]; });
+    var preWarnings = sameBeatWarnings(notes, order);
+
+    var working = sorted;
     var insertedNotes = null;
-    if (补) {
-      var holes = findSixteenthHoles(notes, opts.bpm);
+    if (opts.补16分洞) {
+      var holes = findSixteenthHoles(sorted, opts.bpm);
       if (holes.length) {
-        var ins = insertHoles(notes, holes);
+        var ins = insertHoles(sorted, holes);
         working = ins.notes;
-        insertedNotes = ins.insertedNotes;
+        insertedNotes = ins.insertedNotes.map(function (it) {
+          return {
+            afterIndex: order[it.afterIndex],
+            beat: it.beat,
+            colour: it.colour,
+            big: it.big
+          };
+        });
       }
     }
+
     var out = runPipeline(working, opts);
-    if (insertedNotes) out.insertedNotes = insertedNotes;
+    if (insertedNotes) {
+      // 展开序列按下标对准插入后的时间序（与说明第 8 节一致）；afterIndex 已是原谱下标。
+      out.insertedNotes = insertedNotes;
+      out.warnings = preWarnings.concat(out.warnings || []);
+      return out;
+    }
+    out.hands = remapHands(out.hands, order, n);
+    out.rollPairs = remapPairs(out.rollPairs, order);
+    out.warnings = preWarnings.concat(remapWarnings(out.warnings, order));
     return out;
   }
 

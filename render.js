@@ -54,7 +54,10 @@ Flags:
   --measures <A-B>     Inclusive 1-based measure range (default: whole chart)
   --rate <n>           Slow-motion factor applied to the video timeline (default 1).
                        0.5 → video is 2× longer. renderAt still receives real chart time.
-  --sticking <path>    Optional 手顺 JSON (溯月 mode). If omitted, auto 1-1 手顺 is used.
+  --sticking <path>    Optional 手顺 JSON. If omitted, autoSticking is used.
+  --technique <name>   手法: 全换 (default) / 半换A / 半换B / 炒菜. Ignored when --sticking is set.
+  --hand <R|L>         惯用手 (default R). Ignored when --sticking is set.
+  --roll <mode>        滚奏: 不滚奏 / 自动滚奏 (default) / 24分滚奏. Ignored when --sticking is set.
   --bignote <mode>     Big-note handling: single (default) / both / small
   --fps <n>            Frames per second (default 60)
   --size <1080p|720p|WxH>  Output resolution (default 1080p)
@@ -79,6 +82,9 @@ function parseArgs(argv) {
     measures: null,
     rate: 1,
     sticking: null,
+    technique: undefined,
+    hand: "R",
+    roll: "自动滚奏",
     bignote: "single",
     fps: 60,
     size: "1080p",
@@ -100,6 +106,9 @@ function parseArgs(argv) {
       case "--measures": args.measures = need(); break;
       case "--rate": args.rate = Number(need()); break;
       case "--sticking": args.sticking = need(); break;
+      case "--technique": args.technique = need(); break;
+      case "--hand": args.hand = need(); break;
+      case "--roll": args.roll = need(); break;
       case "--bignote": args.bignote = need(); break;
       case "--fps": args.fps = Number(need()); break;
       case "--size": args.size = need(); break;
@@ -242,10 +251,23 @@ function mixHitAudio(events, { start, end, rate, don, ka, bigBoost = 1.25 }) {
 
 function buildPayload(args) {
   const tjaText = fs.readFileSync(path.resolve(args.tja), "utf8");
-  const opts = { course: args.course, measures: args.measures, bigNote: args.bignote };
+  const opts = {
+    course: args.course,
+    measures: args.measures,
+    bigNote: args.bignote,
+    手法: args.technique,
+    惯用手: args.hand,
+    滚奏: args.roll,
+  };
+  if (args.technique != null && String(args.technique).trim() !== "") {
+    opts.titleTechnique = args.technique;
+  }
   if (args.sticking) {
-    const base = TaikoParser.eventsFromTja(tjaText, opts);
     const jsonText = fs.readFileSync(path.resolve(args.sticking), "utf8");
+    if (typeof TaikoParser.chartFromTjaAndHands === "function") {
+      return TaikoParser.chartFromTjaAndHands(tjaText, jsonText, opts);
+    }
+    const base = TaikoParser.eventsFromTja(tjaText, opts);
     const hands = TaikoParser.loadHandJson(jsonText, {
       measures: args.measures,
       rangeStart: base.rangeStart,

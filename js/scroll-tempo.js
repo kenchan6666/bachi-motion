@@ -9,14 +9,18 @@
  *
  *   px/s = basePxPerSec × (noteBpm / referenceBpm) × #SCROLL × 流速
  *
- * referenceBpm is the opening timeline BPM. A #SCROLL 1 note at that tempo
- * matches 变速 off, so the slider stays a multiplier on top of a familiar
- * base. Equal BPM × #SCROLL products then move at the same speed (150×2,
- * 75×4 and 300×1 match; 150×1 is half of 300×1). #MEASURE only sets how
- * many quarter beats a bar lasts; it does not change pixels per second.
- * A later note with a higher product is faster and can pass the one ahead.
- * Speed stays the note's own product even while playback is still in an
- * earlier BPM.
+ * referenceBpm is the highest BPM on the timeline, not the opening one.
+ * #SCROLL 1 at that tempo matches 变速 off. A chart whose header / first
+ * bar is slower (第六天魔王 is BPM 150, then #SCROLL 2, and only afterwards
+ * #BPMCHANGE 300) must not divide by 150: that made 150×2 and 300×1 both
+ * twice the unit speed, so the opening ooo flew. Dividing by 300 keeps
+ * 150×2, 75×4 and 300×1 at the unit speed, and 150×1 at half.
+ * The note still keeps the BPM in effect at its own hit. Copying a later
+ * #BPMCHANGE onto an earlier #SCROLL (150×2 becoming 300×2) is 600 and
+ * flies. #MEASURE only sets how many quarter beats a bar lasts; it does
+ * not change pixels per second. A later note with a higher product is
+ * faster and can pass the one ahead. Speed stays the note's own product
+ * even while playback is still in an earlier BPM.
  *
  * 变速 off is 等速 practice. #SCROLL is ignored and BPM does not change
  * pixels per second. Hit timing still follows BPM.
@@ -67,10 +71,17 @@
     }).sort(function (a, b) { return a.t - b.t; });
   }
 
-  /** Opening timeline BPM. #SCROLL 1 at this tempo matches basePxPerSec. */
+  /**
+   * Highest timeline BPM. #SCROLL 1 there matches basePxPerSec.
+   * The opening piece is often the song BPM and is slower than 基本 BPM.
+   */
   function referenceBpm(timeline) {
     var pieces = piecesOf(timeline);
-    return pieces.length ? pieces[0].bpm : 120;
+    var ref = 0;
+    for (var i = 0; i < pieces.length; i++) {
+      if (pieces[i].bpm > ref) ref = pieces[i].bpm;
+    }
+    return ref > 0 ? ref : 120;
   }
 
   /** BPM of the timeline piece that contains `tNote` (the piece that starts at a boundary wins). */

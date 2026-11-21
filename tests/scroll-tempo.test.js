@@ -1,11 +1,12 @@
 /**
  * 变速开关在慢放和流速上面；流速要能取 1.1、1.2。
  * 打开变速：跟本家。每颗音用自己命中时刻的 BPM 和 #SCROLL 匀速移动，
- *   像素/秒 = 基准 × (该音 BPM / 谱面开头 BPM) × 该音 SCROLL × 流速。
- *   所以 BPM×SCROLL 相同就一样快：150×2、75×4 和 300×1 同速，150×1 是一半。
+ *   像素/秒 = 基准 × (该音 BPM / 谱面最高 BPM) × 该音 SCROLL × 流速。
+ *   最高 BPM 且 SCROLL 为 1 是单位速度，和关掉变速一样快。
+ *   150×2、75×4 和 300×1 同速；150×1 是一半。
+ *   后面的 #BPMCHANGE 不会提前乘到前面的音上（150×2 不能变成 300×2）。
  *   #MEASURE 只决定一小节有几拍，不另改像素/秒。
  * 关掉变速：等速。忽略 #SCROLL，BPM 也不改像素/秒。击打时刻仍跟 BPM。
- * 开头 BPM、SCROLL 为 1 时，打开和关掉一样快。
  *
  *   node tests/scroll-tempo.test.js
  */
@@ -47,6 +48,45 @@ function tja(body, headerBpm) {
 
 function parse(body, headerBpm) {
   return parser.eventsFromTja(tja(body, headerBpm));
+}
+
+/**
+ * 本家风里谱开头、第 76 小节、137 起的慢流速。命令从公开 TJADB 谱
+ * 「Dairokuten Maou」COURSE:Edit 照抄（表头 BPM:150，无 HEADSCROLL）。
+ * 中间小节省掉了，所以这里的小节号不是 76 / 137，但命令原文不变。
+ * 第 2 小节最后一拍是 111222：ooo 再接 xxx。#BPMCHANGE 300 写在这一拍之后。
+ */
+function uraTja() {
+  return [
+    "TITLE:Dairokuten Maou",
+    "TITLEJA:第六天魔王",
+    "BPM:150",
+    "OFFSET:0",
+    "COURSE:Edit",
+    "LEVEL:10",
+    "#START",
+    "3,",
+    "#SCROLL 2",
+    "000000000000000000111222,",
+    "#BPMCHANGE 300",
+    "#SCROLL 1",
+    "7,",
+    "0000000080001110,",
+    "#MEASURE 2/4",
+    "#BPMCHANGE 75",
+    "#SCROLL 4",
+    "0822,",
+    "#MEASURE 4/4",
+    "#BPMCHANGE 300",
+    "#SCROLL 1",
+    "1110101020001110,",
+    "#SCROLL 0.89",
+    "1110102010102220,",
+    "#SCROLL 0.62",
+    "2222111122112121,",
+    "#END",
+    "",
+  ].join("\n");
 }
 
 function transportHtml() {
@@ -240,7 +280,8 @@ function startStaticServer(root) {
     assert.ok(slow.length >= 2 && fast.length >= 2);
     nearly(slow[1].t - slow[0].t, 0.5);
     nearly(fast[1].t - fast[0].t, 0.25);
-    assert.strictEqual(ScrollTempo.referenceBpm(bpm.bpmTimeline), 120);
+    // 单位速度是谱面最高 BPM，不是开头的 120。240×1 才和等速一样。
+    assert.strictEqual(ScrollTempo.referenceBpm(bpm.bpmTimeline), 240);
     function gap(show, user, notes) {
       const now = notes[0].t;
       const x = (note) => ScrollTempo.noteX({
@@ -250,13 +291,14 @@ function startStaticServer(root) {
       });
       return x(notes[1]) - x(notes[0]);
     }
-    // 开头 120。一拍的像素宽度跟 BPM 无关：240 的四分音符在画面上和 120 一样宽，但跑得更快。
-    // 关掉变速仍是等速，快段只因为时值更短而更近。
-    nearly(gap(true, 1, slow), 0.5 * BASE_PX);
+    // 一拍的像素宽度跟该音自己的 BPM 无关：打开变速时 120 和 240 的四分音符一样宽。
+    // 120 比单位速度慢，所以比等速更窄；240×1 就是单位速度，和等速一样。
+    nearly(gap(true, 1, slow), 0.25 * BASE_PX);
     nearly(gap(false, 1, slow), 0.5 * BASE_PX);
-    nearly(gap(true, 1, fast), 0.5 * BASE_PX);
+    nearly(gap(true, 1, fast), 0.25 * BASE_PX);
     nearly(gap(false, 1, fast), 0.25 * BASE_PX);
-    assert.ok(Math.abs(gap(true, 1, fast) - gap(false, 1, fast)) > 100, "快段打开变速后不该仍按等速挤在一起");
+    nearly(gap(true, 1, slow), gap(true, 1, fast));
+    assert.ok(Math.abs(gap(true, 1, slow) - gap(false, 1, slow)) > 100, "慢段打开变速后不该仍按等速拉开");
 
     const scrolled = parse("#SCROLL 1\n1111,\n#SCROLL 2\n1111,\n#SCROLL 0.25\n1111,", 120);
     const wide = scrolled.events.filter((e) => Math.abs(e.scroll - 2) < 1e-9);
@@ -369,52 +411,36 @@ function startStaticServer(root) {
     nearly(at(true, 1), at(false, 1));
   });
 
-  await check("变速打开时 150×2、75×4 与 300×1 同速，2/4 不另加速，关掉则等速", () => {
+  await check("里第六天魔王开头 ooo 按 150×2 走，不把后面的 300 提前乘上去", () => {
     const ScrollTempo = loadScrollTempo();
-    const data = parse([
-      "#SCROLL 1",
-      "1,",
-      "#SCROLL 2",
-      "1,",
-      "#BPMCHANGE 300",
-      "#SCROLL 1",
-      "1,",
-      "#SCROLL 0.62",
-      "1,",
-      "#BPMCHANGE 75",
-      "#SCROLL 4",
-      "#MEASURE 2/4",
-      "0202,",
-      "#MEASURE 4/4",
-      "1111,",
-      "#BPMCHANGE 300",
-      "#SCROLL 1",
-      "#MEASURE 2/4",
-      "1,",
-      "#MEASURE 6/8",
-      "1,",
-    ].join("\n"), 150);
-    const events = data.events;
-    assert.strictEqual(ScrollTempo.referenceBpm(data.bpmTimeline), 150);
-    function find(bpm, scroll, src) {
-      const note = events.find((e) => Math.abs(e.bpm - bpm) < 0.01
-        && Math.abs(e.scroll - scroll) < 1e-9
-        && e.src === src);
-      assert.ok(note, "找不到 " + bpm + "×" + scroll + " @ " + src);
-      return note;
+    const data = parser.eventsFromTja(uraTja(), { course: "Edit" });
+    const events = data.events.filter((e) => !e.both || e.hand === "R");
+    // 单位速度是谱面最高 BPM 300，不是表头 / 开头时间线的 150。
+    assert.strictEqual(ScrollTempo.referenceBpm(data.bpmTimeline), 300);
+    const open = events.find((e) => e.src === "1:0");
+    assert.ok(open, "第 1 小节没有大音符");
+    assert.strictEqual(open.type, "bigdon");
+    assert.strictEqual(open.bpm, 150);
+    assert.strictEqual(open.scroll, 1);
+    const ooo = events.filter((e) => e.measure === 2 && e.pos >= 18 && e.pos <= 20);
+    const xxx = events.filter((e) => e.measure === 2 && e.pos >= 21 && e.pos <= 23);
+    assert.deepStrictEqual(ooo.map((e) => e.face), ["don", "don", "don"]);
+    assert.deepStrictEqual(xxx.map((e) => e.face), ["ka", "ka", "ka"]);
+    for (const note of ooo.concat(xxx)) {
+      assert.strictEqual(note.bpm, 150, note.src + " 被写成了后面的 BPM");
+      assert.strictEqual(note.scroll, 2, note.src + " 的 #SCROLL 不是 2");
     }
-    const open = find(150, 1, "1:0");
-    const scrolled = find(150, 2, "2:0");
-    const main = find(300, 1, "3:0");
-    const slowHs = find(300, 0.62, "4:0");
-    const kaOff = events.filter((e) => e.src === "5:1" || e.src === "5:3");
-    assert.strictEqual(kaOff.length, 2);
-    assert.ok(Math.abs(kaOff[0].bpm - 75) < 0.01 && Math.abs(kaOff[1].scroll - 4) < 1e-9);
-    nearly(kaOff[1].t - kaOff[0].t, 60 / 75);
-    const quarters = events.filter((e) => e.src.indexOf("6:") === 0).sort((a, b) => a.t - b.t);
-    assert.ok(quarters.length >= 2);
-    const twoFour = find(300, 1, "7:0");
-    const sixEight = find(300, 1, "8:0");
+    const main = events.find((e) => e.src === "4:12");
+    assert.ok(main && main.bpm === 300 && main.scroll === 1, "300×1 的主速度音符不在");
+    const kaOff = events.filter((e) => e.bpm === 75 && Math.abs(e.scroll - 4) < 1e-9);
+    assert.strictEqual(kaOff.length, 2, "2/4、BPM 75、SCROLL 4 应该是两个咔");
+    assert.deepStrictEqual(kaOff.map((e) => e.face), ["ka", "ka"]);
+    nearly(kaOff[1].t - kaOff[0].t, 0.4);
+    const back = events.find((e) => e.bpm === 300 && e.scroll === 1 && e.measure > main.measure);
+    assert.ok(back, "回到 4/4 之后的 300×1 不在");
+    const ease = events.find((e) => Math.abs(e.scroll - 0.89) < 1e-9 && e.bpm === 300);
+    const crawl = events.find((e) => Math.abs(e.scroll - 0.62) < 1e-9 && e.bpm === 300);
+    assert.ok(ease && crawl, "137 起的 0.89 和后面的 0.62 不在");
     function speed(note, show, user) {
       const far = ScrollTempo.noteX({
         tNote: note.t, now: note.t - 1, scroll: user == null ? 1 : user, showTempo: show,
@@ -429,41 +455,29 @@ function startStaticServer(root) {
       return far - hit;
     }
     const vOpen = speed(open, true);
+    const vOoo = speed(ooo[0], true);
     const vMain = speed(main, true);
-    const vPair = speed(scrolled, true);
-    const vKa = speed(kaOff[0], true);
-    const vQuarter = speed(quarters[0], true);
-    nearly(vOpen, BASE_PX);
-    nearly(vMain, BASE_PX * 2);
+    nearly(vOpen, BASE_PX * 0.5);
+    nearly(vOoo, BASE_PX);
+    nearly(vMain, BASE_PX);
     nearly(vOpen, vMain / 2);
-    nearly(vPair, vMain);
-    nearly(vKa, vMain);
-    nearly(vQuarter, vMain);
-    nearly(speed(twoFour, true), vMain);
-    nearly(speed(sixEight, true), vMain);
-    nearly(speed(slowHs, true), vMain * slowHs.scroll);
-    assert.ok(speed(slowHs, true) < vMain * 0.9, "0.62 的慢流速应该看得出来");
+    nearly(vOoo, vMain);
+    nearly(speed(xxx[0], true), vMain);
+    nearly(speed(kaOff[0], true), vMain);
+    nearly(speed(back, true), vMain);
+    // 若把 #BPMCHANGE 300 提前乘到 SCROLL 2 上，就是 600，比主速度再快一倍。
+    const flew = BASE_PX * (300 / 300) * 2;
+    assert.ok(Math.abs(vOoo - flew) > 100, "ooo 按 300×2 在飞");
+    assert.ok(Math.abs(vOoo - BASE_PX * 2) > 100, "ooo 不该是单位速度的两倍");
+    nearly(speed(ease, true), vMain * 0.89);
+    nearly(speed(crawl, true), vMain * 0.62);
+    assert.ok(speed(crawl, true) < speed(ease, true), "0.62 应该比 0.89 更慢");
+    assert.ok(speed(crawl, true) < vMain * 0.9, "0.62 的慢流速应该看得出来");
     nearly(speed(main, true, 1.2), vMain * 1.2);
-    nearly(speed(kaOff[0], true, 1.1), vKa * 1.1);
+    nearly(speed(ooo[0], true, 1.1), vOoo * 1.1);
+    nearly(speed(kaOff[0], true, 1.2), vMain * 1.2);
 
-    function gap(a, b) {
-      const now = a.t;
-      const xa = ScrollTempo.noteX({
-        tNote: a.t, now, scroll: 1, showTempo: true,
-        chartScroll: a.scroll, bpm: a.bpm, timeline: data.bpmTimeline,
-        judgeX: JUDGE_X, basePxPerSec: BASE_PX,
-      });
-      const xb = ScrollTempo.noteX({
-        tNote: b.t, now, scroll: 1, showTempo: true,
-        chartScroll: b.scroll, bpm: b.bpm, timeline: data.bpmTimeline,
-        judgeX: JUDGE_X, basePxPerSec: BASE_PX,
-      });
-      return xb - xa;
-    }
-    nearly(gap(kaOff[0], kaOff[1]), gap(quarters[0], quarters[1]));
-    nearly(gap(kaOff[0], kaOff[1]), (60 / 75) * vMain);
-
-    // 还在 150 段里看后面的 300 音：它已经按自己的 BPM×SCROLL 在跑，不是先跟当前段再突然加速。
+    // 还在 150 段里看后面的 300 音：它已经按自己的 300×1 在跑，不是先跟当前段再突然加速。
     const ahead = ScrollTempo.noteX({
       tNote: main.t, now: 0, scroll: 1, showTempo: true,
       chartScroll: main.scroll, bpm: main.bpm, timeline: data.bpmTimeline,
@@ -476,14 +490,21 @@ function startStaticServer(root) {
     });
     nearly(ahead - aheadLater, vMain);
 
+    // 没带上音符自己的 BPM 时，按命中时刻从时间线取，第 4 小节仍是 300 而不是第 2 小节的 150。
     const lookedUp = ScrollTempo.noteX({
       tNote: main.t, now: main.t - 1, scroll: 1, showTempo: true,
       chartScroll: main.scroll, timeline: data.bpmTimeline,
       judgeX: JUDGE_X, basePxPerSec: BASE_PX,
     });
     nearly(lookedUp - JUDGE_X, vMain);
+    const oooLooked = ScrollTempo.noteX({
+      tNote: ooo[0].t, now: ooo[0].t - 1, scroll: 1, showTempo: true,
+      chartScroll: ooo[0].scroll, timeline: data.bpmTimeline,
+      judgeX: JUDGE_X, basePxPerSec: BASE_PX,
+    });
+    nearly(oooLooked - JUDGE_X, vOoo);
 
-    for (const note of [open, scrolled, main, slowHs, kaOff[0], twoFour, sixEight]) {
+    for (const note of [open, ooo[0], xxx[0], main, kaOff[0], ease, crawl, back]) {
       nearly(speed(note, false), BASE_PX);
       nearly(speed(note, false, 1.2), BASE_PX * 1.2);
     }
@@ -491,9 +512,6 @@ function startStaticServer(root) {
     const head = parser.eventsFromTja(
       "TITLE:tempo-test\nBPM:150\nOFFSET:0\nHEADSCROLL:2\n#START\n1,\n#END\n"
     );
-    nearly(speedOf(head, true), BASE_PX * 2);
-    nearly(speedOf(head, false), BASE_PX);
-
     function speedOf(chart, show) {
       const note = chart.events[0];
       const far = ScrollTempo.noteX({
@@ -508,6 +526,8 @@ function startStaticServer(root) {
       });
       return far - hit;
     }
+    nearly(speedOf(head, true), BASE_PX * 2);
+    nearly(speedOf(head, false), BASE_PX);
   });
 
   await check("页面上可以开关变速，并把流速拨到 1.1 和 1.2", async () => {
@@ -637,7 +657,6 @@ function startStaticServer(root) {
       nearly(closest(placed.off, wantOff), wantOff, 0.2);
       assert.ok(Math.abs(wantOn - wantOff) > 100, "开关变速后 #SCROLL 段的间距应明显不同");
 
-      const bpmChart = tja("#SCROLL 1\n1111,\n#BPMCHANGE 300\n#SCROLL 1\n1111,", 150);
       const bpmPlaced = await page.evaluate((text) => {
         const input = document.getElementById("scroll");
         input.value = "1";
@@ -650,24 +669,40 @@ function startStaticServer(root) {
           .filter((e) => !e.both || e.hand === "R")
           .slice()
           .sort((a, b) => a.t - b.t);
-        const fast = events.find((e) => Math.abs(e.bpm - 300) < 0.01);
-        const now = fast.t - 0.2;
+        const ooo = events.find((e) => e.bpm === 150 && e.scroll === 2);
+        const main = events.find((e) => e.bpm === 300 && e.scroll === 1);
+        if (!ooo || !main) {
+          return {
+            missing: true,
+            n: events.length,
+            sample: events.slice(0, 8).map((e) => ({ t: e.t, bpm: e.bpm, scroll: e.scroll, face: e.face })),
+          };
+        }
+        const now = ooo.t - 0.2;
         window.renderAt(now);
         return {
-          t: fast.t,
-          bpm: fast.bpm,
-          chartScroll: fast.scroll,
+          t: ooo.t,
+          bpm: ooo.bpm,
+          chartScroll: ooo.scroll,
+          mainT: main.t,
+          mainBpm: main.bpm,
+          mainScroll: main.scroll,
           now,
           user: window.taikoAnim.state.scroll,
           show: window.taikoAnim.state.showTempo,
           timeline: window.taikoAnim.state.bpmTimeline,
           xs: [...document.querySelectorAll("#chart circle")].map((el) => +el.getAttribute("cx")),
         };
-      }, bpmChart);
+      }, uraTja());
+      assert.ok(!bpmPlaced.missing, "页面没有解析出 150×2 和 300×1：" + JSON.stringify(bpmPlaced));
       assert.strictEqual(bpmPlaced.show, true);
       assert.strictEqual(bpmPlaced.user, 1);
-      assert.strictEqual(ScrollTempo.referenceBpm(bpmPlaced.timeline), 150);
-      const wantFast = ScrollTempo.noteX({
+      assert.strictEqual(bpmPlaced.bpm, 150);
+      assert.strictEqual(bpmPlaced.chartScroll, 2);
+      assert.strictEqual(bpmPlaced.mainBpm, 300);
+      assert.strictEqual(bpmPlaced.mainScroll, 1);
+      assert.strictEqual(ScrollTempo.referenceBpm(bpmPlaced.timeline), 300);
+      const wantOoo = ScrollTempo.noteX({
         tNote: bpmPlaced.t,
         now: bpmPlaced.now,
         scroll: bpmPlaced.user,
@@ -678,10 +713,25 @@ function startStaticServer(root) {
         judgeX: JUDGE_X,
         basePxPerSec: BASE_PX,
       });
-      const timeOnly = JUDGE_X + (bpmPlaced.t - bpmPlaced.now) * BASE_PX * bpmPlaced.user;
-      assert.ok(Math.abs(wantFast - timeOnly) > 100, "BPM 300 仍按不计 BPM 的等速排");
-      assert.ok(bpmPlaced.xs.length > 0, "BPM 300 的音符没有画出来");
-      nearly(closest(bpmPlaced.xs, wantFast), wantFast, 0.2);
+      const wantMain = ScrollTempo.noteX({
+        tNote: bpmPlaced.mainT,
+        now: bpmPlaced.mainT - 0.2,
+        scroll: bpmPlaced.user,
+        showTempo: true,
+        chartScroll: bpmPlaced.mainScroll,
+        bpm: bpmPlaced.mainBpm,
+        timeline: bpmPlaced.timeline,
+        judgeX: JUDGE_X,
+        basePxPerSec: BASE_PX,
+      });
+      const timeOnly = JUDGE_X + 0.2 * BASE_PX;
+      nearly(wantOoo - JUDGE_X, 0.2 * BASE_PX);
+      nearly(wantMain - JUDGE_X, wantOoo - JUDGE_X);
+      const flew = JUDGE_X + 0.2 * BASE_PX * 2;
+      assert.ok(Math.abs(wantOoo - flew) > 100, "页面上的 ooo 仍按两倍速度在飞");
+      assert.ok(bpmPlaced.xs.length > 0, "开头的 ooo 没有画出来");
+      nearly(closest(bpmPlaced.xs, wantOoo), wantOoo, 0.2);
+      assert.ok(Math.abs(wantOoo - timeOnly) < 1, "150×2 应该和单位速度的等距一样");
 
       const offPage = await browser.newPage();
       await offPage.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });

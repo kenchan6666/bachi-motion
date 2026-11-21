@@ -1818,10 +1818,17 @@ function noteX(tNote, now, scroll, chartScroll, bpm) {
   const chart = (show && isFinite(+chartScroll)) ? +chartScroll : 1;
   let tempo = 1;
   if (show) {
-    const opening = state && state.bpmTimeline && state.bpmTimeline.length ? +state.bpmTimeline[0].bpm : 120;
-    const ref = isFinite(opening) && opening > 0 ? opening : 120;
-    const b = isFinite(+bpm) && +bpm > 0 ? +bpm : ref;
-    tempo = b / ref;
+    let ref = 0;
+    const timeline = state && state.bpmTimeline;
+    if (timeline) {
+      for (let i = 0; i < timeline.length; i++) {
+        const b = +timeline[i].bpm;
+        if (b > ref) ref = b;
+      }
+    }
+    if (!(ref > 0)) ref = 120;
+    const note = isFinite(+bpm) && +bpm > 0 ? +bpm : ref;
+    tempo = note / ref;
   }
   return GEOM.lane.judgeX + (tNote - now) * CONFIG.BASE_PX_PER_SEC * scroll * chart * tempo;
 }
@@ -2740,7 +2747,7 @@ const state = {
   hands: ["none", "vector"].includes(params.get("hands")) ? params.get("hands") : "img",   // img=画师手图（默认）；vector=代码画的手；none=不画手
   rate: pickNum(params.get("rate"), 1, 0.05, 4),
   scroll: pickNum(params.get("scroll"), 1, 0.5, 8),
-  // 变速：打开时每颗音按自己的 #SCROLL 走。?tempo=0 关掉，忽略 #SCROLL，像素/秒不变。
+  // 变速：打开时每颗音按自己的 BPM×#SCROLL 走，单位速度是谱面最高 BPM。?tempo=0 关掉，忽略 BPM 和 #SCROLL。
   showTempo: !/^(0|off|false|no)$/i.test(params.get("tempo") == null ? "" : String(params.get("tempo"))),
   route: ["inner", "outer", "straight"].includes(params.get("route")) ? params.get("route") : "data",
   labels: params.get("labels") === "1",                 // R/L 调试标签：?labels=1 打开

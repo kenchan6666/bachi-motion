@@ -276,7 +276,7 @@ const CLEAN_TJA = tja("总览干净", [
     if (!onlyMeasure1) fail("could not find the measure-1 warning");
     await page.evaluate((range) => {
       window.BachiEditor.selectRange(range[0], range[1]);
-      document.querySelector('#editorRangePop [data-ed-action="roll"]').click();
+      window.BachiEditor.applyRangeAction("22");
     }, onlyMeasure1);
     const clearedOne = await readOverview(page);
     assertMarks(clearedOne, "cleared measure 1");
@@ -286,7 +286,7 @@ const CLEAN_TJA = tja("总览干净", [
 
     await page.evaluate((range) => {
       window.BachiEditor.selectRange(range[0], range[1]);
-      document.querySelector('#editorRangePop [data-ed-action="restore"]').click();
+      window.BachiEditor.applyRangeAction("restore");
     }, onlyMeasure1);
     const restored = await readOverview(page);
     assertMarks(restored, "restored measure 1");
@@ -297,7 +297,7 @@ const CLEAN_TJA = tja("总览干净", [
     for (const range of ranges) {
       await page.evaluate((item) => {
         window.BachiEditor.selectRange(item[0], item[1]);
-        document.querySelector('#editorRangePop [data-ed-action="roll"]').click();
+        window.BachiEditor.applyRangeAction("22");
       }, range);
     }
     const none = await readOverview(page);

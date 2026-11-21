@@ -325,9 +325,27 @@ function assertNear(fails, id, pop, btn) {
       return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
     });
     const scrollBeforeNote = (await metrics()).scrollLeft;
+    const handBefore = await page.evaluate(() => {
+      const el = document.querySelector('#editorMeasures .editor-measure[data-index="1"] .editor-note');
+      const index = +el.dataset.index;
+      return { index: index, hand: window.BachiEditor.getResolved().hands[index] };
+    });
     await page.mouse.click(note.x, note.y);
     const afterNote = await metrics();
-    if (!afterNote.swap) fail("clicking a note did not open hand swap");
+    const flipped = await page.evaluate((index) => {
+      const st = window.BachiEditor.getState();
+      return {
+        hand: window.BachiEditor.getResolved().hands[index],
+        selection: st.selection,
+        playing: !!(window.taikoAnim && window.taikoAnim.state && window.taikoAnim.state.playing),
+      };
+    }, handBefore.index);
+    if (afterNote.swap) fail("clicking a note opened the hand-swap popup");
+    if (flipped.hand === handBefore.hand) fail("clicking a note did not swap the hand");
+    if (!flipped.selection || flipped.selection.type !== "note" || flipped.selection.index !== handBefore.index) {
+      fail("clicking a note did not keep that note selected");
+    }
+    if (flipped.playing) fail("clicking a note started playback");
     if (Math.abs(afterNote.scrollLeft - scrollBeforeNote) > 2) fail("clicking a note panned the chart");
     if (afterNote.zoom) fail("clicking a single note opened the zoom card");
 
@@ -342,7 +360,11 @@ function assertNear(fails, id, pop, btn) {
     });
     await drag(pair.a.x, pair.a.y, pair.b.x, pair.b.y);
     const afterRange = await metrics();
-    if (!afterRange.range) fail("drag-select did not open the roll editor");
+    if (!afterRange.range) fail("drag-select did not show the track actions");
+    const rangeLabels = await page.evaluate(() => {
+      return [...document.querySelectorAll("#editorRangePop button")].map((b) => b.textContent.trim()).join(",");
+    });
+    if (rangeLabels !== "1-2,2-1,2-2,循环试听") fail("drag-select actions are " + rangeLabels);
     if (afterRange.scrollLeft > 30) fail("drag-select panned the chart by " + afterRange.scrollLeft.toFixed(1));
 
     await reset();
@@ -508,9 +530,19 @@ function assertNear(fails, id, pop, btn) {
       if (!zoomNote) fail("zoom note is off screen");
       else {
         const panBefore = (await metrics()).panX;
+        const zoomHand = await page.evaluate((pt) => {
+          const hit = document.elementFromPoint(pt.x, pt.y);
+          const el = hit && hit.closest(".editor-zoom .editor-note");
+          const index = el ? +el.dataset.index : -1;
+          return { index: index, hand: index >= 0 ? window.BachiEditor.getResolved().hands[index] : "" };
+        }, zoomNote);
         await page.mouse.click(zoomNote.x, zoomNote.y);
         const swapped = await metrics();
-        if (!swapped.swap) fail("zoom note click did not open hand swap");
+        const zoomAfter = await page.evaluate((index) => {
+          return index >= 0 ? window.BachiEditor.getResolved().hands[index] : "";
+        }, zoomHand.index);
+        if (swapped.swap) fail("zoom note click opened the hand-swap popup");
+        if (!zoomAfter || zoomAfter === zoomHand.hand) fail("zoom note click did not swap the hand");
         if (Math.abs(swapped.panX - panBefore) > 0.5) fail("zoom note click changed pan");
         if (!swapped.zoom) fail("zoom note click closed the card");
         await page.evaluate(() => { document.getElementById("editorSwapPop").hidden = true; });

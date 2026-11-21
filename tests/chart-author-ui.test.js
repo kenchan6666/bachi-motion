@@ -254,8 +254,19 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
     check(addHelp.open, "加入音符 hint did not open");
     check(addHelp.text.includes(ADD_HELP), "加入音符 hint missing explanation");
     check(addHelp.text.includes("16 分"), "加入音符 hint missing grid");
+    check(addHelp.text.includes("不勾选时，谱面是一条连续的轨道"), "combined hint missing 分开小节");
+    check(addHelp.text.includes("按小节分成一张张卡片"), "combined hint missing the checked layout");
     check(!addHelp.standing, "加入音符 explanation is standing copy");
     check(!addHelp.text.includes("咕") && !addHelp.text.includes("咛"), "加入音符 hint typo");
+    const authorHints = await page.$$eval("#editorAuthor .route-hint-btn", (els) => els.map((el) => el.id));
+    check(authorHints.join(",") === "editorAddNoteHintBtn", "author hints " + authorHints.join(","));
+    const order = await page.evaluate(() => {
+      const add = document.getElementById("editorAddNoteBtn").getBoundingClientRect();
+      const split = document.getElementById("editorSplitMeasures").closest("label").getBoundingClientRect();
+      const hint = document.getElementById("editorAddNoteHintBtn").getBoundingClientRect();
+      return add.right <= split.left + 1 && split.right <= hint.left + 1;
+    });
+    check(order, "controls are not 加入音符, 分开小节, !");
     await page.evaluate(() => {
       const pop = document.getElementById("editorAddNoteHint");
       if (pop.matches(":popover-open")) pop.hidePopover();
@@ -325,11 +336,39 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
       await page.mouse.move(x - 140, y, { steps: 8 });
       await page.mouse.up();
     }
+    const cellDrag = await page.evaluate(() => ({
+      left: document.getElementById("editorScroll").scrollLeft,
+      notes: window.TaikoParser.parseTja(document.getElementById("tjaInput").value).notes.length,
+    }));
+    check(cellDrag.left < 2, "dragging a grid cell panned the chart, scrollLeft=" + cellDrag.left);
+    check(cellDrag.notes === beforePan, "dragging a cell placed or deleted a note");
+
+    await page.evaluate(() => { document.getElementById("editorScroll").scrollLeft = 0; });
+    const emptyPan = await page.evaluate(() => {
+      const hands = document.querySelector('.editor-measure[data-index="2"] .editor-hands');
+      const r = hands.getBoundingClientRect();
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const x = Math.min(r.right - 24, scroll.right - 24);
+      const y = r.top + r.height / 2;
+      const el = document.elementFromPoint(x, y);
+      return {
+        x: x,
+        y: y,
+        empty: !!(el && !el.closest(".editor-note, .editor-string, .editor-cell, button, a, input, textarea, label")),
+      };
+    });
+    check(emptyPan.empty, "measure 2 hands row is not empty space");
+    if (emptyPan.empty) {
+      await page.mouse.move(emptyPan.x, emptyPan.y);
+      await page.mouse.down();
+      await page.mouse.move(emptyPan.x - 140, emptyPan.y, { steps: 8 });
+      await page.mouse.up();
+    }
     const pan = await page.evaluate(() => ({
       left: document.getElementById("editorScroll").scrollLeft,
       notes: window.TaikoParser.parseTja(document.getElementById("tjaInput").value).notes.length,
     }));
-    check(pan.left > 20, "dragging the grid did not pan, scrollLeft=" + pan.left);
+    check(pan.left > 20, "dragging empty space did not pan, scrollLeft=" + pan.left);
     check(pan.notes === beforePan, "panning placed or deleted a note");
 
     await page.click('.editor-note[data-index="0"]');
@@ -371,12 +410,19 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
     check(!off.add, "加一小节 stayed after mode off");
 
     const notesBeforeSwap = await page.$$eval(".editor-note", (els) => els.length);
+    const handBefore = await page.evaluate(() => window.BachiEditor.getResolved().hands[0]);
     await page.click('.editor-note[data-index="0"]');
     const swap = await page.evaluate(() => ({
       hidden: document.getElementById("editorSwapPop").hidden,
       notes: document.querySelectorAll(".editor-note").length,
+      hand: window.BachiEditor.getResolved().hands[0],
+      selection: window.BachiEditor.getState().selection,
+      playing: !!(window.taikoAnim && window.taikoAnim.state && window.taikoAnim.state.playing),
     }));
-    check(swap.hidden === false, "mode off did not restore 换手");
+    check(swap.hidden === true, "single note click opened the swap popup");
+    check(swap.hand !== handBefore, "mode off did not swap the note");
+    check(swap.selection && swap.selection.type === "note" && swap.selection.index === 0, "swap cleared the selection");
+    check(!swap.playing, "swap started playback");
     check(swap.notes === notesBeforeSwap, "mode off still deleted the note");
 
     const from = await page.$('.editor-note[data-index="0"]');
@@ -390,8 +436,12 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
       await page.mouse.move(toBox.x + toBox.width / 2, toBox.y + toBox.height / 2, { steps: 10 });
       await page.mouse.up();
     }
-    const range = await page.$eval("#editorRangePop", (el) => el.hidden);
-    check(range === false, "mode off did not restore range select");
+    const range = await page.$eval("#editorRangePop", (el) => ({
+      hidden: el.hidden,
+      labels: [...el.querySelectorAll("button")].map((b) => b.textContent.trim()).join(","),
+    }));
+    check(range.hidden === false, "mode off did not restore range select");
+    check(range.labels === "1-2,2-1,2-2,循环试听", "range actions " + range.labels);
 
     await page.click("#editorAdvancedBtn");
     await page.waitForSelector("#editorAdvancedPanel:not([hidden])");

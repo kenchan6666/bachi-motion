@@ -142,13 +142,16 @@ function startStaticServer(root) {
   }
 
   async function tweakFirstNote(page) {
-    await page.evaluate(() => window.BachiEditor.selectNote(0));
-    await page.waitForSelector("#editorSwapPop:not([hidden])", { timeout: 4000 });
-    await page.click('#editorSwapPop [data-ed-swap="L"]');
-    await page.waitForFunction(() => {
+    const before = await page.evaluate(() => {
       const st = window.BachiEditor.getState();
-      return st && st.session && st.session.patches && st.session.patches.length > 0;
-    }, { timeout: 4000 });
+      return st && st.session && st.session.patches ? st.session.patches.length : 0;
+    });
+    await page.click('#editorMeasures .editor-note[data-index="0"]');
+    await page.waitForFunction((n) => {
+      const st = window.BachiEditor.getState();
+      const pop = document.getElementById("editorSwapPop");
+      return pop && pop.hidden && st && st.session && st.session.patches && st.session.patches.length > n;
+    }, { timeout: 4000 }, before);
   }
 
   const imported = tja("导入的谱", "11111111");

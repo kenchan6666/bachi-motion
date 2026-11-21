@@ -481,6 +481,8 @@ function diffSig(name, got, want) {
               scroll: spec.scroll,
               showTempo: !!spec.showTempo,
               chartScroll: e.scroll,
+              bpm: e.bpm,
+              timeline: window.taikoAnim.state.bpmTimeline,
               judgeX: 92,
               basePxPerSec: 600,
             });

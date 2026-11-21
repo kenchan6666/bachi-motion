@@ -165,7 +165,11 @@ function downloadName(label) {
   return /\.mp4$/i.test(base) ? base : (base + ".mp4");
 }
 
-function serveStatic(root, req, res) {
+function stripExternalFontLinks(html) {
+  return String(html).replace(/<link\b[^>]*(?:fonts\.googleapis\.com|fonts\.gstatic\.com)[^>]*>\s*/gi, "");
+}
+
+function serveStatic(root, req, res, rewriteHtml) {
   const url = new URL(req.url || "/", "http://127.0.0.1");
   let rel = decodeURIComponent(url.pathname);
   if (rel === "/") rel = "/index.html";
@@ -176,8 +180,12 @@ function serveStatic(root, req, res) {
   }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end("not found"); return; }
+    let body = data;
+    if (rewriteHtml && path.extname(file).toLowerCase() === ".html") {
+      body = Buffer.from(stripExternalFontLinks(data.toString("utf8")), "utf8");
+    }
     res.writeHead(200, { "Content-Type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream" });
-    res.end(data);
+    res.end(body);
   });
 }
 
@@ -288,7 +296,7 @@ function startRenderServer(opts) {
         sendJson(res, 404, { error: "没有这个接口" });
         return;
       }
-      serveStatic(root, req, res);
+      serveStatic(root, req, res, !!opts.offlineDesktop);
     } catch (err) {
       if (!res.headersSent) sendJson(res, 500, { error: err.message || String(err) });
       else res.end();
@@ -320,4 +328,7 @@ function startRenderServer(opts) {
   });
 }
 
-module.exports = { startRenderServer: startRenderServer };
+module.exports = {
+  startRenderServer: startRenderServer,
+  stripExternalFontLinks: stripExternalFontLinks,
+};

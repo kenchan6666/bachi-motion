@@ -58,6 +58,9 @@ Queue file (paths are relative to the JSON file). No song field → no original 
 
 Requires: Node, ffmpeg on PATH, and a Chrome/Chromium that puppeteer-core can launch
 (set CHROME_PATH or PUPPETEER_EXECUTABLE_PATH if it is not found automatically).
+Rendering uses the GPU when the browser can start with it, and falls back to CPU
+(--disable-gpu) when there is no usable GPU. The Windows v0.1.0 app bundles
+Chromium and ffmpeg and opens its own window; it does not need a separate browser.
 Rendering runs on this computer. Do not commit official songs, charts, or videos.
 `;
 

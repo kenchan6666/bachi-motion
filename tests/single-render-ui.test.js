@@ -109,7 +109,9 @@ function layoutSnapshot() {
     playRight: play.right,
     standing: standing,
     serveInHint: hint.includes("node render.js --serve") && hint.includes("GitHub Pages"),
+    windowsInHint: hint.includes("窗口") && hint.includes("ffmpeg") && hint.includes("离线") && hint.includes("GitHub Pages"),
     serveOnPage: (document.getElementById("singleRender").innerText || "").includes("node render.js --serve"),
+    windowsOnPage: (document.getElementById("singleRender").innerText || "").includes("ffmpeg") || (document.getElementById("singleRender").innerText || "").includes("另开浏览器"),
     vw: window.innerWidth,
     vh: window.innerHeight,
   };
@@ -164,7 +166,9 @@ function layoutSnapshot() {
       if (box.start.right > box.playRight + 1) fails.push(viewport.name + " 开始渲染 escapes the fold");
       if (box.standing) fails.push(viewport.name + " standing render status " + box.standing);
       if (!box.serveInHint) fails.push(viewport.name + " serve note missing from the !");
+      if (!box.windowsInHint) fails.push(viewport.name + " windows package note missing from the !");
       if (box.serveOnPage) fails.push(viewport.name + " serve note is standing in 出片");
+      if (box.windowsOnPage) fails.push(viewport.name + " windows package note is standing in 出片");
     }
 
     await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });

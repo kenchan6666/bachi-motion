@@ -1,4 +1,8 @@
 node_modules/
+desktop/node_modules/
+desktop/bundle/
+desktop/vendor/
+dist/
 .DS_Store
 .render-frames/
 bachi-frames-*/

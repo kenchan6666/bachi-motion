@@ -175,7 +175,9 @@ chartStart = firstNoteTime - 0.7
 
 `--section 2,6` 用同一套谱面时间（秒）。批量队列里可以给单条写 `sectionStart` / `sectionEnd`；不写就是整首，队列顶上的同名字段不会套到每一条。没有 `song` 的条目仍然不含原曲。
 
-网页上「演奏」里的「开始渲染」只渲当前已打开的这一首，不用先排队，并带上当前已经收窄的选段。原曲用已经选好的那首和「原曲」开关；开关关着或还没选，成片就不含原曲。多首排队不在网页上，用 `--batch`。渲染只在运行 `node render.js --serve` 的那台电脑上进行。GitHub Pages 只预览。
+网页上「演奏」里的「开始渲染」只渲当前已打开的这一首，不用先排队，并带上当前已经收窄的选段。原曲用已经选好的那首和「原曲」开关；开关关着或还没选，成片就不含原曲。多首排队不在网页上，用 `--batch`。渲染只在运行 `node render.js --serve` 的那台电脑上进行。GitHub Pages 只预览。Windows 上也可以下载 Release `v0.1.0` 的 `bachi-motion-0.1.0-win-x64.exe`：双击打开程序自己的窗口，在本机离线出片。这个包带了 Chromium 和 ffmpeg，不用另开浏览器，也不用再安装这两样。有显卡就用显卡画画面，没有就自动改用 CPU。编码仍用 CPU 上的 libx264。
+
+构建这个 exe：在 Windows 上进入仓库，运行 `npm ci`（在 `desktop/`）、`node scripts/stage-desktop.js --with-ffmpeg`、`npx electron-builder --win portable --x64`（在 `desktop/`）。GitHub Actions 的 `Windows package` 工作流会在 pull request 里打出同一个 exe 并作为 artifact 上传，不会自己公开发布。合并到 main 之后，手动运行该工作流并勾选 draft，才会得到 **draft** Release `v0.1.0`。公开发布是另一步。
 
 队列文件示例（路径相对 JSON 所在目录）：
 

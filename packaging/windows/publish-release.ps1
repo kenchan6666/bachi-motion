@@ -1,5 +1,5 @@
 # Publishes the Windows zip to GitHub Releases for the current tag.
-# The tag must be v<package.json version>. For 0.1.0 that tag is v0.1.0.
+# The tag must be v<package.json version>. For 0.2.0 that tag is v0.2.0.
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
 

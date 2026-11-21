@@ -8,7 +8,7 @@ Set-Location $root
 
 $pkg = Get-Content -Raw -Encoding utf8 (Join-Path $root "package.json") | ConvertFrom-Json
 $version = [string]$pkg.version
-if ($version -ne "0.1.0") {
+if ($version -ne "0.2.0") {
   Write-Host "package.json version is $version"
 }
 

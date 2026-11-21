@@ -97,6 +97,10 @@ echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo
 
+echo "== tempo toggle + scroll 1.1 / 1.2 =="
+node tests/scroll-tempo.test.js
+echo
+
 echo "== section trim (preview / export) =="
 node tests/section-trim.test.js
 echo

@@ -567,6 +567,7 @@
   setupRouteHint("editorAddNoteHintBtn", "editorAddNoteHint");
   setupRouteHint("overviewHintBtn", "overviewHint");
   setupRouteHint("originalHintBtn", "originalHint");
+  setupRouteHint("editorOriginalHintBtn", "editorOriginalHint");
 
   function openBlankChart(bpm, measures) {
     const author = window.BachiChartAuthor;

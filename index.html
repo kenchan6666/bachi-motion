@@ -287,15 +287,22 @@
   .transport-row { display: flex; align-items: center; gap: 8px; }
   .preview-hits {
     display: flex;
-    align-items: flex-start;
-    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 10px;
   }
-  .preview-hits .check {
-    flex: 1 1 auto;
+  .preview-hit {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 100%;
+  }
+  .preview-hits .check,
+  .editor-preview-hits .check {
+    flex: 0 1 auto;
     font-size: 12px;
     line-height: 1.45;
   }
-  .preview-hits .route-hint-btn { margin-top: 1px; }
   .icon-btn {
     appearance: none;
     width: 40px;
@@ -1119,11 +1126,22 @@
         </div>
 
         <div class="preview-hits">
-          <label class="check"><input id="previewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
-          <button type="button" class="route-hint-btn" id="previewHitsHintBtn" popovertarget="previewHitsHint" aria-expanded="false" aria-controls="previewHitsHint" aria-label="打点声说明">!</button>
+          <span class="preview-hit">
+            <label class="check"><input id="previewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
+            <button type="button" class="route-hint-btn" id="previewHitsHintBtn" popovertarget="previewHitsHint" aria-expanded="false" aria-controls="previewHitsHint" aria-label="打点声说明">!</button>
+          </span>
+          <span class="preview-hit">
+            <label class="check"><input id="settingsOriginalUse" data-original-use type="checkbox" disabled>原曲</label>
+            <button type="button" class="route-hint-btn" id="originalHintBtn" popovertarget="originalHint" aria-expanded="false" aria-controls="originalHint" aria-label="原曲说明">!</button>
+          </span>
           <div id="previewHitsHint" class="route-hint" popover="auto">
             <button type="button" class="route-hint-close" popovertarget="previewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
             <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
+          </div>
+          <div id="originalHint" class="route-hint route-hint-wide" popover="auto">
+            <button type="button" class="route-hint-close" popovertarget="originalHint" popovertargetaction="hide" aria-label="关闭">×</button>
+            <p>原曲文件在手顺编辑器的「高级」里选。这个开关只决定预览和出片用不用已经选好的那一首。还没选原曲时，开关不能点。</p>
+            <p>打开并且已经选好，预览和「生成 / 播放」会一起放这首，从第一个音 − 0.7 秒对齐。没选，或开关关着，就不播原曲。从主页切到编辑谱面再回来，开关和这首都还在，不用重新选，也不用重新打开。</p>
           </div>
         </div>
 
@@ -1272,15 +1290,6 @@ LEVEL:6
               <div id="settingsBlankHint" class="route-hint" popover="auto">
                 <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
                 <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
-              </div>
-              <div class="route-head">
-                <label class="check"><input id="settingsOriginalUse" data-original-use type="checkbox" disabled>原曲</label>
-                <button type="button" class="route-hint-btn" id="originalHintBtn" popovertarget="originalHint" aria-expanded="false" aria-controls="originalHint" aria-label="原曲说明">!</button>
-              </div>
-              <div id="originalHint" class="route-hint route-hint-wide" popover="auto">
-                <button type="button" class="route-hint-close" popovertarget="originalHint" popovertargetaction="hide" aria-label="关闭">×</button>
-                <p>原曲文件在手顺编辑器的「高级」里选。这个开关只决定预览和出片用不用已经选好的那一首。还没选原曲时，开关不能点。</p>
-                <p>打开并且已经选好，预览和「生成 / 播放」会一起放这首，从第一个音 − 0.7 秒对齐。没选，或开关关着，就不播原曲。从主页切到编辑谱面再回来，开关和这首都还在，不用重新选，也不用重新打开。</p>
               </div>
             </div>
           </details>
@@ -1485,11 +1494,22 @@ LEVEL:6
             <button type="button" class="editor-play-btn" id="editorPlayBtn">播放</button>
           </div>
           <div class="editor-preview-hits">
-            <label class="check"><input id="editorPreviewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
-            <button type="button" class="route-hint-btn" id="editorPreviewHitsHintBtn" popovertarget="editorPreviewHitsHint" aria-expanded="false" aria-controls="editorPreviewHitsHint" aria-label="打点声说明">!</button>
+            <span class="preview-hit">
+              <label class="check"><input id="editorPreviewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
+              <button type="button" class="route-hint-btn" id="editorPreviewHitsHintBtn" popovertarget="editorPreviewHitsHint" aria-expanded="false" aria-controls="editorPreviewHitsHint" aria-label="打点声说明">!</button>
+            </span>
+            <span class="preview-hit">
+              <label class="check"><input id="editorOriginalUse" data-original-use type="checkbox" disabled>原曲</label>
+              <button type="button" class="route-hint-btn" id="editorOriginalHintBtn" popovertarget="editorOriginalHint" aria-expanded="false" aria-controls="editorOriginalHint" aria-label="原曲说明">!</button>
+            </span>
             <div id="editorPreviewHitsHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="editorPreviewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
               <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
+            </div>
+            <div id="editorOriginalHint" class="route-hint route-hint-wide" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="editorOriginalHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>原曲文件在手顺编辑器的「高级」里选。这个开关只决定预览和出片用不用已经选好的那一首。还没选原曲时，开关不能点。</p>
+              <p>打开并且已经选好，预览和「生成 / 播放」会一起放这首，从第一个音 − 0.7 秒对齐。没选，或开关关着，就不播原曲。从主页切到编辑谱面再回来，开关和这首都还在，不用重新选，也不用重新打开。</p>
             </div>
           </div>
         </div>

@@ -1004,8 +1004,9 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
 }
 .editor-preview-hits {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 6px 10px;
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.4;

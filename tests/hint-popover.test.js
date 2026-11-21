@@ -93,7 +93,7 @@ function assertNear(fails, id, phase, pop, btn) {
       waitUntil: "networkidle0",
       timeout: 30000,
     });
-    const hints = ["routeHint", "chartHint", "batchHint", "previewHitsHint"];
+    const hints = ["routeHint", "chartHint", "batchHint", "previewHitsHint", "originalHint"];
     for (const id of hints) {
       const measured = await page.evaluate((hintId) => {
         const settings = document.getElementById("settings");

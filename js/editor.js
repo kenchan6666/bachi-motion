@@ -48,6 +48,7 @@
     strings: [], // collapsed string clusters, rebuilt in renderTracks
     drag: null,
     splitMeasures: false,
+    fullChart: false,
     playerViewBox: "0 0 800 860",
     raf: 0,
     addingNotes: false,
@@ -536,6 +537,59 @@
     return state.splitMeasures ? MEASURE_GAP : 0;
   }
 
+  function syncChartLayout() {
+    if (ui.root) {
+      ui.root.classList.toggle("is-continuous", !state.splitMeasures);
+      ui.root.classList.toggle("is-full-chart", !!state.fullChart);
+    }
+    if (ui.measuresEl) {
+      ui.measuresEl.style.gap = "";
+      ui.measuresEl.style.columnGap = measureGap() + "px";
+    }
+  }
+
+  // Wrapped rows need their own rounded caps. offsetTop is read after layout.
+  function markWrapRows() {
+    if (!ui.measuresEl) return;
+    const nodes = ui.measuresEl.querySelectorAll(".editor-measure");
+    let rowTop = null;
+    let row = [];
+    const flush = () => {
+      for (let i = 0; i < row.length; i++) {
+        row[i].classList.toggle("is-row-start", state.fullChart && i === 0);
+        row[i].classList.toggle("is-row-end", state.fullChart && i === row.length - 1);
+      }
+      row = [];
+    };
+    for (let i = 0; i < nodes.length; i++) {
+      const top = nodes[i].offsetTop;
+      if (rowTop == null || Math.abs(top - rowTop) > 2) {
+        flush();
+        rowTop = top;
+      }
+      row.push(nodes[i]);
+    }
+    flush();
+  }
+
+  function measureFracAt(now) {
+    const measures = state.measures || [];
+    if (!measures.length) return { index: 0, frac: 0 };
+    if (now <= measures[0].t) return { index: 0, frac: 0 };
+    const lastI = measures.length - 1;
+    const last = measures[lastI];
+    if (now >= last.t + (last.duration || 0)) return { index: lastI, frac: 1 };
+    for (let i = 0; i < measures.length; i++) {
+      const m = measures[i];
+      const end = m.t + (m.duration || 0);
+      if (now >= m.t && now <= end + 1e-9) {
+        const frac = m.duration > 1e-9 ? (now - m.t) / m.duration : 0;
+        return { index: i, frac: frac };
+      }
+    }
+    return { index: 0, frac: 0 };
+  }
+
   function measureOffset(index) {
     return index * (MEASURE_W + measureGap());
   }
@@ -942,8 +996,7 @@
 
   function renderTracks() {
     if (!ui.measuresEl) return;
-    if (ui.root) ui.root.classList.toggle("is-continuous", !state.splitMeasures);
-    ui.measuresEl.style.gap = measureGap() + "px";
+    syncChartLayout();
     hidePops();
     const measures = state.measures || [];
     const raw = state.rawNotes || [];
@@ -1104,6 +1157,7 @@
       frag.appendChild(add);
     }
     ui.measuresEl.replaceChildren(frag);
+    markWrapRows();
     if (ui.playhead) ui.playhead.hidden = !measures.length;
     paintPlayhead();
     if (state.expanded) {
@@ -1170,8 +1224,27 @@
     return Number.isFinite(i) ? i : null;
   }
 
-  function timeAtClientX(clientX) {
+  function timeAtClientX(clientX, clientY) {
     if (!ui.measuresEl || !state.measures.length) return null;
+    if (state.fullChart) {
+      const nodes = ui.measuresEl.querySelectorAll(".editor-measure");
+      let fallback = null;
+      for (let i = 0; i < nodes.length; i++) {
+        const box = nodes[i].getBoundingClientRect();
+        if (clientX < box.left - measureGap() / 2 || clientX > box.right + measureGap() / 2) continue;
+        const m = state.measures.find((mm) => mm.index === +nodes[i].dataset.index);
+        if (!m) continue;
+        const local = clientX - box.left - (LANE_MARGIN + LANE_PAD);
+        const frac = Math.max(0, Math.min(1, local / INNER_W));
+        const t = m.t + frac * (m.duration || 0);
+        const withinY = clientY == null || (clientY >= box.top - 6 && clientY <= box.bottom + 6);
+        if (withinY) return t;
+        if (fallback == null) fallback = t;
+      }
+      if (fallback != null) return fallback;
+      const last = state.measures[state.measures.length - 1];
+      return last.t + (last.duration || 0);
+    }
     const rect = ui.measuresEl.getBoundingClientRect();
     const x = clientX - rect.left;
     for (let i = 0; i < state.measures.length; i++) {
@@ -1192,6 +1265,10 @@
     if (!ui.sel || !ui.measuresEl) return;
     const a = Math.min(from, to);
     const b = Math.max(from, to);
+    if (state.fullChart) {
+      showSelBoxWrapped(a, b);
+      return;
+    }
     const left = noteAbsX(a) - 16;
     const right = noteAbsX(b) + 16;
     const host = ui.scroll.getBoundingClientRect();
@@ -1204,6 +1281,38 @@
     ui.sel.hidden = false;
     ui.sel.style.left = (meas.left - host.left + ui.scroll.scrollLeft + left) + "px";
     ui.sel.style.top = top + "px";
+    ui.sel.style.width = Math.max(32, right - left) + "px";
+    ui.sel.style.height = Math.max(40, bottom - top) + "px";
+  }
+
+  function showSelBoxWrapped(a, b) {
+    const host = ui.scroll.getBoundingClientRect();
+    let left = Infinity;
+    let right = -Infinity;
+    let top = Infinity;
+    let bottom = -Infinity;
+    const measures = [];
+    for (let i = a; i <= b; i++) {
+      const el = ui.measuresEl.querySelector('.editor-note[data-index="' + i + '"]');
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      left = Math.min(left, r.left - 10);
+      right = Math.max(right, r.right + 10);
+      top = Math.min(top, r.top);
+      bottom = Math.max(bottom, r.bottom);
+      const measure = el.closest(".editor-measure");
+      if (measure && measures.indexOf(measure) < 0) measures.push(measure);
+    }
+    measures.forEach((measure) => {
+      const lane = measure.querySelector(".editor-lane");
+      const hands = measure.querySelector(".editor-hands");
+      if (lane) top = Math.min(top, lane.getBoundingClientRect().top - 8);
+      if (hands) bottom = Math.max(bottom, hands.getBoundingClientRect().bottom + 8);
+    });
+    if (!isFinite(left) || !ui.scroll) { ui.sel.hidden = true; return; }
+    ui.sel.hidden = false;
+    ui.sel.style.left = (left - host.left + ui.scroll.scrollLeft) + "px";
+    ui.sel.style.top = (top - host.top + ui.scroll.scrollTop) + "px";
     ui.sel.style.width = Math.max(32, right - left) + "px";
     ui.sel.style.height = Math.max(40, bottom - top) + "px";
   }
@@ -1376,6 +1485,23 @@
     if (!ui.playhead || !state.measures.length) return;
     const anim = window.taikoAnim;
     const now = anim && anim.state ? anim.state.now : 0;
+    if (state.fullChart && ui.measuresEl) {
+      const hit = measureFracAt(now);
+      const el = ui.measuresEl.querySelectorAll(".editor-measure")[hit.index];
+      if (el) {
+        if (ui.playhead.parentElement !== ui.measuresEl) ui.measuresEl.appendChild(ui.playhead);
+        ui.playhead.hidden = false;
+        ui.playhead.style.left = (el.offsetLeft + LANE_MARGIN + LANE_PAD + hit.frac * INNER_W) + "px";
+        ui.playhead.style.top = (el.offsetTop + 8) + "px";
+        ui.playhead.style.bottom = "auto";
+        ui.playhead.style.height = Math.max(24, el.offsetHeight - 16) + "px";
+        paintPlayPos(now);
+        return;
+      }
+    }
+    ui.playhead.style.top = "";
+    ui.playhead.style.bottom = "";
+    ui.playhead.style.height = "";
     let x = measureOffset(0) + LANE_MARGIN + LANE_PAD;
     const measures = state.measures;
     if (now <= measures[0].t) x = measureOffset(0) + LANE_MARGIN + LANE_PAD;
@@ -1629,7 +1755,7 @@
 
   function bind() {
     ui.root = $("editor");
-    if (ui.root) ui.root.classList.toggle("is-continuous", !state.splitMeasures);
+    syncChartLayout();
     ui.pageTitle = $("editorPageTitle");
     ui.modeSeg = $("editorModeSeg");
     ui.techBtn = $("editorTechBtn");
@@ -1800,8 +1926,21 @@
     if (splitBox) {
       splitBox.addEventListener("change", () => {
         state.splitMeasures = !!splitBox.checked;
-        if (ui.root) ui.root.classList.toggle("is-continuous", !state.splitMeasures);
+        if (ui.scroll && state.fullChart) ui.scroll.scrollLeft = 0;
         if (state.open) renderTracks();
+        else syncChartLayout();
+      });
+    }
+    const fullBox = $("editorFullChart");
+    if (fullBox) {
+      fullBox.addEventListener("change", () => {
+        state.fullChart = !!fullBox.checked;
+        if (ui.scroll) {
+          ui.scroll.scrollLeft = 0;
+          if (!state.fullChart) ui.scroll.scrollTop = 0;
+        }
+        if (state.open) renderTracks();
+        else syncChartLayout();
       });
     }
     const nudgeLeft = $("editorNudgeLeft");
@@ -1845,7 +1984,10 @@
     }
     bindOverview();
     if (typeof ResizeObserver === "function") {
-      const ro = new ResizeObserver(() => syncOverview());
+      const ro = new ResizeObserver(() => {
+        markWrapRows();
+        syncOverview();
+      });
       if (ui.scroll) ro.observe(ui.scroll);
       if (ui.overviewTrack) ro.observe(ui.overviewTrack);
     }
@@ -2030,6 +2172,14 @@
     if (!ui.scroll || !ui.measuresEl || !Number.isFinite(+measureIndex)) return;
     const el = ui.measuresEl.querySelector('.editor-measure[data-index="' + measureIndex + '"]');
     if (!el) return;
+    if (state.fullChart) {
+      const delta = el.getBoundingClientRect().top - ui.scroll.getBoundingClientRect().top;
+      const maxTop = Math.max(0, ui.scroll.scrollHeight - ui.scroll.clientHeight);
+      ui.scroll.scrollTop = Math.max(0, Math.min(maxTop, ui.scroll.scrollTop + delta - 8));
+      ui.scroll.scrollLeft = 0;
+      syncOverview();
+      return;
+    }
     const max = Math.max(0, ui.scroll.scrollWidth - ui.scroll.clientWidth);
     const target = el.offsetLeft + (ui.measuresEl.offsetLeft || 0);
     ui.scroll.scrollLeft = Math.max(0, Math.min(max, target));
@@ -2128,7 +2278,7 @@
       if (moved) return;
       const idx = measureIndexFromPoint(origin, ev.clientX);
       if (idx != null) jumpToMeasure(idx);
-      const t = timeAtClientX(ev.clientX);
+      const t = timeAtClientX(ev.clientX, ev.clientY);
       if (t != null && origin && origin.closest && (origin.closest(".editor-lane") || origin.closest(".editor-hands"))) {
         seekTo(t);
       }
@@ -2226,7 +2376,7 @@
     }
 
     const inZoom = e.target.closest(".editor-zoom");
-    const t = timeAtClientX(e.clientX);
+    const t = timeAtClientX(e.clientX, e.clientY);
     if (!inZoom && t != null && (e.target.closest(".editor-lane") || e.target.closest(".editor-note") || e.target.closest(".editor-hands"))) {
       seekTo(t);
     }
@@ -2299,7 +2449,7 @@
       panZoom(delta);
       return;
     }
-    if (!ui.scroll) return;
+    if (state.fullChart || !ui.scroll) return;
     const max = ui.scroll.scrollWidth - ui.scroll.clientWidth;
     if (max <= 0) return;
     e.preventDefault();

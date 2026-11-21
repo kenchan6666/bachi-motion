@@ -256,17 +256,24 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
     check(addHelp.text.includes("16 分"), "加入音符 hint missing grid");
     check(addHelp.text.includes("不勾选时，谱面是一条连续的轨道"), "combined hint missing 分开小节");
     check(addHelp.text.includes("按小节分成一张张卡片"), "combined hint missing the checked layout");
+    check(addHelp.text.includes("勾选全部谱面后，整张谱换行排开"), "combined hint missing 全部谱面");
+    check(addHelp.text.includes("左右箭头和小节总览先收起来"), "combined hint missing what 全部谱面 hides");
     check(!addHelp.standing, "加入音符 explanation is standing copy");
     check(!addHelp.text.includes("咕") && !addHelp.text.includes("咛"), "加入音符 hint typo");
     const authorHints = await page.$$eval("#editorAuthor .route-hint-btn", (els) => els.map((el) => el.id));
     check(authorHints.join(",") === "editorAddNoteHintBtn", "author hints " + authorHints.join(","));
+    const fullChecked = await page.$eval("#editorFullChart", (el) => el.checked);
+    check(fullChecked === false, "全部谱面 defaults to checked");
+    const fullLabel = await page.$eval("#editorFullChart", (el) => el.closest("label").textContent.replace(/\s+/g, ""));
+    check(fullLabel === "全部谱面", "全部谱面 label " + fullLabel);
     const order = await page.evaluate(() => {
       const add = document.getElementById("editorAddNoteBtn").getBoundingClientRect();
       const split = document.getElementById("editorSplitMeasures").closest("label").getBoundingClientRect();
+      const full = document.getElementById("editorFullChart").closest("label").getBoundingClientRect();
       const hint = document.getElementById("editorAddNoteHintBtn").getBoundingClientRect();
-      return add.right <= split.left + 1 && split.right <= hint.left + 1;
+      return add.right <= split.left + 1 && split.right <= full.left + 1 && full.right <= hint.left + 1;
     });
-    check(order, "controls are not 加入音符, 分开小节, !");
+    check(order, "controls are not 加入音符, 分开小节, 全部谱面, !");
     await page.evaluate(() => {
       const pop = document.getElementById("editorAddNoteHint");
       if (pop.matches(":popover-open")) pop.hidePopover();

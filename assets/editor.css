@@ -396,7 +396,7 @@ body.editor-mode .editor {
 .editor-split {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 14px;
   margin-left: 8px;
   white-space: nowrap;
 }
@@ -471,6 +471,8 @@ body.editor-mode .editor {
   display: flex;
   align-items: center;
   gap: 10px;
+  /* A little lower than the arrows, so the arrows stay with the chart. */
+  margin-top: 20px;
   padding: 6px 18px 2px;
 }
 .editor-overview[hidden] { display: none !important; }
@@ -564,7 +566,48 @@ body.editor-mode .editor {
   padding: 8px 8px 16px;
   width: max-content;
 }
-.editor.is-continuous .editor-measures { gap: 0; }
+.editor.is-continuous .editor-measures { column-gap: 0; }
+.editor.is-full-chart .editor-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+.editor.is-full-chart .editor-measures {
+  flex-wrap: wrap;
+  width: auto;
+  max-width: 100%;
+  row-gap: 18px;
+}
+.editor.is-full-chart .editor-nudge,
+.editor.is-full-chart .editor-overview {
+  display: none !important;
+}
+.editor.is-full-chart.is-continuous .editor-measure.is-row-start .editor-lane {
+  margin-left: 8px;
+  border-top-left-radius: 999px;
+  border-bottom-left-radius: 999px;
+  box-shadow:
+    inset 3px 0 0 var(--ed-outline),
+    inset 0 3px 0 var(--ed-outline),
+    inset 0 -3px 0 var(--ed-outline);
+}
+.editor.is-full-chart.is-continuous .editor-measure.is-row-end .editor-lane {
+  margin-right: 8px;
+  border-top-right-radius: 999px;
+  border-bottom-right-radius: 999px;
+  box-shadow:
+    inset -3px 0 0 var(--ed-outline),
+    inset 0 3px 0 var(--ed-outline),
+    inset 0 -3px 0 var(--ed-outline);
+}
+.editor.is-full-chart.is-continuous .editor-measure.is-row-start.is-row-end .editor-lane {
+  box-shadow:
+    inset 3px 0 0 var(--ed-outline),
+    inset -3px 0 0 var(--ed-outline),
+    inset 0 3px 0 var(--ed-outline),
+    inset 0 -3px 0 var(--ed-outline);
+}
 .editor.is-continuous .editor-measure .editor-lane {
   margin-left: 0;
   margin-right: 0;

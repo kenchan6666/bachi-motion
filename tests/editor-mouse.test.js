@@ -5,8 +5,11 @@
  * Drag-select shows 1-2 / 2-1 / 2-2 / 循环试听 beside the selection.
  * Those brushes do not start playback. 循环试听 loops only the selection.
  * Arrows scroll the timeline and sit just under the chart, clear of 小节总览.
+ * 小节总览 sits a little lower than the arrows, not stuck to them.
  * Notes, buttons, and other controls do not pan.
  * 分开小节 is off by default (one strip) and on restores separate measure cards.
+ * 全部谱面 is off by default. On, the chart wraps so every measure is in the
+ * card width, and the arrows and 小节总览 hide. Off, the strip and both return.
  * Clicking a collapsed string still opens the zoom card.
  *
  *   node tests/editor-mouse.test.js
@@ -81,6 +84,7 @@ function buildTja() {
 }
 
 const SPLIT_HELP = "不勾选时，谱面是一条连续的轨道，小节之间不拆开。勾选后，按小节分成一张张卡片，方便看乐句。";
+const FULL_HELP = "勾选全部谱面后，整张谱换行排开，一次看完，左右箭头和小节总览先收起来。";
 
 function overlaps(a, b) {
   return a.left < b.right - 0.5 && a.right > b.left + 0.5 && a.top < b.bottom - 0.5 && a.bottom > b.top + 0.5;
@@ -156,6 +160,9 @@ function overlaps(a, b) {
       const split = document.querySelector("label[for='editorSplitMeasures'], #editorSplitMeasures");
       const splitLabel = document.getElementById("editorSplitMeasures").closest("label");
       const box = splitLabel.getBoundingClientRect();
+      const fullInput = document.getElementById("editorFullChart");
+      const fullLabel = fullInput && fullInput.closest("label");
+      const fullBox = fullLabel ? fullLabel.getBoundingClientRect() : null;
       const hint = document.getElementById("editorAddNoteHint");
       const hintBtn = document.getElementById("editorAddNoteHintBtn");
       const hintBox = hintBtn.getBoundingClientRect();
@@ -184,7 +191,14 @@ function overlaps(a, b) {
         checked: checked,
         continuous: document.getElementById("editor").classList.contains("is-continuous"),
         splitText: splitLabel.textContent.replace(/\s+/g, ""),
+        fullChecked: fullInput ? fullInput.checked : null,
+        fullText: fullLabel ? fullLabel.textContent.replace(/\s+/g, "") : "",
+        fullLeft: fullBox ? fullBox.left : -1,
+        fullRight: fullBox ? fullBox.right : -1,
+        fullOn: document.getElementById("editor").classList.contains("is-full-chart"),
+        extraFullHint: !!(document.getElementById("editorFullChartHintBtn") || document.getElementById("editorFullChartHint")),
         hintLabel: hintBtn ? hintBtn.textContent.trim() : "",
+        hintAria: hintBtn ? (hintBtn.getAttribute("aria-label") || "") : "",
         hintParas: paras,
         hintText: hint ? hint.textContent.replace(/\s+/g, "") : "",
         hintOpen: hint ? hint.matches(":popover-open") : false,
@@ -210,13 +224,20 @@ function overlaps(a, b) {
     if (chromeBox.checked) fail("分开小节 defaults to checked");
     if (!chromeBox.continuous) fail("chart is not one continuous strip by default");
     if (chromeBox.splitText !== "分开小节") fail("split label is " + chromeBox.splitText);
+    if (chromeBox.fullChecked !== false) fail("全部谱面 defaults to " + chromeBox.fullChecked);
+    if (chromeBox.fullText !== "全部谱面") fail("full chart label is " + chromeBox.fullText);
+    if (chromeBox.fullOn) fail("全部谱面 layout is on while the box is unchecked");
     if (!(chromeBox.splitLeft >= chromeBox.addRight - 1)) fail("分开小节 is not to the right of 加入音符");
+    if (!(chromeBox.fullLeft >= chromeBox.splitRight - 1)) fail("全部谱面 is not to the right of 分开小节");
+    if (!(chromeBox.hintLeft >= chromeBox.fullRight - 1)) fail("the ! is not to the right of 全部谱面");
     if (!(chromeBox.hintLeft >= chromeBox.splitRight - 1)) fail("the ! is not to the right of 分开小节");
-    if (chromeBox.authorHints !== 1 || !chromeBox.splitHintGone) fail("author row does not have exactly one !");
+    if (chromeBox.authorHints !== 1 || !chromeBox.splitHintGone || chromeBox.extraFullHint) fail("author row does not have exactly one !");
     if (chromeBox.hintLabel !== "!") fail("help control is " + JSON.stringify(chromeBox.hintLabel));
     if (chromeBox.hintParas !== 1) fail("help is not a single combined note (" + chromeBox.hintParas + " paragraphs)");
     if (!chromeBox.hintText.includes("先选咚或咔") || !chromeBox.hintText.includes("16分")) fail("combined hint missing 加入音符 " + chromeBox.hintText);
     if (!chromeBox.hintText.includes(SPLIT_HELP.replace(/\s+/g, ""))) fail("combined hint missing 分开小节 " + chromeBox.hintText);
+    if (!chromeBox.hintText.includes(FULL_HELP.replace(/\s+/g, ""))) fail("combined hint missing 全部谱面 " + chromeBox.hintText);
+    if (chromeBox.hintAria.indexOf("全部谱面") < 0) fail("hint button does not mention 全部谱面: " + chromeBox.hintAria);
     if (chromeBox.hintOpen) fail("split help is standing open");
     if (chromeBox.standing) fail("split explanation is standing copy");
     if (chromeBox.gap > 2) fail("default measures are split by " + chromeBox.gap.toFixed(1) + "px");
@@ -229,8 +250,14 @@ function overlaps(a, b) {
     if (chromeBox.right.chartGap > 12) fail("right arrow floats " + chromeBox.right.chartGap.toFixed(1) + "px under the chart");
     if (chromeBox.left.handsGap > 36) fail("left arrow is not just under the chart (" + chromeBox.left.handsGap.toFixed(1) + "px below the hands)");
     if (chromeBox.right.handsGap > 36) fail("right arrow is not just under the chart (" + chromeBox.right.handsGap.toFixed(1) + "px below the hands)");
-    if (chromeBox.left.overviewGap < 8) fail("left arrow sits on 小节总览 (" + chromeBox.left.overviewGap.toFixed(1) + "px)");
-    if (chromeBox.right.overviewGap < 8) fail("right arrow sits on 小节总览 (" + chromeBox.right.overviewGap.toFixed(1) + "px)");
+    // Post-#90 the overview sat about 14px under the arrows. Keep a modest extra
+    // gap so it is lower, without bringing back the tall empty band.
+    if (chromeBox.left.overviewGap < 28 || chromeBox.left.overviewGap > 72) {
+      fail("小节总览 is not a little under the arrows (" + chromeBox.left.overviewGap.toFixed(1) + "px)");
+    }
+    if (chromeBox.right.overviewGap < 28 || chromeBox.right.overviewGap > 72) {
+      fail("小节总览 is not a little under the right arrow (" + chromeBox.right.overviewGap.toFixed(1) + "px)");
+    }
     if (chromeBox.left.w < 44 || chromeBox.left.h < 36) fail("left arrow is small " + chromeBox.left.w.toFixed(0) + "×" + chromeBox.left.h.toFixed(0));
     if (chromeBox.right.w < 44 || chromeBox.right.h < 36) fail("right arrow is small " + chromeBox.right.w.toFixed(0) + "×" + chromeBox.right.h.toFixed(0));
     if (chromeBox.left.label.indexOf("←") < 0 && chromeBox.left.label.indexOf("‹") < 0) fail("left arrow glyph " + chromeBox.left.label);
@@ -496,6 +523,167 @@ function overlaps(a, b) {
     });
     if (splitOff.checked || !splitOff.continuous || splitOff.gap > 2) fail("unchecking 分开小节 did not restore the strip");
 
+    async function readWrappedChart() {
+      return page.evaluate(() => {
+        const scroll = document.getElementById("editorScroll");
+        const port = scroll.getBoundingClientRect();
+        const measures = [...document.querySelectorAll("#editorMeasures .editor-measure")].map((el) => {
+          const r = el.getBoundingClientRect();
+          const lane = el.querySelector(".editor-lane");
+          return {
+            index: +el.dataset.index,
+            left: r.left,
+            right: r.right,
+            top: r.top,
+            bottom: r.bottom,
+            radius: lane ? (parseFloat(getComputedStyle(lane).borderTopLeftRadius) || 0) : 0,
+          };
+        });
+        const nudge = document.getElementById("editorNudge");
+        const overview = document.getElementById("editorOverview");
+        const rows = [];
+        measures.forEach((m) => {
+          const row = rows.find((it) => Math.abs(it.top - m.top) < 8);
+          if (row) row.items.push(m);
+          else rows.push({ top: m.top, items: [m] });
+        });
+        return {
+          checked: document.getElementById("editorFullChart").checked,
+          split: document.getElementById("editorSplitMeasures").checked,
+          full: document.getElementById("editor").classList.contains("is-full-chart"),
+          continuous: document.getElementById("editor").classList.contains("is-continuous"),
+          overflowX: scroll.scrollWidth - scroll.clientWidth,
+          port: { left: port.left, right: port.right, top: port.top, bottom: port.bottom },
+          measures: measures,
+          rows: rows.length,
+          wideRow: rows.some((row) => row.items.length >= 2),
+          sameRowGap: rows.reduce((gap, row) => {
+            if (row.items.length < 2) return gap;
+            const sorted = row.items.slice().sort((a, b) => a.left - b.left);
+            return Math.min(gap, sorted[1].left - sorted[0].right);
+          }, 999),
+          nudgeDisplay: getComputedStyle(nudge).display,
+          overviewDisplay: getComputedStyle(overview).display,
+        };
+      });
+    }
+
+    await page.click("#editorFullChart");
+    const fullOn = await readWrappedChart();
+    if (!fullOn.checked || !fullOn.full) fail("全部谱面 did not turn the wrap layout on");
+    if (fullOn.split || !fullOn.continuous) fail("全部谱面 turned 分开小节 on");
+    if (fullOn.nudgeDisplay !== "none") fail("全部谱面 still shows the arrows (" + fullOn.nudgeDisplay + ")");
+    if (fullOn.overviewDisplay !== "none") fail("全部谱面 still shows 小节总览 (" + fullOn.overviewDisplay + ")");
+    if (fullOn.overflowX > 2) fail("全部谱面 still scrolls sideways by " + fullOn.overflowX.toFixed(1) + "px");
+    if (fullOn.measures.length < 8) fail("全部谱面 lost measures (" + fullOn.measures.length + ")");
+    if (fullOn.rows < 2) fail("全部谱面 did not wrap onto another line");
+    if (!fullOn.wideRow) fail("全部谱面 stacked one measure per line instead of using the card width");
+    if (fullOn.sameRowGap > 2) fail("wrapped strip still separates measures by " + fullOn.sameRowGap.toFixed(1) + "px");
+    fullOn.measures.forEach((m) => {
+      if (m.left < fullOn.port.left - 2 || m.right > fullOn.port.right + 2) {
+        fail("measure " + m.index + " is outside the chart width");
+      }
+    });
+    const wrappedEnd = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll");
+      scroll.scrollTop = scroll.scrollHeight;
+      const port = scroll.getBoundingClientRect();
+      const nodes = [...document.querySelectorAll("#editorMeasures .editor-measure")];
+      const last = nodes[nodes.length - 1].getBoundingClientRect();
+      return {
+        top: last.top - port.top,
+        bottom: last.bottom - port.bottom,
+        left: last.left - port.left,
+        right: port.right - last.right,
+      };
+    });
+    if (wrappedEnd.bottom > 4) fail("last measure stays below the wrapped chart (" + wrappedEnd.bottom.toFixed(1) + "px)");
+    if (wrappedEnd.top < -4) fail("last measure scrolled above the wrapped chart");
+    if (wrappedEnd.left < -2 || wrappedEnd.right < -2) fail("last measure is outside the wrapped chart width");
+    await page.evaluate(() => { document.getElementById("editorScroll").scrollTop = 0; });
+
+    const wrappedNote = await page.evaluate(() => {
+      const el = document.querySelector('#editorMeasures .editor-note[data-index="1"]');
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2, hand: window.BachiEditor.getResolved().hands[1] };
+    });
+    const scrollBeforeWrapNote = (await read()).scrollLeft;
+    await page.mouse.click(wrappedNote.x, wrappedNote.y);
+    const afterWrapNote = await read();
+    if (afterWrapNote.hands[1] === wrappedNote.hand) fail("全部谱面 note click did not swap L/R");
+    if (Math.abs(afterWrapNote.scrollLeft - scrollBeforeWrapNote) > 2) fail("全部谱面 note click panned the chart");
+    if (!afterWrapNote.swapHidden) fail("全部谱面 note click showed the swap popup");
+
+    const wrappedPair = await page.evaluate(() => {
+      const notes = [...document.querySelectorAll("#editorMeasures .editor-note")];
+      const box = (el) => {
+        const r = el.getBoundingClientRect();
+        return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+      };
+      return { a: box(notes[0]), b: box(notes[3]) };
+    });
+    const scrollBeforeWrapRange = (await read()).scrollLeft;
+    await drag(wrappedPair.a.x, wrappedPair.a.y, wrappedPair.b.x, wrappedPair.b.y);
+    const wrappedRange = await read();
+    if (wrappedRange.rangeHidden) fail("全部谱面 drag-select did not show the track actions");
+    if (wrappedRange.labels.join(",") !== "1-2,2-1,2-2,循环试听") fail("全部谱面 action labels " + wrappedRange.labels.join(","));
+    if (Math.abs(wrappedRange.scrollLeft - scrollBeforeWrapRange) > 2) fail("全部谱面 drag-select panned the chart");
+    if (wrappedRange.playing) fail("全部谱面 drag-select started playback");
+
+    await page.click("#editorSplitMeasures");
+    const wrappedCards = await readWrappedChart();
+    if (!wrappedCards.checked || !wrappedCards.split || wrappedCards.continuous) fail("全部谱面 + 分开小节 did not keep both on");
+    if (wrappedCards.nudgeDisplay !== "none" || wrappedCards.overviewDisplay !== "none") fail("split cards brought the arrows or 小节总览 back");
+    if (wrappedCards.overflowX > 2) fail("split cards still scroll sideways by " + wrappedCards.overflowX.toFixed(1) + "px");
+    if (wrappedCards.rows < 2) fail("split cards did not wrap");
+    if (wrappedCards.sameRowGap < 16) fail("wrapped cards are only " + wrappedCards.sameRowGap.toFixed(1) + "px apart");
+    if (wrappedCards.measures.some((m) => m.radius < 16)) fail("wrapped cards lost their rounded lanes");
+    wrappedCards.measures.forEach((m) => {
+      if (m.left < wrappedCards.port.left - 2 || m.right > wrappedCards.port.right + 2) {
+        fail("card " + m.index + " is outside the chart width");
+      }
+    });
+
+    await page.click("#editorFullChart");
+    await page.click("#editorSplitMeasures");
+    await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll");
+      scroll.scrollTop = 0;
+      scroll.scrollLeft = 0;
+    });
+    const stripAgain = await readWrappedChart();
+    if (stripAgain.checked || stripAgain.full || stripAgain.split || !stripAgain.continuous) fail("turning 全部谱面 off did not restore the strip");
+    if (stripAgain.rows !== 1) fail("the strip wrapped after 全部谱面 was turned off");
+    if (stripAgain.nudgeDisplay === "none" || stripAgain.overviewDisplay === "none") fail("arrows or 小节总览 stayed hidden");
+    if (stripAgain.overflowX < 80) fail("the strip is no longer wider than the card");
+    const arrowsBack = await page.evaluate(() => {
+      const card = document.querySelector(".editor-chart-card").getBoundingClientRect();
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const hands = document.querySelector("#editorMeasures .editor-hands").getBoundingClientRect();
+      const overview = document.getElementById("editorOverview").getBoundingClientRect();
+      const left = document.getElementById("editorNudgeLeft").getBoundingClientRect();
+      const right = document.getElementById("editorNudgeRight").getBoundingClientRect();
+      return {
+        leftGap: left.top - scroll.bottom,
+        rightGap: right.top - scroll.bottom,
+        leftHands: left.top - hands.bottom,
+        overviewGap: overview.top - left.bottom,
+        lw: left.width,
+        lh: left.height,
+        rw: right.width,
+        rh: right.height,
+        insetLeft: left.left - card.left,
+        insetRight: card.right - right.right,
+      };
+    });
+    if (arrowsBack.insetLeft > 28 || arrowsBack.insetRight > 28) fail("arrows are no longer at the far sides");
+    if (arrowsBack.leftGap > 12 || arrowsBack.rightGap > 12) fail("arrows no longer sit just under the chart");
+    if (arrowsBack.leftHands > 36) fail("arrows dropped away from the chart");
+    if (arrowsBack.lw < 44 || arrowsBack.lh < 36 || arrowsBack.rw < 44 || arrowsBack.rh < 36) fail("arrows shrank after leaving 全部谱面");
+    if (arrowsBack.overviewGap < 28 || arrowsBack.overviewGap > 72) {
+      fail("小节总览 did not stay a little under the arrows (" + arrowsBack.overviewGap.toFixed(1) + "px)");
+    }
+
     await page.click("#editorAddNoteHintBtn");
     const hinted = await page.evaluate(() => {
       const pop = document.getElementById("editorAddNoteHint");
@@ -514,6 +702,7 @@ function overlaps(a, b) {
     if (hinted.paras !== 1) fail("opened hint is not a single note");
     if (!hinted.text.includes("先选咚或咔") || !hinted.text.includes("16 分")) fail("opened hint missing 加入音符");
     if (!hinted.text.includes("连续") || !hinted.text.includes("卡片")) fail("opened hint missing 分开小节");
+    if (!hinted.text.includes("全部谱面") || !hinted.text.includes("换行")) fail("opened hint missing 全部谱面");
     if (!hinted.near || !hinted.coversX) fail("combined hint is not next to its ! button");
 
     await page.click('#editorModeSeg [data-ed-mode="auto"]');

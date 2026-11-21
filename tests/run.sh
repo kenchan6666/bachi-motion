@@ -69,12 +69,24 @@ echo "== chart author (blank chart + 16th notes) =="
 node tests/chart-author.test.js
 echo
 
+echo "== TJA export (UTF-8 round-trip) =="
+node tests/tja-export.test.js
+echo
+
+echo "== TJA export button (under the chart legend) =="
+node tests/tja-export-ui.test.js
+echo
+
 echo "== chart author UI (高级空谱面 / 加入音符) =="
 node tests/chart-author-ui.test.js
 echo
 
 echo "== editor pan (measure overview, hidden scrollbar, zoom pan) =="
 node tests/editor-pan.test.js
+echo
+
+echo "== overview marks for 待确认 measures =="
+node tests/overview-marks.test.js
 echo
 
 echo "== section loop + playback rate =="

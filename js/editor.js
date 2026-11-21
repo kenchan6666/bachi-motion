@@ -292,6 +292,8 @@
     } catch (err) {
       if (a && a.showError) a.showError(err.message || String(err));
       else console.error(err);
+    } finally {
+      syncExportTja();
     }
   }
 
@@ -1360,6 +1362,39 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
+  function syncExportTja() {
+    const btn = $("editorExportTja");
+    if (!btn) return;
+    const api = window.BachiTjaExport;
+    const a = app();
+    const text = a && a.getTja ? a.getTja() : "";
+    const opts = currentOpts();
+    const ok = !!(api && typeof api.canExport === "function" && api.canExport(text, {
+      courseIndex: opts.courseIndex,
+      course: opts.course,
+    }));
+    btn.disabled = !ok;
+  }
+
+  function exportTjaFile() {
+    const api = window.BachiTjaExport;
+    const a = app();
+    if (!api || !a || typeof a.getTja !== "function") return;
+    const opts = currentOpts();
+    const file = api.exportChart(a.getTja(), {
+      courseIndex: opts.courseIndex,
+      course: opts.course,
+    });
+    if (!file) return;
+    const blob = new Blob([file.bytes], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = file.filename;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 500);
+  }
+
   function importJsonText(text) {
     const raw = String(text || "");
     const a = app();
@@ -1416,6 +1451,7 @@
     ui.overviewTrack = $("editorOverviewTrack");
     ui.overviewWindow = $("editorOverviewWindow");
     ui.overviewMeasures = $("editorOverviewMeasures");
+    ui.overviewMarks = $("editorOverviewMarks");
     ui.measuresEl = $("editorMeasures");
     ui.playhead = $("editorPlayhead");
     ui.sel = $("editorSel");
@@ -1516,6 +1552,9 @@
     }
     const exportBtn = $("editorExportJson");
     if (exportBtn) exportBtn.addEventListener("click", () => exportJson());
+    const exportTjaBtn = $("editorExportTja");
+    if (exportTjaBtn) exportTjaBtn.addEventListener("click", () => exportTjaFile());
+    syncExportTja();
     if (ui.jsonFile) {
       ui.jsonFile.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
@@ -1676,6 +1715,43 @@
     });
   }
 
+  // Measures that contain a note inside the existing 拿不准 / 待确认
+  // warning ranges. One overview mark per such measure.
+  function uncertainMeasures() {
+    const flagged = Object.create(null);
+    const resolved = resolvedNow();
+    const warnings = (resolved && resolved.warnings) || [];
+    const notes = state.rawNotes || [];
+    for (let w = 0; w < warnings.length; w++) {
+      const item = warnings[w];
+      const from = item[0];
+      const to = item[1];
+      for (let i = 0; i < notes.length; i++) {
+        if (i < from || i > to) continue;
+        const measure = notes[i] && notes[i].measure;
+        if (measure != null) flagged[measure] = true;
+      }
+    }
+    return flagged;
+  }
+
+  function renderOverviewMarks(measures) {
+    if (!ui.overviewMarks) return;
+    const frag = document.createDocumentFragment();
+    const flagged = measures.length ? uncertainMeasures() : null;
+    for (let i = 0; i < measures.length; i++) {
+      if (!flagged[measures[i].index]) continue;
+      const mark = document.createElement("span");
+      mark.className = "editor-overview-mark";
+      mark.textContent = "!";
+      mark.dataset.measure = String(measures[i].index);
+      mark.style.left = ((i + 0.5) / measures.length * 100) + "%";
+      mark.setAttribute("aria-hidden", "true");
+      frag.appendChild(mark);
+    }
+    ui.overviewMarks.replaceChildren(frag);
+  }
+
   function renderOverview() {
     if (!ui.overview || !ui.overviewMeasures) return;
     const measures = state.measures || [];
@@ -1691,6 +1767,7 @@
       frag.appendChild(cell);
     }
     ui.overviewMeasures.replaceChildren(frag);
+    renderOverviewMarks(measures);
     syncOverview();
   }
 
@@ -2086,6 +2163,7 @@
     expandAdvanced: (v) => setAdvanced(v !== false),
     importJsonText: importJsonText,
     noteChartReplaced: noteChartReplaced,
+    syncExportTja: syncExportTja,
     setAddingNotes: setAddingNotes,
     getState: () => state,
     getResolved: resolvedNow,

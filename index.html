@@ -1525,12 +1525,14 @@ LEVEL:6
           <div class="editor-overview-track" id="editorOverviewTrack" role="slider" aria-label="小节总览" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" tabindex="0">
             <div class="editor-overview-measures" id="editorOverviewMeasures"></div>
             <div class="editor-overview-window" id="editorOverviewWindow"></div>
+            <div class="editor-overview-marks" id="editorOverviewMarks"></div>
           </div>
         </div>
         <div id="overviewHint" class="route-hint" popover="auto">
           <button type="button" class="route-hint-close" popovertarget="overviewHint" popovertargetaction="hide" aria-label="关闭">×</button>
           <p>拖谱面空白处左右移动，滚轮也一样。点小节号，或该小节里的空白，就跳到这一小节。</p>
           <p>方框标出当前看见的小节，点或拖它也能跳。密串放大后，拖空白或滚轮左右移；点音符仍可换手，拖选仍可改滚奏。</p>
+          <p>有待确认音符的小节，总览上标一个金色叹号，不挡住小节号。</p>
         </div>
         <div class="editor-chart-legend">
           <div class="items">
@@ -1540,6 +1542,9 @@ LEVEL:6
             <span class="editor-swatch is-warn"><i></i>待确认</span>
           </div>
           <span>16 分网格</span>
+        </div>
+        <div class="editor-chart-export">
+          <button type="button" class="file-btn" id="editorExportTja" disabled>导出 TJA</button>
         </div>
       </section>
 
@@ -1587,6 +1592,7 @@ LEVEL:6
 
 <script src="js/sticking.js"></script>
 <script src="js/parser.js"></script>
+<script src="js/tja-export.js"></script>
 <script src="js/hand-edits.js"></script>
 <script src="js/chart-author.js"></script>
 <script src="js/loop-range.js"></script>

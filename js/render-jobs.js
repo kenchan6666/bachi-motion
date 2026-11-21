@@ -5,6 +5,7 @@ const os = require("os");
 const path = require("path");
 
 const TaikoParser = require("./parser.js");
+const tjaEncoding = require("./tja-encoding.js");
 const audio = require("./audio-mux.js");
 const LoopRange = require("./loop-range.js");
 
@@ -22,7 +23,7 @@ Usage:
 
 Flags:
   --tja <path>         Input TJA chart (read from local disk only; do not commit user charts)
-  --song <path>        Optional original audio (wav/ogg/mp3/…). Aligned at chartStart =
+  --song <path>        Optional original audio (wav/ogg/mp3/mp4/…). Aligned at chartStart =
                        firstNoteTime - 0.7. Note times already include OFFSET; it is not
                        subtracted again. Omit this to export with no original music.
   --course <name>      COURSE/difficulty to render if the TJA has several (default: first / only)
@@ -134,7 +135,9 @@ function optionalSeconds(value) {
 }
 
 function buildPayload(args) {
-  const tjaText = args.tjaText != null ? String(args.tjaText) : fs.readFileSync(path.resolve(args.tja), "utf8");
+  const tjaText = args.tjaText != null
+    ? String(args.tjaText)
+    : tjaEncoding.decodeTjaBytes(fs.readFileSync(path.resolve(args.tja)));
   const opts = {
     course: args.course,
     measures: args.measures,

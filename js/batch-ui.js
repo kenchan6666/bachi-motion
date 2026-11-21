@@ -137,7 +137,7 @@
         pick.textContent = "这首的原曲";
         const input = document.createElement("input");
         input.type = "file";
-        input.accept = "audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus";
+        input.accept = "audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4";
         input.addEventListener("change", function () {
           row.songFile = input.files && input.files[0] ? input.files[0] : row.songFile;
           renderList();
@@ -162,6 +162,11 @@
         li.append(name, song, pick, clear, remove);
         list.appendChild(li);
       });
+    }
+
+    function sharedOriginalFile() {
+      if (typeof window === "undefined" || !window.BachiOriginal || typeof window.BachiOriginal.getFile !== "function") return null;
+      return window.BachiOriginal.getFile() || null;
     }
 
     function pushRow(row) {
@@ -194,7 +199,9 @@
         const files = Array.from(tjaInput.files || []);
         tjaInput.value = "";
         Promise.all(files.map(function (file) {
-          return file.text().then(function (text) {
+          const decode = window.TjaEncoding && window.TjaEncoding.readFile;
+          const pending = decode ? decode(file) : file.text();
+          return pending.then(function (text) {
             pushRow({ name: file.name, tjaText: text, songFile: defaultSong, stickingText: "" });
           });
         })).catch(function () { setStatus("读取 TJA 失败"); });
@@ -211,7 +218,9 @@
         pushRow({
           name: "当前谱面.tja",
           tjaText: text,
-          songFile: defaultSong,
+          // Snapshot of the shared 「高级」 song. A row that later picks its own
+          // file keeps that file; changing 「高级」 does not rewrite the queue.
+          songFile: sharedOriginalFile(),
           sectionStart: section && section.sectionStart,
           sectionEnd: section && section.sectionEnd,
         });

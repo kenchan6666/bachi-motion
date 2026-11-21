@@ -14,6 +14,8 @@
  * A measure crop (existing --measures) shifts chart time by timeShift. The
  * song stays on absolute audio time: audioOrigin = chartStart + timeShift.
  * No song file → includeOriginal is false (synthesized don/ka may still mix).
+ * A song may be an audio file or a video container (mp4). Only its audio
+ * stream is extracted; the picture is not copied into the wav.
  */
 
 const fs = require("fs");
@@ -116,9 +118,12 @@ function songAudioFilter(plan) {
 }
 
 function songFfmpegArgs(songPath, plan, outWav) {
+  // -vn -map 0:a:0 keeps the audio stream from wav/ogg/mp3/… and from mp4.
   return [
     "-y",
     "-i", songPath,
+    "-vn",
+    "-map", "0:a:0",
     "-af", songAudioFilter(plan),
     "-ac", "1",
     "-ar", "44100",

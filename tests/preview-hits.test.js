@@ -206,7 +206,24 @@ function reached(now, noteT) {
     assert.ok(previewTag[0].includes("checked"), previewTag[0]);
     assert.ok(editorTag[0].includes("checked"), editorTag[0]);
     assert.ok(!batchTag[0].includes("checked"), batchTag[0]);
-    assert.ok(html.includes("叠打点声（合成 don/ka，不是原曲）"));
+    const labelAfter = (id) => {
+      const m = html.match(new RegExp('id="' + id + '"[^>]*>\\s*([^<]+)'));
+      assert.ok(m, id);
+      return m[1].replace(/\s+/g, "");
+    };
+    assert.strictEqual(labelAfter("previewHits"), "叠打点声");
+    assert.strictEqual(labelAfter("editorPreviewHits"), "叠打点声");
+    const hintOf = (id) => {
+      const m = html.match(new RegExp('id="' + id + '"[\\s\\S]*?<p>([\\s\\S]*?)</p>'));
+      assert.ok(m, id);
+      return m[1].replace(/\s+/g, "");
+    };
+    const mainHint = hintOf("previewHitsHint");
+    const editorHint = hintOf("editorPreviewHitsHint");
+    assert.strictEqual(mainHint, editorHint);
+    assert.ok(mainHint.includes("咚") && mainHint.includes("咔"), mainHint);
+    assert.ok(mainHint.includes("1.25"), mainHint);
+    assert.strictEqual(html.split("叠打点声（合成 don/ka，不是原曲）").length - 1, 1);
     assert.ok(playerSrc.includes("assets/sounds/"));
     assert.ok(!playerSrc.includes("batchHits"));
     assert.ok(!engine.includes("batchHits"));
@@ -301,6 +318,19 @@ async function runPage() {
       await page.evaluateOnNewDocument(installHitLog);
       await page.goto("http://127.0.0.1:" + port + "/index.html", { waitUntil: "networkidle0", timeout: 30000 });
       await page.waitForFunction(() => window.PreviewHits && window.PreviewHits.player && window.startEngine, { timeout: 15000 });
+      await page.click("#btnOpenEditor");
+      await page.waitForSelector("#editorPreviewHitsHintBtn", { visible: true });
+      await page.click("#editorPreviewHitsHintBtn");
+      const editorHintOpen = await page.evaluate(() => {
+        const pop = document.getElementById("editorPreviewHitsHint");
+        return pop.matches(":popover-open");
+      });
+      assert.strictEqual(editorHintOpen, true);
+      await page.evaluate(() => {
+        const pop = document.getElementById("editorPreviewHitsHint");
+        if (pop.matches(":popover-open")) pop.hidePopover();
+        document.getElementById("btnBackPlayer").click();
+      });
       const setup = await page.evaluate(() => {
         const previewBox = document.getElementById("previewHits");
         const editorBox = document.getElementById("editorPreviewHits");
@@ -322,16 +352,23 @@ async function runPage() {
           editorOn: editorBox.checked,
           batchOn: batchBox.checked,
           previewLabel: previewBox.parentElement.textContent.replace(/\s+/g, ""),
+          editorLabel: editorBox.parentElement.textContent.replace(/\s+/g, ""),
           batchLabel: batchBox.parentElement.textContent.replace(/\s+/g, ""),
           sameNode: previewBox === batchBox,
+          mainHint: document.querySelector("#previewHitsHint p").textContent.replace(/\s+/g, ""),
+          editorHint: document.querySelector("#editorPreviewHitsHint p").textContent.replace(/\s+/g, ""),
         };
       });
       assert.strictEqual(setup.previewOn, true);
       assert.strictEqual(setup.editorOn, true);
       assert.strictEqual(setup.batchOn, false);
       assert.strictEqual(setup.sameNode, false);
-      assert.ok(setup.previewLabel.includes("叠打点声（合成don/ka，不是原曲）"), setup.previewLabel);
+      assert.strictEqual(setup.previewLabel, "叠打点声");
+      assert.strictEqual(setup.editorLabel, "叠打点声");
       assert.ok(setup.batchLabel.includes("叠打点声（合成don/ka，不是原曲）"), setup.batchLabel);
+      assert.strictEqual(setup.mainHint, setup.editorHint);
+      assert.ok(setup.mainHint.includes("咚") && setup.mainHint.includes("咔"), setup.mainHint);
+      assert.ok(setup.mainHint.includes("1.25"), setup.mainHint);
 
       const ready = await page.evaluate(() => window.PreviewHits.player.buffersReady())
         || await page.waitForFunction(() => window.PreviewHits.player.buffersReady(), { timeout: 4000 }).then(() => true);

@@ -44,7 +44,12 @@ body.editor-mode .editor-page-title {
   text-align: center;
   letter-spacing: 0.06em;
 }
-body.editor-mode .top .song { justify-self: end; }
+body.editor-mode .top .song {
+  justify-self: end;
+  width: max-content;
+  max-width: 100%;
+  min-width: 4.5em;
+}
 body.editor-mode .btn-open-editor { display: none; }
 .editor-page-title[hidden] { display: none !important; }
 
@@ -318,6 +323,8 @@ body.editor-mode .editor {
   gap: 8px;
 }
 .editor-advanced-panel[hidden] { display: none !important; }
+.editor-advanced-panel .hint,
+.editor-advanced-panel .original-song-name { word-break: break-all; }
 
 .editor-body {
   flex: 1;
@@ -360,8 +367,38 @@ body.editor-mode .editor {
   flex: 1;
   min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   padding: 8px 18px 0;
   position: relative;
+  cursor: grab;
+  user-select: none;
+}
+.editor-scroll.is-panning,
+.editor-scroll.is-panning * { cursor: grabbing; }
+/* Classic bar, not the overlay sliver. scrollbar-width would cancel this height. */
+.editor-scroll::-webkit-scrollbar {
+  -webkit-appearance: none;
+  height: 18px;
+  width: 12px;
+}
+.editor-scroll::-webkit-scrollbar-track {
+  background: #E6D7C6;
+  border-radius: 999px;
+}
+.editor-scroll::-webkit-scrollbar-track:horizontal { margin: 0 10px 4px; }
+.editor-scroll::-webkit-scrollbar-thumb {
+  background: #6B5344;
+  border-radius: 999px;
+  border: 3px solid #E6D7C6;
+  min-width: 48px;
+  min-height: 18px;
+}
+.editor-scroll::-webkit-scrollbar-thumb:hover { background: #3E3228; }
+@supports not selector(::-webkit-scrollbar) {
+  .editor-scroll {
+    scrollbar-width: auto;
+    scrollbar-color: #6B5344 #E6D7C6;
+  }
 }
 .editor-measures {
   position: relative;
@@ -852,10 +889,13 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
 }
 .editor-preview-hits {
   display: flex;
+  align-items: center;
+  gap: 6px;
   margin-top: 8px;
   font-size: 12px;
   line-height: 1.4;
 }
+.editor-preview-hits .check { font-size: 12px; }
 .editor-play-btn {
   appearance: none;
   margin-left: auto;
@@ -905,7 +945,7 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
   box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
 }
 
-.editor.is-readonly .editor-scroll { cursor: default; }
-.editor:not(.is-readonly) .editor-lane { cursor: crosshair; }
+.editor.is-readonly .editor-scroll { cursor: grab; }
+.editor:not(.is-readonly) .editor-lane { cursor: grab; }
 
 .editor-tja-btn { display: none; } /* placeholder if needed */

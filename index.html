@@ -7,7 +7,7 @@
 <title>bachi-motion</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+JP:wght@700&family=Noto+Serif+SC:wght@700&family=Noto+Serif+TC:wght@700&family=Zen+Maru+Gothic:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="assets/fonts/bachi-serif-cjk.css">
 <script>
   if (!Object.hasOwn(HTMLElement.prototype, "popover")) {
@@ -33,8 +33,9 @@
     --shadow: 0 1px 0 rgba(62, 50, 40, 0.06);
     --radius-pill: 999px;
     --radius-field: 12px;
-    --font-ui: "Zen Maru Gothic", "PingFang SC", "Hiragino Sans", "Noto Sans CJK SC", sans-serif;
+    --font-ui: "Zen Maru Gothic", "PingFang SC", "PingFang TC", "Hiragino Sans", "Noto Sans CJK SC", "Noto Sans CJK TC", "Microsoft YaHei", "Microsoft JhengHei", sans-serif;
     --font-display: "Noto Serif JP", "Songti SC", "Hiragino Mincho ProN", serif;
+    --font-title: "Bachi Serif CJK", "Noto Serif SC", "Noto Serif TC", "Noto Serif CJK SC", "Noto Serif CJK TC", "Source Han Serif SC", "Source Han Serif TC", "Songti SC", "Songti TC", "PMingLiU", "MingLiU", "Microsoft JhengHei", "Microsoft YaHei", serif;
     --export-bg: #ecebe6;
   }
 
@@ -112,9 +113,17 @@
   }
   .song {
     margin: 0;
+    flex: 0 1 auto;
+    min-width: 4.5em;
+    max-width: min(46vw, 520px);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-family: var(--font-title);
+    font-weight: 700;
     font-size: 13px;
     color: var(--ink-soft);
-    text-align: right;
+    text-align: start;
     line-height: 1.35;
   }
   .song strong { color: var(--ink); font-weight: 700; }
@@ -783,6 +792,58 @@
     font-size: 12px;
     line-height: 1.4;
   }
+  .file-btn[hidden] { display: none; }
+  .settings-advanced {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #FBF7F0;
+  }
+  .settings-advanced > summary {
+    list-style: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ink-deep);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .settings-advanced > summary::-webkit-details-marker { display: none; }
+  .settings-advanced > summary::after {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-right: 1.6px solid var(--ink);
+    border-bottom: 1.6px solid var(--ink);
+    transform: rotate(45deg);
+    margin-top: -4px;
+  }
+  .settings-advanced[open] > summary::after {
+    transform: rotate(-135deg);
+    margin-top: 4px;
+  }
+  .settings-advanced-body {
+    padding: 0 12px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .original-song-chosen {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .original-song-chosen[hidden] { display: none; }
+  .original-song-name {
+    flex: 1 1 8em;
+    min-width: 0;
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--ink);
+    word-break: break-all;
+  }
   .batch-name { font-weight: 700; color: var(--ink-deep); }
   .batch-song { color: var(--ink-soft); }
   .batch-empty { font-size: 12px; color: var(--ink-soft); }
@@ -822,8 +883,9 @@
     .top h1 { font-size: 18px; }
     .subtitle { font-size: 12px; }
     .song {
-      max-width: none;
-      text-align: left;
+      max-width: 100%;
+      min-width: 0;
+      text-align: start;
       padding-left: 38px;
       font-size: 12px;
     }
@@ -861,24 +923,29 @@
     background: #4b4550;
     border: 3px solid #2B2320;
     color: #F6EEDC;
-    font-family: "Bachi Serif CJK", "Noto Serif CJK JP", "Noto Serif CJK SC", serif;
+    font-family: var(--font-title);
     font-weight: 700;
     line-height: 1.2;
     pointer-events: none;
     user-select: none;
     overflow: hidden;
+    min-width: 4.5em;
   }
   #titlebar.is-on { display: block; }
   #titlebarTitle {
     margin: 0;
+    max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
     letter-spacing: 0.02em;
   }
   #titlebarMeta {
     margin: 0.22em 0 0;
+    max-width: 100%;
     white-space: nowrap;
     overflow: hidden;
+    text-overflow: ellipsis;
     opacity: 0.92;
     letter-spacing: 0.04em;
   }
@@ -1015,11 +1082,11 @@
         </div>
 
         <div class="preview-hits">
-          <label class="check"><input id="previewHits" data-preview-hits type="checkbox" checked> 叠打点声（合成 don/ka，不是原曲）</label>
+          <label class="check"><input id="previewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
           <button type="button" class="route-hint-btn" id="previewHitsHintBtn" popovertarget="previewHitsHint" aria-expanded="false" aria-controls="previewHitsHint" aria-label="打点声说明">!</button>
           <div id="previewHitsHint" class="route-hint" popover="auto">
             <button type="button" class="route-hint-close" popovertarget="previewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
-            <p>预览时用自带的合成咚/咔，在鼓棒打到音符的时刻出声，不是原曲。大音符稍响。拖进度或暂停不会补响。成片要在批量出片里另勾「叠打点声」，默认不叠进视频。</p>
+            <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
           </div>
         </div>
 
@@ -1150,6 +1217,20 @@ LEVEL:6
           <p class="hint" id="src"></p>
           <div id="error" hidden></div>
 
+          <details class="settings-advanced" id="settingsAdvanced">
+            <summary>高级</summary>
+            <div class="settings-advanced-body">
+              <div class="chips">
+                <label class="file-btn">打开原曲<input id="settingsOriginalSong" data-original-song type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
+              </div>
+              <p class="hint" id="settingsOriginalHint" data-original-hint>未选择原曲：预览和出片都不含原曲。</p>
+              <div class="original-song-chosen" id="settingsOriginalChosen" data-original-chosen hidden>
+                <span class="original-song-name" id="settingsOriginalName" data-original-name></span>
+                <button type="button" class="file-btn" id="settingsOriginalClear" data-original-clear>不要原曲</button>
+              </div>
+            </div>
+          </details>
+
           <fieldset class="batch-fields">
             <legend class="block-label route-head">批量出片<button type="button" class="route-hint-btn" id="batchHintBtn" popovertarget="batchHint" aria-expanded="false" aria-controls="batchHint" aria-label="批量出片说明">!</button></legend>
             <div id="batchHint" class="route-hint route-hint-wide" popover="auto">
@@ -1159,7 +1240,7 @@ LEVEL:6
             </div>
             <div class="batch-actions">
               <label class="file-btn">加入谱面<input id="batchTja" type="file" accept=".tja,text/plain" multiple></label>
-              <label class="file-btn">选择原曲<input id="batchSong" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus"></label>
+              <label class="file-btn">选择原曲<input id="batchSong" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
               <button type="button" class="file-btn" id="batchAddCurrent">把当前谱面加入队列</button>
             </div>
             <p class="hint" id="batchSongName">未选择原曲：成片不含原曲。打点声可以另外叠。</p>
@@ -1239,6 +1320,12 @@ LEVEL:6
             <label class="file-btn">导入 JSON<input id="editorJsonFile" type="file" accept=".json,application/json"></label>
             <button type="button" class="file-btn" id="editorExportJson">导出 JSON</button>
             <label class="file-btn">打开 TJA<input id="editorTjaFile" type="file" accept=".tja,text/plain"></label>
+            <label class="file-btn">打开原曲<input id="editorOriginalSong" data-original-song type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
+            <p class="hint" id="editorOriginalHint" data-original-hint>未选择原曲：预览和出片都不含原曲。</p>
+            <div class="original-song-chosen" id="editorOriginalChosen" data-original-chosen hidden>
+              <span class="original-song-name" id="editorOriginalName" data-original-name></span>
+              <button type="button" class="file-btn" id="editorOriginalClear" data-original-clear>不要原曲</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1295,7 +1382,14 @@ LEVEL:6
             <span id="editorPlayText">尚未开始</span>
             <button type="button" class="editor-play-btn" id="editorPlayBtn">播放</button>
           </div>
-          <label class="check editor-preview-hits"><input id="editorPreviewHits" data-preview-hits type="checkbox" checked> 叠打点声（合成 don/ka，不是原曲）</label>
+          <div class="editor-preview-hits">
+            <label class="check"><input id="editorPreviewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
+            <button type="button" class="route-hint-btn" id="editorPreviewHitsHintBtn" popovertarget="editorPreviewHitsHint" aria-expanded="false" aria-controls="editorPreviewHitsHint" aria-label="打点声说明">!</button>
+            <div id="editorPreviewHitsHint" class="route-hint" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="editorPreviewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
+            </div>
+          </div>
         </div>
         <div class="editor-preview-legend">
           <div class="sw"><span class="hand-pill is-R">右</span>右手</div>
@@ -1312,7 +1406,10 @@ LEVEL:6
 <script src="js/loop-range.js"></script>
 <script src="js/preview-hits.js"></script>
 <script src="js/engine.js"></script>
+<script src="js/original-song.js"></script>
 <script src="js/titlebar-bpm.js"></script>
+<script src="js/tja-encoding.js"></script>
+<script src="js/title-fit.js"></script>
 <script src="js/titlebar.js"></script>
 <script src="js/app.js"></script>
 <script src="js/editor.js"></script>

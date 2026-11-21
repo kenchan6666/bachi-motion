@@ -237,6 +237,25 @@ function firstHit(offset) {
     assert.ok(Math.abs(win.chartStart - (first - 0.7)) > 0.2);
   });
 
+  await check("ffmpeg args extract the audio stream, including from mp4", () => {
+    const plan = audio.originalAudioPlan({
+      chartStart: 1.3,
+      chartEnd: 2.5,
+      rate: 1,
+      hasSong: true,
+      offset: -2,
+    });
+    const args = audio.songFfmpegArgs("song.mp4", plan, "out.wav");
+    assert.ok(args.includes("-vn"), args.join(" "));
+    assert.ok(args.includes("0:a:0"), args.join(" "));
+    assert.strictEqual(args[args.indexOf("-i") + 1], "song.mp4");
+    assert.strictEqual(args[args.length - 1], "out.wav");
+    assert.ok(!args.includes("-c:v"), args.join(" "));
+    const filter = args[args.indexOf("-af") + 1];
+    assert.ok(filter.includes("atrim=start=1.3"), filter);
+    assert.ok(!filter.includes("-2"), filter);
+  });
+
   const ffmpeg = spawnSync("ffmpeg", ["-version"], { stdio: "ignore" });
   if (ffmpeg.error || ffmpeg.status !== 0) {
     console.log("  - skip ffmpeg impulse placement (ffmpeg not on PATH)");
@@ -270,6 +289,33 @@ function firstHit(offset) {
       assert.ok(mag > 1000, "impulse survived the slice");
       const videoT = peak / wav.sampleRate;
       nearly(videoT, 0.7, 1 / sr + 1e-4);
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    await check("mp4 export extracts the audio stream instead of the picture", async () => {
+      const sr = 44100;
+      const samples = new Int16Array(sr);
+      for (let i = 0; i < sr * 0.2; i++) samples[i] = 16000;
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bachi-mp4-"));
+      const wavIn = path.join(dir, "tone.wav");
+      const mp4 = path.join(dir, "tone.mp4");
+      const out = path.join(dir, "sliced.wav");
+      audio.writeWavPcm(wavIn, sr, samples);
+      const enc = spawnSync("ffmpeg", ["-y", "-i", wavIn, "-c:a", "aac", "-vn", mp4], { encoding: "utf8" });
+      assert.strictEqual(enc.status, 0, enc.stderr && enc.stderr.slice(-500));
+      const plan = audio.originalAudioPlan({
+        chartStart: 0,
+        chartEnd: 1,
+        rate: 1,
+        hasSong: true,
+        offset: -2,
+      });
+      await audio.extractSongSlice(mp4, plan, out);
+      const wav = audio.readWavPcm(out);
+      assert.ok(wav.samples.length > sr * 0.5, "sliced wav is long enough to hold the tone");
+      let peak = 0;
+      for (let i = 0; i < wav.samples.length; i++) peak = Math.max(peak, Math.abs(wav.samples[i]));
+      assert.ok(peak > 1000, "mp4 audio was extracted, peak=" + peak);
       fs.rmSync(dir, { recursive: true, force: true });
     });
 

@@ -79,17 +79,94 @@
     }
   }
 
+  function songLineText(meta) {
+    const parts = [];
+    if (meta.name) parts.push(meta.name);
+    if (meta.course) parts.push(meta.course);
+    if (meta.bpm) parts.push("BPM " + meta.bpm);
+    return parts.join(" · ");
+  }
+
+  function renderSongRich(meta, px) {
+    songEl.style.fontSize = px + "px";
+    songEl.replaceChildren();
+    songEl.removeAttribute("title");
+    if (meta.name) appendMetaPart(songEl, meta.name, true);
+    if (meta.course) appendMetaPart(songEl, meta.course, false);
+    if (meta.bpm) appendMetaPart(songEl, "BPM " + meta.bpm, false);
+  }
+
+  function songMaxPx() {
+    return window.matchMedia && window.matchMedia("(max-width: 840px)").matches ? 12 : 13;
+  }
+
+  function fitSongHeading() {
+    if (!songEl || !songEl._meta) return;
+    const meta = songEl._meta;
+    const full = songLineText(meta);
+    songEl.dataset.fullText = full;
+    const maxPx = songMaxPx();
+    const minPx = 11;
+    renderSongRich(meta, maxPx);
+    const cap = songEl.clientWidth;
+    if (cap < 8) return;
+    if (songEl.scrollWidth <= cap) return;
+    function richWidth(px) {
+      renderSongRich(meta, px);
+      return songEl.scrollWidth;
+    }
+    if (richWidth(minPx) <= cap) {
+      let lo = minPx, hi = maxPx;
+      for (let i = 0; i < 14; i++) {
+        const mid = (lo + hi) / 2;
+        if (richWidth(mid) <= cap) lo = mid;
+        else hi = mid;
+      }
+      renderSongRich(meta, lo);
+      return;
+    }
+    const fit = window.TitleFit;
+    if (!fit || typeof fit.fitTitleLine !== "function") {
+      renderSongRich(meta, minPx);
+      return;
+    }
+    const fitted = fit.fitTitleLine(full, cap, {
+      maxPx: minPx,
+      minPx: minPx,
+      measure: function (text, px) {
+        songEl.style.fontSize = px + "px";
+        songEl.textContent = text;
+        return songEl.scrollWidth;
+      },
+    });
+    songEl.style.fontSize = fitted.fontSize + "px";
+    songEl.textContent = fitted.text || full;
+    if (fitted.ellipsized && full) songEl.title = full;
+  }
+
   function updateHeading(data) {
     document.title = "bachi-motion";
     if (!songEl) return;
-    songEl.replaceChildren();
-    if (!data) return;
+    if (!data) {
+      songEl._meta = null;
+      songEl.dataset.fullText = "";
+      songEl.replaceChildren();
+      songEl.removeAttribute("title");
+      return;
+    }
     const name = data.song || (data.headers && data.headers.title) || "";
     const bpm = data.bpm;
     const course = data.course || (data.headers && data.headers.course);
-    if (name) appendMetaPart(songEl, name, true);
-    if (course) appendMetaPart(songEl, String(course), false);
-    if (bpm) appendMetaPart(songEl, "BPM " + bpm, false);
+    songEl._meta = {
+      name: name || "",
+      course: course ? String(course) : "",
+      bpm: bpm ? String(bpm) : "",
+    };
+    fitSongHeading();
+    const sample = songEl.dataset.fullText || "";
+    if (sample && typeof window.prepareTitleFonts === "function") {
+      window.prepareTitleFonts(sample).then(function () { fitSongHeading(); });
+    }
   }
 
   function currentBigNote() {
@@ -266,16 +343,15 @@
   $("tjaFile").onchange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      tjaInput.value = String(reader.result || "");
+    const decode = window.TjaEncoding && window.TjaEncoding.readFile;
+    const pending = decode ? decode(file) : file.text();
+    pending.then((text) => {
+      tjaInput.value = String(text || "");
       setMode("zhuren");
       syncChartPicker("custom");
       openSettings();
       showError("");
-    };
-    reader.onerror = () => showError("读取 TJA 文件失败");
-    reader.readAsText(file, "utf-8");
+    }).catch(() => showError("读取 TJA 文件失败"));
   };
 
   function safeSampleName(name) {
@@ -485,6 +561,7 @@
   setupRouteHint("chartHintBtn", "chartHint");
   setupRouteHint("batchHintBtn", "batchHint");
   setupRouteHint("previewHitsHintBtn", "previewHitsHint");
+  setupRouteHint("editorPreviewHitsHintBtn", "editorPreviewHitsHint");
 
   function regenerateKeepTime() {
     const anim = window.taikoAnim;
@@ -557,6 +634,7 @@
     setJson: (v) => setJsonValue(v),
     ROLL_HINTS,
   };
+  window.fitSongHeading = fitSongHeading;
 
   async function boot() {
     if (pageParams.get("mode") === "suyue") setMode("suyue");

@@ -12,7 +12,8 @@ npm test
 2. `node tests/titlebar-bpm.test.js`（标题栏 BPM 区间：过滤短于 4 拍的段，自制谱）
 2e. `node tests/titlebar-layout.test.js`（网页标题栏在谱面上方，左缘对齐谱面外缘；间距 16px，视口宽 ≥1920 为 20px；放不下就把舞台下移；会挡住角标或 “bachi-motion” 字标时改到字标右侧 12px。`body.export` 宽画幅仍在谱面左侧，位置和内边距不变）
 2b. `node tests/audio-mux.test.js`（原曲对齐：chartStart = 已减 OFFSET 的第一个音 − 0.7，不再减一次；只有 TJA 时不含原曲）
-2f. `node tests/preview-hits.test.js`（预览叠自带咚/咔：播放跨过音符才出声，暂停/拖进度不出声，export=1 与 renderAt 静音；批量出片的叠打点声仍默认关）
+2f. `node tests/preview-hits.test.js`（预览开关文案是「叠打点声」，说明在 ! 里：合成咚/咔，大音符 1.25 倍，和批量出片不是同一个开关。播放头到达音符才出声，暂停/拖进度不出声，export=1 与 renderAt 静音）
+2g. `node tests/original-song.test.js`（高级里选择的原曲，预览和出片共用这一首）
 2d. `node tests/section-trim.test.js`（进度条选段：整首仍是原来的入场/收尾；收窄后预览和导出从选段内第一个音 − 0.7 起到右帽，循环跳回左帽不再垫 0.7）
 2c. `node tests/batch-queue.test.js`（批量进度、队列里缺省原曲、本机出片接口）
 3. `node tests/sticking.test.js`（自动手顺 55 条，fixtures 来自 suyue@ebd21a0；另含入口排序/同拍警告）

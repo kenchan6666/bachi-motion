@@ -304,6 +304,47 @@ function nearly(a, b, eps) {
     }
   });
 
+  await check("an uploaded mp4 keeps its extension so export can read the audio", async () => {
+    const serverMod = require(path.join(__dirname, "..", "js", "render-server.js"));
+    const seen = [];
+    const server = await serverMod.startRenderServer({
+      port: 0,
+      renderJob: async (args) => {
+        seen.push(args.song);
+        const out = path.join(os.tmpdir(), "bachi-mp4-job-" + seen.length + ".mp4");
+        fs.writeFileSync(out, "mp4");
+        return out;
+      },
+    });
+    try {
+      const base = "http://127.0.0.1:" + server.port;
+      const posted = await fetch(base + "/api/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobs: [{
+            id: "mp4",
+            name: "clip.tja",
+            tjaText: "TITLE:clip\nBPM:120\nOFFSET:0\n#START\n1,\n#END\n",
+            songBase64: Buffer.from("not-a-real-mp4").toString("base64"),
+            songName: "clip.mp4",
+            hits: true,
+          }],
+        }),
+      }).then((r) => r.json());
+      assert.ok(posted.id, posted.error || "missing batch id");
+      const deadline = Date.now() + 2000;
+      while (!seen.length && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      assert.strictEqual(seen.length, 1);
+      assert.ok(String(seen[0]).endsWith(".mp4"), String(seen[0]));
+      assert.strictEqual(fs.readFileSync(seen[0]).toString("utf8"), "not-a-real-mp4");
+    } finally {
+      await server.close();
+    }
+  });
+
   console.log("batch-queue tests: " + passed);
 })().catch((err) => {
   console.error(err && err.stack ? err.stack : err);

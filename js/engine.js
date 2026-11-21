@@ -242,6 +242,7 @@ function normalizeEvents(data) {
     grip: normGrip(e.grip), route: normRoute(e.route),
     inserted: !!e.inserted, src: e.src || "",
     both: !!e.both, big: !!e.big,
+    scroll: isFinite(+e.scroll) ? +e.scroll : 1,
   })).sort((a, b) => a.t - b.t || (a.hand === "R" ? -1 : 1));
 }
 
@@ -1798,19 +1799,20 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
   return { tip: pose.tip, grip: pose.grip, gripType: grip, handDeg: pose.deg, stickDeg: pose.deg, lift: rLift };
 }
 
-function noteX(tNote, now, scroll) {
+function noteX(tNote, now, scroll, chartScroll) {
   if (typeof ScrollTempo !== "undefined" && ScrollTempo.noteX) {
     return ScrollTempo.noteX({
       tNote: tNote,
       now: now,
       scroll: scroll,
+      chartScroll: chartScroll,
       showTempo: !!(state && state.showTempo),
-      timeline: state && state.bpmTimeline,
       judgeX: GEOM.lane.judgeX,
       basePxPerSec: CONFIG.BASE_PX_PER_SEC,
     });
   }
-  return GEOM.lane.judgeX + (tNote - now) * CONFIG.BASE_PX_PER_SEC * scroll;
+  const chart = (state && state.showTempo && isFinite(+chartScroll)) ? +chartScroll : 1;
+  return GEOM.lane.judgeX + (tNote - now) * CONFIG.BASE_PX_PER_SEC * scroll * chart;
 }
 
 /** 咚：每半边鼓面当前亮度 0..1（左右各取最大） */
@@ -1952,7 +1954,7 @@ function renderChart(events, now, scroll) {
     const key = bar + "@" + e.t;
     if (seenBar.has(key)) continue;
     seenBar.add(key);
-    const x = noteX(e.t, now, scroll);
+    const x = noteX(e.t, now, scroll, e.scroll);
     if (x > L.x0 && x < L.x1)
       s += `<line x1="${f1(x)}" y1="32" x2="${f1(x)}" y2="108" stroke="#e8e2ec" stroke-width="2"/>
             <text x="${f1(x + 4)}" y="42" font-size="11" fill="#f5e7a8">${bar}</text>`;
@@ -1960,7 +1962,7 @@ function renderChart(events, now, scroll) {
   for (let k = events.length - 1; k >= 0; k--) {   // 早的音画在上面
     const e = events[k], age = now - e.t;
     if (e.both && e.hand === "L") continue;       // 双手音符只画一次
-    let x = noteX(e.t, now, scroll), r = e.big ? 20 : 15, op = 1;
+    let x = noteX(e.t, now, scroll, e.scroll), r = e.big ? 20 : 15, op = 1;
     if (age > 0) { if (age > 0.06) continue; x = L.judgeX; r = r + age / 0.06 * 10; op = 1 - age / 0.06; }
     if (x < L.x0 - 20 || x > L.x1 + 20) continue;
     if (e.inserted)
@@ -2727,7 +2729,7 @@ const state = {
   hands: ["none", "vector"].includes(params.get("hands")) ? params.get("hands") : "img",   // img=画师手图（默认）；vector=代码画的手；none=不画手
   rate: pickNum(params.get("rate"), 1, 0.05, 4),
   scroll: pickNum(params.get("scroll"), 1, 0.5, 8),
-  // 变速：谱面流速跟着 BPM 走。?tempo=0 关掉，像素/秒保持不变。
+  // 变速：打开时每颗音按自己的 #SCROLL 走。?tempo=0 关掉，忽略 #SCROLL，像素/秒不变。
   showTempo: !/^(0|off|false|no)$/i.test(params.get("tempo") == null ? "" : String(params.get("tempo"))),
   route: ["inner", "outer", "straight"].includes(params.get("route")) ? params.get("route") : "data",
   labels: params.get("labels") === "1",                 // R/L 调试标签：?labels=1 打开

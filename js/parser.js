@@ -4,7 +4,7 @@
  *
  * Supported TJA subset (溯溯 rules):
  *   Headers: TITLE, SUBTITLE, BPM, OFFSET, COURSE, LEVEL
- *   Body:    #START … #END, #MEASURE x/y, #BPMCHANGE, #DELAY
+ *   Body:    #START … #END, #MEASURE x/y, #BPMCHANGE, #SCROLL, #DELAY
  *   Notes:   0 rest, 1 咚, 2 咔, 3 大咚, 4 大咔
  *            5/6/7 (黄条) and 8 (气球) occupy a time slot but emit no event.
  *   Multiple COURSE blocks are all parsed; pick one with opts.course
@@ -82,6 +82,12 @@
     if (subtitle != null) { headers.subtitle = subtitle; return true; }
     const bpm = parseHeaderValue(line, "BPM");
     if (bpm != null && isFinite(+bpm)) { headers.bpm = +bpm; return true; }
+    const headScroll = parseHeaderValue(line, "HEADSCROLL");
+    if (headScroll != null) {
+      const m = String(headScroll).match(/^([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)/);
+      if (m && isFinite(+m[1])) headers.scroll = +m[1];
+      return true;
+    }
     const offset = parseHeaderValue(line, "OFFSET");
     if (offset != null && isFinite(+offset)) { headers.offset = +offset; return true; }
     const course = parseHeaderValue(line, "COURSE");
@@ -99,6 +105,7 @@
     function cloneCursor(src) {
       return {
         bpm: src.bpm,
+        scroll: src.scroll,
         measure: { num: src.measure.num, den: src.measure.den },
         time: src.time,
         measureIndex: src.measureIndex,
@@ -109,6 +116,7 @@
     let sink = common;
     let cursor = {
       bpm: headers.bpm,
+      scroll: isFinite(+headers.scroll) ? +headers.scroll : 1,
       measure: { num: 4, den: 4 },
       time: 0,
       measureIndex: 0,
@@ -147,6 +155,7 @@
       const beats = (measure.num / measure.den) * 4;
       const t0 = cursor.time;
       let curBpm = cursor.bpm;
+      let curScroll = cursor.scroll;
       let tCursor = cursor.time;
       let count = 0;
       let pos = 0;
@@ -187,6 +196,10 @@
           tCursor += it.value;
           continue;
         }
+        if (it.type === "scroll") {
+          curScroll = it.value;
+          continue;
+        }
         const beatDur = 60 / curBpm;
         slotTimes.push(tCursor - headers.offset);
         const typ = NOTE_TYPE[it.ch];
@@ -200,6 +213,7 @@
             pos: pos,
             slots: n,
             bpm: curBpm,
+            scroll: curScroll,
             beatDur,
             measureBeats: beats,
           });
@@ -225,6 +239,7 @@
       });
       cursor.time = tCursor;
       cursor.bpm = curBpm;
+      cursor.scroll = curScroll;
       cursor.items = [];
     }
 
@@ -242,6 +257,14 @@
         if (!isFinite(v) || v <= 0) throw new Error("无效的 #BPMCHANGE " + bpmCh[1]);
         if (inMeasure()) cursor.items.push({ type: "bpm", value: v });
         else cursor.bpm = v;
+        return;
+      }
+      const scrollCh = line.match(/^#SCROLL\s+([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)/i);
+      if (scrollCh) {
+        const v = +scrollCh[1];
+        if (!isFinite(v)) throw new Error("无效的 #SCROLL " + scrollCh[1]);
+        if (inMeasure()) cursor.items.push({ type: "scroll", value: v });
+        else cursor.scroll = v;
         return;
       }
       const delay = line.match(/^#DELAY\s+(-?\d+(?:\.\d+)?)\s*$/i);
@@ -394,6 +417,7 @@
           offset: pending.offset || global.offset,
           course: pending.course,
           level: pending.level,
+          scroll: pending.scroll != null ? pending.scroll : global.scroll,
         };
         // If BPM was never set on pending (still the 120 default) but global
         // was set, prefer global — already handled by the copy above when
@@ -420,6 +444,7 @@
           offset: global.offset,
           course: "",
           level: "",
+          scroll: global.scroll,
         };
         continue;
       }
@@ -716,6 +741,7 @@
         measure: n.measure,
         pos: n.pos,
         bpm: n.bpm,
+        scroll: isFinite(+n.scroll) ? +n.scroll : 1,
       };
 
       if (isBig && bigMode === "both") {
@@ -921,6 +947,7 @@
         measure: n.measure,
         pos: n.pos,
         bpm: n.bpm,
+        scroll: isFinite(+n.scroll) ? +n.scroll : 1,
         hand: hands[i] === "L" ? "L" : "R",
         big: bigMode === "small" ? false : isBig,
         both: false,
@@ -977,6 +1004,24 @@
   }
 
   /**
+   * Hand JSON replaces the sticking, but each note still keeps the chart
+   * #SCROLL that was in effect at its src slot.
+   */
+  function stampChartScroll(sourceEvents, events) {
+    const bySrc = Object.create(null);
+    const list = sourceEvents || [];
+    for (let i = 0; i < list.length; i++) {
+      const e = list[i];
+      if (e && e.src && bySrc[e.src] == null) bySrc[e.src] = e;
+    }
+    return (events || []).map((e) => {
+      const src = e && bySrc[e.src];
+      if (!src || !isFinite(+src.scroll) || isFinite(+e.scroll)) return e;
+      return Object.assign({}, e, { scroll: +src.scroll });
+    });
+  }
+
+  /**
    * Load a chart, optionally overlaying a 手顺 JSON.
    * 有 JSON 时完全跟 JSON，手法/惯用手/滚奏三个控件都无效。
    */
@@ -998,6 +1043,7 @@
         measures: opts.measures,
         bigNote: opts.bigNote || opts.bigMode || opts.bignote,
       }));
+      hands.events = stampChartScroll(base.events, hands.events);
       return Object.assign({}, base, hands, {
         rangeStart: base.rangeStart,
         rangeEnd: base.rangeEnd,
@@ -1250,6 +1296,22 @@
     ].join("\n");
     expect("mid-measure #BPMCHANGE 120→60", timesOf(bpmChange), [0, 0.5, 1, 2]);
 
+    const scrollTja = [
+      "BPM:120",
+      "HEADSCROLL:2",
+      "#START",
+      "11",
+      "#SCROLL 4",
+      "11,",
+      "#END",
+      "",
+    ].join("\n");
+    const scrollData = eventsFromTja(scrollTja);
+    expect("mid-measure #SCROLL does not move hit times", scrollData.events.map((e) => e.t), [0, 0.5, 1, 1.5]);
+    if (scrollData.events.map((e) => e.scroll).join(",") !== "2,2,4,4") {
+      failures.push("#SCROLL per note, got " + scrollData.events.map((e) => e.scroll).join(","));
+    }
+
     // Mid-measure DELAY: 4/4 @120 four quarters, delay 0.25 after the first two.
     const delayTja = [
       "BPM:120",
@@ -1476,6 +1538,7 @@
       ok: true,
       cases: [
         "mid-measure #BPMCHANGE → 0 / 0.5 / 1 / 2",
+        "mid-measure #SCROLL keeps hit times and stores per-note scroll",
         "mid-measure #DELAY",
         "suyue_division_test.tja even spacing (4/8/12/16/24/32/48 @120 4/4)",
         "suyue_demo.tja regression",

@@ -939,16 +939,20 @@ extra("全2-2 rolls 16 24 32 from the first note after 四连 1-2-1, 三连 2-1,
   assert.strictEqual(pairSig(bare), "");
   assertStick("12 unrolled in 全2-2 block", "ddddddddd", 1 / 3, "RLRLRLRLR", "", { 滚奏: "不滚奏" });
 
-  // 同一串里连续三颗及以上的 12 分也不跟 2-2。旁边的 24 / 16 仍从自己的第一颗 2-2，四连仍是 1-2-1。
+  // 同一串里连续三颗及以上的 12 分也不跟 2-2。12 分只算前向间隔是 12 的音。
+  // 前向已经是 16/24/32 的那颗属于更快的那一组，从它自己的第一颗 2-2；四连仍是 1-2-1。
   const twelveThen24 = notesByGaps("dddddddddddd", [1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6]);
-  assertRoll("12 then 24", twelveThen24, "RLLRLLRRLLRR", "1-2,4-5,6-7,8-9,10-11", Object.assign({ bpm: 250 }, mode));
-  assertRoll("12 then 24 auto", twelveThen24, "RLLRLLRRLLRR", "1-2,4-5,6-7,8-9,10-11", { bpm: 250, 滚奏: "自动滚奏" });
+  assertRoll("12 then 24", twelveThen24, "RLLRLRRLLRRL", "1-2,5-6,7-8,9-10", Object.assign({ bpm: 250 }, mode));
+  assertRoll("12 then 24 auto", twelveThen24, "RLLRLRRLLRRL", "1-2,5-6,7-8,9-10", { bpm: 250, 滚奏: "自动滚奏" });
+  // 只有两颗前向是 12，第三颗前向已经是 24，它起四连，不算进 12 分。
+  // 两颗不够绝对规则，跟这颗一起 2-2。后面正好四颗 24 分仍是 1-2-1。
   const twelveThenQuad = notesByGaps("ddddddd", [1 / 3, 1 / 3, 1 / 6, 1 / 6, 1 / 6, 1 / 6]);
-  assertRoll("12 then quad", twelveThenQuad, "RLLRLLR", "1-2,4-5", Object.assign({ bpm: 250 }, mode));
-  assertRoll("12 then quad auto", twelveThenQuad, "RLLRLLR", "1-2,4-5", { bpm: 250, 滚奏: "自动滚奏" });
+  assertRoll("12 then quad", twelveThenQuad, "RRLRLLR", "0-1,4-5", Object.assign({ bpm: 250 }, mode));
+  assertRoll("12 then quad auto", twelveThenQuad, "RRLRLLR", "0-1,4-5", { bpm: 250, 滚奏: "自动滚奏" });
+  // 前向变成 12 的那颗起 12 分，不留在前面的 16 分里。
   const sixteenThen12 = notesByGaps("dddddddddd", [0.25, 0.25, 0.25, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3]);
-  assertRoll("16 then 12", sixteenThen12, "RRLLRLLRLL", "0-1,2-3,5-6,8-9", Object.assign({ bpm: 250 }, mode));
-  assertRoll("16 then 12 auto", sixteenThen12, "RRLLRLLRLL", "0-1,2-3,5-6,8-9", { bpm: 250, 滚奏: "自动滚奏" });
+  assertRoll("16 then 12", sixteenThen12, "RRLRLLRLLR", "0-1,4-5,7-8", Object.assign({ bpm: 250 }, mode));
+  assertRoll("16 then 12 auto", sixteenThen12, "RRLRLLRLLR", "0-1,4-5,7-8", { bpm: 250, 滚奏: "自动滚奏" });
 
   // 不属于绝对规则的 24 分不再改成三连 2-1 或 1-2。24 分滚奏本身不变。
   assertStick("24 six is 2-2", "dddddd", 1 / 6, "RRLLRR", "0-1,2-3,4-5", mode);
@@ -970,6 +974,54 @@ extra("全2-2 rolls 16 24 32 from the first note after 四连 1-2-1, 三连 2-1,
 
   const around = notesByGaps("ddkkkkd", [0.25, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 0.25]);
   assertRoll("quad inside 16s", around, "RRLRRLR", "0-1,3-4", Object.assign({ bpm: 250 }, mode));
+});
+
+extra("12分绝对规则不要误吃 16分串的第一颗", function () {
+  // 12 分看前向间隔。入间隔虽是 12，前向已经是 16/24/32 的那颗属于更快的那一组，
+  // 从它自己的第一颗 2-2，不并进前面的 1-2，也不跟前一颗 12 分配成外刷。
+  // 拍头落在半拍上时，16↔12 不会按拍头切开，必须在同一串里成立。
+  // 里第六天魔王 Edit：小节末 12 分，下一小节 oooo（16 分）再 xxx（12 分）。
+  // 对照：前面隔了 8 分的 oooo，本来就从第一颗 2-2。
+  const pat = "ddddddddddkkkddddkkkdddd";
+  const gaps = [
+    1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3,
+    0.25, 0.25, 0.25, 0.25,
+    1 / 3, 1 / 3, 1 / 3,
+    0.25, 0.25, 0.25, 0.25,
+    1 / 3, 1 / 3,
+    0.5,
+    0.25, 0.25, 0.25,
+  ];
+  const hands = "RLLRLLRRLLRLLRRLLRLLRRLL";
+  const pairs = "1-2,4-5,6-7,8-9,11-12,13-14,15-16,18-19,20-21,22-23";
+  [0, 0.5].forEach(function (shift) {
+    const notes = notesByGaps(pat, gaps).map(function (n) {
+      return { beat: n.beat + shift, colour: n.colour, big: false };
+    });
+    ["自动滚奏", "全2-2"].forEach(function (roll) {
+      const out = sticking.autoSticking(notes, {
+        bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: roll,
+      });
+      const label = roll + " shift " + shift;
+      assert.strictEqual(out.hands.join(""), hands, label + " " + out.hands.join("") + " / " + pairSig(out));
+      assert.strictEqual(pairSig(out), pairs, label + " pairs " + pairSig(out));
+    });
+  });
+  const bare = sticking.autoSticking(notesByGaps(pat, gaps), {
+    bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏",
+  });
+  assert.strictEqual(bare.hands.join(""), "RLRLRLRLRLRLRLRLRLRLRLRL", bare.hands.join(""));
+  assert.strictEqual(pairSig(bare), "");
+
+  // 12 接 32 不会按拍头切开。前向是 32 的第一颗不能因为入间隔是 12 被吃成正攻。
+  const thirtyTwo = notesByGaps("ddddddd", [1 / 3, 1 / 3, 1 / 3, 0.125, 0.125, 0.125]);
+  ["自动滚奏", "全2-2"].forEach(function (roll) {
+    const out = sticking.autoSticking(thirtyTwo, {
+      bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: roll,
+    });
+    assert.strictEqual(out.hands.join(""), "RLLRRLL", roll + " " + out.hands.join("") + " / " + pairSig(out));
+    assert.strictEqual(pairSig(out), "1-2,3-4,5-6", roll);
+  });
 });
 
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);

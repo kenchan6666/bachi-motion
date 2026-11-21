@@ -788,18 +788,21 @@
     return breakNizytePairs(runNotes, 0, pairs, startHand, dominant);
   }
 
-  // 本串里这一颗算不算 12 分。串头没有入间隔时看出间隔。
-  function is12RunNote(runNotes, i) {
-    var d = (i === 0) ? classifyDelta(outbound(runNotes, i)) : classifyDelta(inbound(runNotes, i));
-    return d === 12;
+  // 前向已经是 16/24/32：这一颗是更快那一组的第一颗，不属于前面的 12 分。
+  function startsFasterGroup(notes, i) {
+    var d = classifyDelta(outbound(notes, i));
+    return d === 16 || d === 24 || d === 32;
   }
 
-  // 连续三颗及以上才是 12 分绝对规则要切开的一段。两颗组不成一拍，
-  // 12-24-12 那种四音仍留在后面的切法里。
+  // 12 分看前向间隔，不看入间隔。连续前向是 12 的音，再算上紧跟着的那一颗
+  // （它是这一组的最后一颗，自己的前向已经不是 12）。
+  // 前向是 16/24/32 的那颗在这里停住，留给那一组从自己的第一颗 2-2。
+  // 连续不足三颗组不成一拍，12-24-12 那种四音仍留在后面的切法里。
   function twelveRunLen(runNotes, i, end) {
-    if (!is12RunNote(runNotes, i)) return 0;
+    if (classifyDelta(outbound(runNotes, i)) !== 12) return 0;
     var j = i;
-    while (j <= end && is12RunNote(runNotes, j)) j++;
+    while (j <= end && classifyDelta(outbound(runNotes, j)) === 12) j++;
+    if (j <= end && !startsFasterGroup(runNotes, j)) j++;
     var len = j - i;
     return len >= 3 ? len : 0;
   }
@@ -825,6 +828,7 @@
         i = span.end + 1;
       } else if (twelve) {
         // 12 分按拍头对齐的 1-2，不从这段第一颗 2-2。
+        // 段尾停在前向已是 16/24/32 的那颗之前，那颗归下一组。
         segments.push({ start: i, end: i + twelve - 1, kind: "12" });
         i += twelve;
       } else {
@@ -1104,7 +1108,8 @@
     // 四连 1-2-1、三连 2-1、12分 1-2。
     // 12 分一拍三颗用 1-2，单下落在拍头；从第一颗 2-2 会跟拍错位。
     // 纯 12 分整段在这里按 1-2。连续三颗及以上、夹在 16/24/32 里的 12 分，
-    // 在 chooseAuto22Pairs 里同样先切开。不满三颗的（12-24-12 四音）仍留在原来的切法。
+    // 在 chooseAuto22Pairs 里按前向间隔先切开：入间隔是 12、前向已经是
+    // 16/24/32 的那颗不算 12 分。不满三颗的（12-24-12 四音）仍留在原来的切法。
     // 这三条优先于全 2-2 从第一颗起的 2-2，也优先于为躲开逆手外刷而挪位。
     var divs = {};
     for (var k = start; k <= end; k++) {

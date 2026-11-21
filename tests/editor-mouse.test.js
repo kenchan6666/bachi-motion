@@ -155,8 +155,9 @@ function overlaps(a, b) {
       const split = document.querySelector("label[for='editorSplitMeasures'], #editorSplitMeasures");
       const splitLabel = document.getElementById("editorSplitMeasures").closest("label");
       const box = splitLabel.getBoundingClientRect();
-      const hint = document.getElementById("editorSplitMeasuresHint");
-      const hintBtn = document.getElementById("editorSplitMeasuresHintBtn");
+      const hint = document.getElementById("editorAddNoteHint");
+      const hintBtn = document.getElementById("editorAddNoteHintBtn");
+      const hintBox = hintBtn.getBoundingClientRect();
       const left = document.getElementById("editorNudgeLeft").getBoundingClientRect();
       const right = document.getElementById("editorNudgeRight").getBoundingClientRect();
       const checked = document.getElementById("editorSplitMeasures").checked;
@@ -173,8 +174,12 @@ function overlaps(a, b) {
         hintParas: paras,
         hintText: hint ? hint.textContent.replace(/\s+/g, "") : "",
         hintOpen: hint ? hint.matches(":popover-open") : false,
+        authorHints: document.querySelectorAll("#editorAuthor .route-hint-btn").length,
+        splitHintGone: !document.getElementById("editorSplitMeasuresHintBtn") && !document.getElementById("editorSplitMeasuresHint"),
         addRight: add.right,
         splitLeft: box.left,
+        splitRight: box.right,
+        hintLeft: hintBox.left,
         gap: m2.left - m1.right,
         radius: radius,
         cardLeft: card.left,
@@ -192,9 +197,12 @@ function overlaps(a, b) {
     if (!chromeBox.continuous) fail("chart is not one continuous strip by default");
     if (chromeBox.splitText !== "分开小节") fail("split label is " + chromeBox.splitText);
     if (!(chromeBox.splitLeft >= chromeBox.addRight - 1)) fail("分开小节 is not to the right of 加入音符");
-    if (chromeBox.hintLabel !== "!") fail("split help control is " + JSON.stringify(chromeBox.hintLabel));
-    if (chromeBox.hintParas !== 1) fail("split help is not a single note (" + chromeBox.hintParas + " paragraphs)");
-    if (!chromeBox.hintText.includes(SPLIT_HELP.replace(/\s+/g, ""))) fail("split help text is " + chromeBox.hintText);
+    if (!(chromeBox.hintLeft >= chromeBox.splitRight - 1)) fail("the ! is not to the right of 分开小节");
+    if (chromeBox.authorHints !== 1 || !chromeBox.splitHintGone) fail("author row does not have exactly one !");
+    if (chromeBox.hintLabel !== "!") fail("help control is " + JSON.stringify(chromeBox.hintLabel));
+    if (chromeBox.hintParas !== 1) fail("help is not a single combined note (" + chromeBox.hintParas + " paragraphs)");
+    if (!chromeBox.hintText.includes("先选咚或咔") || !chromeBox.hintText.includes("16分")) fail("combined hint missing 加入音符 " + chromeBox.hintText);
+    if (!chromeBox.hintText.includes(SPLIT_HELP.replace(/\s+/g, ""))) fail("combined hint missing 分开小节 " + chromeBox.hintText);
     if (chromeBox.hintOpen) fail("split help is standing open");
     if (chromeBox.standing) fail("split explanation is standing copy");
     if (chromeBox.gap > 2) fail("default measures are split by " + chromeBox.gap.toFixed(1) + "px");
@@ -466,10 +474,10 @@ function overlaps(a, b) {
     });
     if (splitOff.checked || !splitOff.continuous || splitOff.gap > 2) fail("unchecking 分开小节 did not restore the strip");
 
-    await page.click("#editorSplitMeasuresHintBtn");
+    await page.click("#editorAddNoteHintBtn");
     const hinted = await page.evaluate(() => {
-      const pop = document.getElementById("editorSplitMeasuresHint");
-      const btn = document.getElementById("editorSplitMeasuresHintBtn");
+      const pop = document.getElementById("editorAddNoteHint");
+      const btn = document.getElementById("editorAddNoteHintBtn");
       const pr = pop.getBoundingClientRect();
       const br = btn.getBoundingClientRect();
       return {
@@ -480,10 +488,11 @@ function overlaps(a, b) {
         coversX: pr.x < br.x + br.width && pr.x + pr.width > br.x,
       };
     });
-    if (!hinted.open) fail("分开小节 hint did not open");
+    if (!hinted.open) fail("combined hint did not open");
     if (hinted.paras !== 1) fail("opened hint is not a single note");
-    if (!hinted.text.includes("连续") || !hinted.text.includes("卡片")) fail("hint does not explain both layouts");
-    if (!hinted.near || !hinted.coversX) fail("分开小节 hint is not next to its ! button");
+    if (!hinted.text.includes("先选咚或咔") || !hinted.text.includes("16 分")) fail("opened hint missing 加入音符");
+    if (!hinted.text.includes("连续") || !hinted.text.includes("卡片")) fail("opened hint missing 分开小节");
+    if (!hinted.near || !hinted.coversX) fail("combined hint is not next to its ! button");
 
     await page.click('#editorModeSeg [data-ed-mode="auto"]');
     const beforeLock = await page.evaluate(() => window.BachiEditor.getResolved().hands[2]);

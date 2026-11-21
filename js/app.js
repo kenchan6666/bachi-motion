@@ -919,7 +919,6 @@
   setupRouteHint("settingsBlankHintBtn", "settingsBlankHint");
   setupRouteHint("editorBlankHintBtn", "editorBlankHint");
   setupRouteHint("editorAddNoteHintBtn", "editorAddNoteHint");
-  setupRouteHint("editorSplitMeasuresHintBtn", "editorSplitMeasuresHint");
   setupRouteHint("overviewHintBtn", "overviewHint");
   setupRouteHint("originalHintBtn", "originalHint");
   setupRouteHint("editorOriginalHintBtn", "editorOriginalHint");

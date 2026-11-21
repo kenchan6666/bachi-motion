@@ -2148,24 +2148,37 @@ function fingerDetail(f, k0 = 1) {
  * 画手。ghost = null：正常（描边、肤色平涂、关节/掌纹细线、指尖浅粉）
  *       ghost = 颜色：残影剪影（只填色、不描边）
  */
-/** 画师手图：把图里的锚点放到捏点上，图里的棒子方向转到当前鼓棒方向。ghost = 透明度（残影用） */
-function handImgLayer(handSide, pose, gripType, opacity) {
+/** 画师手图：把图里的锚点放到捏点上，图里的棒子方向转到当前鼓棒方向。 */
+function handImgLayerDesc(handSide, pose, gripType, opacity) {
   const I = CONFIG.HAND_IMG[handSide][gripType];
   const alignDeg = pose.stickDeg; // 无论单击还是滚奏，手棒全程焊死：handDeg === stickDeg
   const rot = alignDeg - I.axisDeg;
-  const T = `translate(${f1(pose.grip.x)},${f1(pose.grip.y)}) rotate(${f1(rot)}) scale(${I.scale}) translate(${-I.pinch[0]},${-I.pinch[1]})`;
-  const op = opacity < 1 - 1e-6 ? ` opacity="${f1(opacity)}"` : "";
-  return `<g transform="${T}"${op}><image href="${I.href}" x="0" y="0" width="${I.w}" height="${I.h}" preserveAspectRatio="none"/></g>`;
+  const transform = `translate(${f1(pose.grip.x)},${f1(pose.grip.y)}) rotate(${f1(rot)}) scale(${I.scale}) translate(${-I.pinch[0]},${-I.pinch[1]})`;
+  const op = opacity < 1 - 1e-6 ? f1(opacity) : null;
+  return { transform, opacity: op, href: I.href, w: I.w, h: I.h };
+}
+function handImgMarkup(d) {
+  const op = d.opacity != null ? ` opacity="${d.opacity}"` : "";
+  return `<g transform="${d.transform}"${op}><image href="${d.href}" x="0" y="0" width="${d.w}" height="${d.h}" preserveAspectRatio="none"/></g>`;
+}
+function handImgLayers(handSide, pose) {
+  const blend = pose.gripBlend;
+  if (blend && blend.from && blend.to && blend.from !== blend.to) {
+    const u = clamp01(+blend.u);
+    return [
+      handImgLayerDesc(handSide, pose, blend.from, 1 - u),
+      handImgLayerDesc(handSide, pose, blend.to, u),
+    ];
+  }
+  return [handImgLayerDesc(handSide, pose, pose.gripType, 1)];
+}
+function handImgLayer(handSide, pose, gripType, opacity) {
+  return handImgMarkup(handImgLayerDesc(handSide, pose, gripType, opacity));
 }
 function handImg(handSide, pose) {
   // 单击：手图和棒共用 stickDeg（handDeg === stickDeg），棒在手里永远是 0°。
   // 旋转中心是捏点（棒轴上的握点）；手腕在图里、捏点下方，跟着整只手一起转、一起抬。
-  const blend = pose.gripBlend;
-  if (blend && blend.from && blend.to && blend.from !== blend.to) {
-    const u = clamp01(+blend.u);
-    return handImgLayer(handSide, pose, blend.from, 1 - u) + handImgLayer(handSide, pose, blend.to, u);
-  }
-  return handImgLayer(handSide, pose, pose.gripType, 1);
+  return handImgLayers(handSide, pose).map(handImgMarkup).join("");
 }
 
 function handSVG(handSide, pose, ghost = null) {
@@ -2795,35 +2808,177 @@ function applyGripCrossfade(hand, track, now, pose) {
   return pose;
 }
 
+// 上一帧已经画过的输入。暂停时这些都不变，tick 就整段跳过。
+let paintedStamp = null;
+const layers = {
+  ready: false,
+  faceFx: null,
+  dyn: null,
+  glow: null,
+  hits: null,
+  trail: { L: null, R: null },
+  swipe: null,
+  dots: null,
+  under: { L: null, R: null },
+  stick: { L: null, R: null },
+  hand: { L: null, R: null },
+  over: { L: null, R: null },
+  labels: null,
+};
+
+function sceneStamp() {
+  return {
+    now: state.now,
+    scroll: state.scroll,
+    rate: state.rate,
+    showTempo: !!state.showTempo,
+    route: state.route,
+    hands: state.hands,
+    labels: !!state.labels,
+    events: state.events,
+    tracks: state.tracks,
+    bpmTimeline: state.bpmTimeline,
+  };
+}
+function previewSceneDirty() {
+  const a = paintedStamp;
+  if (!a) return true;
+  return a.now !== state.now || a.scroll !== state.scroll || a.rate !== state.rate
+    || a.showTempo !== !!state.showTempo || a.route !== state.route || a.hands !== state.hands
+    || a.labels !== !!state.labels || a.events !== state.events || a.tracks !== state.tracks
+    || a.bpmTimeline !== state.bpmTimeline;
+}
+function setAttrIf(el, name, value) {
+  if (el && el.getAttribute(name) !== value) el.setAttribute(name, value);
+}
+function commitMarkup(el, html) {
+  if (!el || el.__html === html) return;
+  el.innerHTML = html;
+  el.__html = html;
+}
+function eachSceneLayer(fn) {
+  if (!layers.ready) return;
+  const list = [
+    layers.glow, layers.hits, layers.trail.L, layers.trail.R, layers.swipe, layers.dots,
+    layers.under.L, layers.under.R, layers.stick.L, layers.stick.R,
+    layers.hand.L, layers.hand.R, layers.over.L, layers.over.R, layers.labels,
+  ];
+  for (const el of list) if (el) fn(el);
+}
+// renderAt 要在 DOM 被清掉之后仍能画出同一帧，所以先丢掉“这层字符串没变”的缓存。
+function invalidatePreviewCache() {
+  paintedStamp = null;
+  if (els.chart) delete els.chart.__html;
+  eachSceneLayer((el) => {
+    delete el.__html;
+    delete el.__key;
+    delete el.__gs;
+  });
+}
+function ensureSceneLayers() {
+  if (layers.ready && layers.faceFx && layers.faceFx.isConnected && layers.hand.R && layers.hand.R.isConnected) return;
+  const c = GEOM.card;
+  const still = sceneTransform();
+  // 多出来的图层只用来分开更新；没有 transform / opacity / filter 的空组不参与绘制。
+  els.dyn.innerHTML =
+    `<g id="sceneFaceFx" transform="${still}">` +
+      `<g id="layer-face-glow"></g><g id="layer-hit-fx"></g>` +
+    `</g>` +
+    `<g id="sceneDyn" transform="${still}">` +
+      `<g id="sceneClip" clip-path="url(#sceneCardClip)">` +
+        `<g id="layer-trail-L"></g><g id="layer-trail-R"></g>` +
+        `<g id="layer-swipe"></g><g id="layer-rolldots"></g>` +
+        `<g id="layer-under-L"></g><g id="stick-L"></g><g id="hand-L"></g><g id="layer-over-L"></g>` +
+        `<g id="layer-under-R"></g><g id="stick-R"></g><g id="hand-R"></g><g id="layer-over-R"></g>` +
+      `</g>` +
+    `</g>` +
+    `<rect id="layer-card" x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="30" fill="none" stroke="${COL.outline}" stroke-width="${OUT}"/>` +
+    `<g id="layer-labels"></g>`;
+  const q = (id) => document.getElementById(id);
+  layers.faceFx = q("sceneFaceFx");
+  layers.dyn = q("sceneDyn");
+  layers.glow = q("layer-face-glow");
+  layers.hits = q("layer-hit-fx");
+  layers.trail.L = q("layer-trail-L");
+  layers.trail.R = q("layer-trail-R");
+  layers.swipe = q("layer-swipe");
+  layers.dots = q("layer-rolldots");
+  layers.under.L = q("layer-under-L");
+  layers.under.R = q("layer-under-R");
+  layers.stick.L = q("stick-L");
+  layers.stick.R = q("stick-R");
+  layers.hand.L = q("hand-L");
+  layers.hand.R = q("hand-R");
+  layers.over.L = q("layer-over-L");
+  layers.over.R = q("layer-over-R");
+  layers.labels = q("layer-labels");
+  layers.ready = true;
+  eachSceneLayer((el) => {
+    delete el.__html;
+    delete el.__key;
+    delete el.__gs;
+  });
+}
+function commitHand(hand, pose) {
+  const host = layers.hand[hand];
+  setAttrIf(host, "data-grip", pose.gripType);
+  if (state.hands !== "img") {
+    commitMarkup(host, state.hands === "none" ? gripMarker(hand, pose) : handSVG(hand, pose));
+    host.__key = state.hands;
+    return;
+  }
+  const parts = handImgLayers(hand, pose);
+  const key = "img|" + parts.map((d) => d.href).join("|");
+  const live = host.__gs;
+  const keep = host.__key === key && live && live.length === parts.length && live[0] && live[0].isConnected;
+  if (!keep) {
+    host.innerHTML = parts.map(handImgMarkup).join("");
+    host.__key = key;
+    host.__gs = Array.prototype.slice.call(host.children);
+  }
+  for (let i = 0; i < parts.length; i++) {
+    const g = host.__gs[i];
+    const d = parts[i];
+    setAttrIf(g, "transform", d.transform);
+    if (d.opacity == null) {
+      if (g.hasAttribute("opacity")) g.removeAttribute("opacity");
+    } else {
+      setAttrIf(g, "opacity", d.opacity);
+    }
+  }
+}
+function commitStick(hand, pose) {
+  const marker = state.hands === "img" && CONFIG.HAND_IMG[hand][pose.gripType].band ? null : hand;
+  commitMarkup(layers.stick[hand], renderStick(pose, marker));
+}
+
 function renderFrame(now) {
   const { events, tracks } = state;
-  els.chart.innerHTML = renderChart(events, now, state.scroll);
+  commitMarkup(els.chart, renderChart(events, now, state.scroll));
   const shake = drumShake(events, now);
+  const faceT = sceneTransform(shake);
   const drumEl = document.getElementById("sceneDrum");
-  if (drumEl) drumEl.setAttribute("transform", sceneTransform(shake));
-  let s = `<g id="sceneFaceFx" transform="${sceneTransform(shake)}">`;
-  s += renderFaceGlow(events, tracks.second, now);
-  s += renderHitFx(events, tracks.second, now, shake);
-  s += `</g>`;
-  s += `<g id="sceneDyn" transform="${sceneTransform()}">`;
-  s += `<g clip-path="url(#sceneCardClip)">`;       // 左右下仍齐卡片；上沿放宽，咔棒尖可略画出框
-  s += renderTrail("L", tracks.L, now) + renderTrail("R", tracks.R, now);
-  s += renderSwipeArrows(tracks, now);
-  s += renderRollDots(tracks, now);
+  setAttrIf(drumEl, "transform", faceT);
+  ensureSceneLayers();
+  setAttrIf(layers.faceFx, "transform", faceT);
+  setAttrIf(layers.dyn, "transform", sceneTransform());
+  commitMarkup(layers.glow, renderFaceGlow(events, tracks.second, now));
+  commitMarkup(layers.hits, renderHitFx(events, tracks.second, now, shake));
+  // 左右下仍齐卡片；上沿放宽，咔棒尖可略画出框
+  commitMarkup(layers.trail.L, renderTrail("L", tracks.L, now));
+  commitMarkup(layers.trail.R, renderTrail("R", tracks.R, now));
+  commitMarkup(layers.swipe, renderSwipeArrows(tracks, now));
+  commitMarkup(layers.dots, renderRollDots(tracks, now));
   for (const hand of ["L", "R"]) {
     const pose = poseAt(hand, tracks[hand], now);
     applyGripCrossfade(hand, tracks[hand], now, pose);
-    s += renderRollFx(hand, pose, tracks[hand], now, "under");
-    s += `<g id="stick-${hand}">${renderStick(pose, state.hands === "img" && CONFIG.HAND_IMG[hand][pose.gripType].band ? null : hand)}</g>`;
-    // 每只手是一个独立图层，压在鼓棒上面、锚在捏点。以后直接换成画师的手图（CONFIG.HAND_IMG）
-    s += `<g id="hand-${hand}" data-grip="${pose.gripType}">` + (state.hands === "none" ? gripMarker(hand, pose) : state.hands === "img" ? handImg(hand, pose) : handSVG(hand, pose)) + `</g>`;
-    s += renderRollFx(hand, pose, tracks[hand], now, "over");
+    commitMarkup(layers.under[hand], renderRollFx(hand, pose, tracks[hand], now, "under"));
+    commitStick(hand, pose);
+    // 每只手是一个独立图层，压在鼓棒上面、锚在捏点。手图只改 transform，不拆 <image>。
+    commitHand(hand, pose);
+    commitMarkup(layers.over[hand], renderRollFx(hand, pose, tracks[hand], now, "over"));
   }
-  s += `</g></g>`;
-  const c = GEOM.card;   // 卡片边框压在手上面，看起来像被画框裁掉
-  s += `<rect x="${c.x}" y="${c.y}" width="${c.w}" height="${c.h}" rx="30" fill="none" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
-  if (state.labels) s += renderLabels(events, now);   // R/L 调试标签，默认关
-  els.dyn.innerHTML = s;
+  commitMarkup(layers.labels, state.labels ? renderLabels(events, now) : "");
   const cur = [...events].reverse().find((e) => e.t <= now + 1e-9);
   const clockEl = $("clock");
   if (clockEl) clockEl.textContent = `t = ${Math.max(0, now).toFixed(3)} s`;
@@ -2831,8 +2986,10 @@ function renderFrame(now) {
   if (clockEnd) clockEnd.textContent = `${Math.max(0, currentClip().end).toFixed(2)} s`;
   const srcEl = $("src");
   if (srcEl) srcEl.textContent = cur ? `上一个音：#${cur.i + 1} ${cur.src} ${cur.both ? "双手" : cur.hand} ${cur.face === "don" ? (cur.big ? "大咚" : "咚") : (cur.big ? "大咔" : "咔")} ${cur.grip === "roll" ? "滚奏(捏)" : "单击(握)"}${cur.inserted ? " ★插音" : ""}` : "";
-  $("scrub").value = String((now - state.start) / (state.end - state.start));
+  const scrub = $("scrub");
+  if (scrub) scrub.value = String((now - state.start) / (state.end - state.start));
   syncLoopUi(false);
+  paintedStamp = sceneStamp();
 }
 
 function tick(ts) {
@@ -2872,7 +3029,8 @@ function tick(ts) {
   }
   state.lastTs = ts;
   syncOriginalSong();
-  renderFrame(state.now);
+  // 暂停、或这一帧的谱面时间/流速/变速/手顺都没变：不要重算姿势，也不要重写 SVG。
+  if (previewSceneDirty()) renderFrame(state.now);
   requestAnimationFrame(tick);
 }
 
@@ -2888,6 +3046,7 @@ function renderAt(t) {
   state.now = time;
   if (previewHitPlayer) previewHitPlayer.cancelPending();
   if (state.playing) setPlaying(false);
+  invalidatePreviewCache();
   renderFrame(time);
   return time;
 }

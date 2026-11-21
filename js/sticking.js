@@ -555,6 +555,18 @@
     return pairs;
   }
 
+  // 24 分三连 2-1：每满三颗是一对再一颗单打。剩下不到三颗的全部单打，
+  // 不再把整串改回从第一颗起的 1-2。
+  function plan24Triplets(n, canPair) {
+    var pairs = [];
+    var i = 0;
+    while (i + 2 < n) {
+      if (canPair(i, i + 1)) pairs.push([i, i + 1]);
+      i += 3;
+    }
+    return pairs;
+  }
+
   function plan21(n, canPair) {
     var pairs = [];
     var i = 0;
@@ -897,7 +909,18 @@
       var rel;
       var r;
       if (part.div === 24) {
-        rel = plan12From(n, 0, canPair(part.start));
+        // 12 夹 24 仍按入间隔分段，从这段第一颗 1-2。不改成三连 2-1，
+        // 也不改成 16 夹 24 鱼蛋的时值分组。
+        var touch12 = (p > 0 && parts[p - 1].div === 12) ||
+          (p + 1 < parts.length && parts[p + 1].div === 12);
+        var localN = n;
+        if (!touch12 && classifyDelta(outbound(notes, part.end)) === 16) {
+          // 入间隔会把后面那颗 16 分卷进 24 段。这里按到下一颗的时值把它留在外面。
+          localN -= 1;
+        }
+        rel = touch12
+          ? plan12From(n, 0, canPair(part.start))
+          : plan24Triplets(localN, canPair(part.start));
         for (r = 0; r < rel.length; r++) {
           pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
         }
@@ -923,16 +946,37 @@
     return (left === 16 && right === 16) || (left === 12 && right === 12);
   }
 
+  // 16 夹 24 鱼蛋：一串时值是 24 分的音，前后都是 16 分。
+  // 时值是这一颗到下一颗的间隔（合成 TJA 的槽位），不是入间隔。
+  // 返回这组 24 的长度，以及后面第一颗 16 分的下标。不够两颗 24 时不是鱼蛋。
+  function sixteenFish24(notes, i, end) {
+    if (i <= 0 || i > end) return null;
+    if (classifyDelta(inbound(notes, i)) !== 16) return null;
+    if (classifyDelta(outbound(notes, i)) !== 24) return null;
+    var j = i;
+    while (j <= end && classifyDelta(outbound(notes, j)) === 24) j++;
+    var len = j - i;
+    if (len < 2 || j > end) return null;
+    var follow = classifyDelta(outbound(notes, j));
+    // 后面紧跟 12 分的是 12 夹 24，不在这里改。
+    if (follow === 12) return null;
+    if (follow !== 16 && follow !== 0) return null;
+    return { len: len, next: j };
+  }
+
   function choose24ModePairs(notes, start, end) {
-    // 纯 16 / 纯 12 不滚。每段纯 24 从该段第一颗 1-2（不对齐拍头）。
-    // 每段纯 32 从该段第一颗 2-2。
+    // 纯 16 / 纯 12 不滚。不在鱼蛋里的 24 分按三连 2-1：满三颗是一对加一颗单打，
+    // 剩下的单打，不再整串从第一颗 1-2。每段纯 32 从该段第一颗 2-2。
     // 16夹24、12夹24 里，中间两颗 24 分是同一面的四音整格 1-2-1，
     // 不按 16/12 和 24 切开。含咚咔咔咚这类，也含同色夹心
     // （咚咚咚咚、咔咚咚咚、咚咔咔咔、咔咔咔咔）。
-    // 两头单打同一只手，中间两颗在另一只手成对。鱼蛋中间不同色不滚。
+    // 两头单打同一只手，中间两颗在另一只手成对。四音鱼蛋中间一咚一咔不滚。
+    // 16 夹 24 鱼蛋里更长的那组 24（例如 ooo(xxx)ooo）走 1-2：
+    // 第一颗 24 跟旁边的 16 一起单打，后两颗成一对。不是 1-2-1，也不是三连 2-1。
+    // 12 夹 24 仍按入间隔把 24 分段走 1-2。
     // 起手沿用这一串已经排好的下一只手（正手起为右、左左、右；
     // 同一串里上一颗是右，则为左、右右、左）。这里不另行正手起。
-    // 重复的四音型逐格 1-2-1。其他更长的混合型仍只把 24 分段按 1-2。
+    // 重复的四音型逐格 1-2-1。
     var pairs = [];
     var i = start;
     while (i <= end) {
@@ -941,8 +985,20 @@
         i += 4;
         continue;
       }
+      var fish = sixteenFish24(notes, i, end);
+      if (fish) {
+        var canFish = function (a, b) {
+          return !notes[i + a].big && !notes[i + b].big;
+        };
+        var fishRel = plan12From(fish.len, 0, canFish);
+        for (var fr = 0; fr < fishRel.length; fr++) {
+          pairs.push([fishRel[fr][0] + i, fishRel[fr][1] + i]);
+        }
+        i = fish.next;
+        continue;
+      }
       var j = i;
-      while (j <= end && !sandwichQuadAt(notes, j, end)) j++;
+      while (j <= end && !sandwichQuadAt(notes, j, end) && !sixteenFish24(notes, j, end)) j++;
       if (j > i) append24DivPairs(pairs, notes, i, j - 1);
       i = j;
     }
@@ -960,7 +1016,8 @@
       var rel = [];
       for (var i = 0; i < raw.length; i++) rel.push([raw[i][0] - start, raw[i][1] - start]);
       // 32 分交替串已经是从第一颗 2-2。逆手外刷留在对里。
-      // 24 分仍是 1-2，夹心仍是 1-2-1，这两种继续拆掉逆手外刷。
+      // 24 分三连是 2-1，16 夹 24 鱼蛋里的 24 仍是 1-2，夹心仍是 1-2-1。
+      // 这几种继续拆掉逆手外刷。
       if (!keepAlternating22(runNotes, rel)) {
         rel = breakNizytePairs(runNotes, 0, rel, startHand, dominant);
       }
@@ -1014,7 +1071,18 @@
     return allPairs;
   }
 
-  function collectWarnings(hands, runs, allPairs, dominant) {
+  // 全换一路左右接着打。密串接在散音（8 分或更慢）后面从逆手起，是交替的结果，
+  // 不标拿不准。手顺不改。密串中间只空一格 16 分不是散音后，前一颗若还连着更快的音也不是。
+  function offhandAfterSanYin(notes, runStart, globalBpm) {
+    if (runStart <= 0) return false;
+    if (isSingle16thHole(notes, runStart)) return false;
+    var gap = inbound(notes, runStart);
+    if (connected(gap, noteBpm(notes, runStart, globalBpm))) return false;
+    if (runStart >= 2 && segmentLinked(notes, runStart - 1, globalBpm)) return false;
+    return true;
+  }
+
+  function collectWarnings(notes, hands, runs, allPairs, dominant, technique, globalBpm) {
     var pairIn = Object.create(null);
     for (var p = 0; p < allPairs.length; p++) {
       pairIn[allPairs[p][0]] = true;
@@ -1028,6 +1096,7 @@
       for (var i = run.start; i <= run.end; i++) if (pairIn[i]) { hasPair = true; break; }
       if (len < 3 && !hasPair) continue;
       if (hands[run.start] !== dominant) {
+        if (technique === "全换" && offhandAfterSanYin(notes, run.start, globalBpm)) continue;
         warnings.push([run.start, run.end, "逆手起"]);
       }
     }
@@ -1110,7 +1179,7 @@
       fresh = freshStarts(notes, phrases);
     }
     var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh);
-    var warnings = collectWarnings(hands, runs, rollPairs, dominant);
+    var warnings = collectWarnings(notes, hands, runs, rollPairs, dominant, 手法, globalBpm);
     return { hands: hands, rollPairs: rollPairs, warnings: warnings };
   }
 

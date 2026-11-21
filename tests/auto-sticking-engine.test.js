@@ -159,6 +159,48 @@ extra("JSON without technique uses explicit titleTechnique only for the title", 
   assert.strictEqual(data.events.map((e) => e.hand).join(""), "RRRRRRRRLLLLLLLL");
 });
 
+function fishTja() {
+  const chars = Array(48).fill("0");
+  [[0, "1"], [3, "1"], [6, "1"], [9, "2"], [11, "2"], [13, "2"], [15, "1"], [18, "1"], [21, "1"]]
+    .forEach(function (m) { chars[m[0]] = m[1]; });
+  return ["TITLE:synth", "BPM:120", "OFFSET:0", "COURSE:Oni", "#START", chars.join("") + ",", "#END", ""].join("\n");
+}
+
+extra("synthetic TJA 16夹24 fish rolls the last two 咔 under 24分滚奏", function () {
+  const data = parser.eventsFromTja(fishTja(), { 滚奏: "24分滚奏", 手法: "全换", 惯用手: "R" });
+  // ooo(xxx)ooo → ooox(xx)ooo。三颗咚、三颗咔、三颗咚；后两颗咔成一对。
+  assert.strictEqual(data.events.map((e) => e.hand).join(""), "RLRLRRLRL");
+  assert.deepStrictEqual(data.events.map((e) => e.face), [
+    "don", "don", "don", "ka", "ka", "ka", "don", "don", "don",
+  ]);
+  assert.deepStrictEqual(data.events.map((e) => e.grip), [
+    "single", "single", "single", "single", "roll", "roll", "single", "single", "single",
+  ]);
+});
+
+extra("imported 手顺 on a 16夹24 fish is not rewritten", function () {
+  const tja = fishTja();
+  const parsed = parser.parseTja(tja);
+  const evs = parsed.notes.map(function (n) {
+    const ka = n.type === "ka" || n.type === "bigka";
+    return {
+      t: n.t,
+      hand: "L",
+      face: ka ? "ka" : "don",
+      grip: "single",
+      src: n.measure + ":" + n.pos,
+    };
+  });
+  const json = { sticking: "L".repeat(evs.length), events: evs };
+  const data = parser.chartFromTjaAndHands(tja, json, {
+    手法: "全换", 惯用手: "R", 滚奏: "24分滚奏",
+  });
+  assert.strictEqual(data.source, "hand-json");
+  assert.ok(data.stickingLocked);
+  assert.strictEqual(data.events.map(function (e) { return e.hand; }).join(""), "L".repeat(evs.length));
+  assert.ok(data.events.every(function (e) { return e.grip === "single"; }));
+});
+
 extra("JSON without technique or titleTechnique omits 手法 (no default 全换)", function () {
   const json = { sticking: "RRRRRRRRLLLLLLLL", events: evs16() };
   const data = parser.chartFromTjaAndHands(tja16(), json, { 手法: "炒菜", 惯用手: "L" });

@@ -780,7 +780,7 @@
 
   setupRouteHint("routeHintBtn", "routeHint");
   setupRouteHint("chartHintBtn", "chartHint");
-  setupRouteHint("batchHintBtn", "batchHint");
+  setupRouteHint("renderHintBtn", "renderHint");
   setupRouteHint("modeHintBtn", "modeHint");
   setupRouteHint("rollHintBtn", "rollHint");
   setupRouteHint("bigNoteHintBtn", "bigNoteHint");

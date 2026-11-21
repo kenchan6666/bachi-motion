@@ -85,6 +85,10 @@ echo "== batch queue + progress =="
 node tests/batch-queue.test.js
 echo
 
+echo "== single-chart render on the public page =="
+node tests/single-render-ui.test.js
+echo
+
 echo "== auto-sticking (55 cases from suyue@ebd21a0) =="
 node tests/sticking.test.js
 echo

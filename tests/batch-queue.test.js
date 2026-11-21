@@ -204,15 +204,24 @@ function nearly(a, b, eps) {
     assert.ok(overallLabel.textContent.indexOf("20%") >= 0);
   });
 
-  await check("the page has a batch queue, song upload, and two progress bars", () => {
+  await check("the page renders the open chart and does not show a batch queue", () => {
     const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-    assert.ok(html.includes('id="batchSong"'));
-    assert.ok(html.includes('id="batchList"'));
-    assert.ok(html.includes('id="batchItemProgress"'));
-    assert.ok(html.includes('id="batchOverallProgress"'));
+    const home = html.slice(0, html.indexOf('id="editor"'));
+    for (const gone of ["settingsBatch", "batchList", "batchTja", "batchAddCurrent", "batchSong", "batchOverallProgress", "批量出片", "加入谱面", "把当前谱面加入队列", "batch=1"]) {
+      assert.ok(!home.includes(gone), gone);
+    }
+    const play = home.slice(home.indexOf('id="settingsPlay"'));
+    assert.ok(play.includes('id="renderStart"'));
+    assert.ok(play.includes("开始渲染"));
+    assert.ok(play.includes('id="renderHits"'));
+    assert.ok(!play.includes("选择原曲"));
     assert.ok(html.includes("<progress"));
     assert.ok(!/#f5c5|ffcc00|ffd60a|apple/i.test(html.slice(html.indexOf("batch-progress"), html.indexOf("batch-progress") + 800)));
     assert.ok(html.includes("js/batch-ui.js"));
+    const ui = fs.readFileSync(path.join(__dirname, "..", "js", "batch-ui.js"), "utf8");
+    assert.ok(!ui.includes("batch=1"));
+    assert.ok(ui.includes("function runRows"));
+    assert.ok(ui.includes('getElementById("renderStart")'));
   });
 
   await check("local render server reports progress and does not attach a song that was not uploaded", async () => {

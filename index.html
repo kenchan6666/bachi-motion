@@ -816,12 +816,21 @@
     width: auto;
     max-width: 100%;
   }
-  .batch-actions, #batchDownloads {
+  .batch-actions, #batchDownloads, #renderDownloads {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
   }
-  #batchDownloads a.file-btn { text-decoration: none; }
+  #batchDownloads a.file-btn, #renderDownloads a.file-btn { text-decoration: none; }
+  #singleRender {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  #singleRender .route-head { margin: 0; }
+  #singleRender progress.batch-progress { width: 100%; align-self: stretch; }
+  #renderStatus:empty, #renderDownloads:empty { display: none; }
   .batch-list {
     list-style: none;
     margin: 0;
@@ -853,6 +862,7 @@
     gap: 8px;
     align-items: end;
   }
+  .blank-chart-fields[hidden] { display: none; }
   .blank-chart-field {
     min-width: 0;
     display: flex;
@@ -1158,7 +1168,7 @@
           </span>
           <div id="previewHitsHint" class="route-hint" popover="auto">
             <button type="button" class="route-hint-close" popovertarget="previewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
-            <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
+            <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览。成片默认不叠，要另外勾上才进视频。</p>
           </div>
           <div id="originalHint" class="route-hint route-hint-wide" popover="auto">
             <button type="button" class="route-hint-close" popovertarget="originalHint" popovertargetaction="hide" aria-label="关闭">×</button>
@@ -1204,7 +1214,7 @@
               <div id="chartHint" class="route-hint route-hint-wide" popover="auto">
                 <button type="button" class="route-hint-close" popovertarget="chartHint" popovertargetaction="hide" aria-label="关闭">×</button>
                 <p>谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
-                <p>同一份谱里有多段难度时，用旁边的按钮换。有鬼先用鬼，没有鬼再用里，否则用第一段。Oni、おに、3 是鬼，Edit、Ura、裏、4 是里；易、普、难也可以写成 0、1、2。大小写不拘。</p>
+                <p>打开一份 TJA 之后，旁边才会列出这份谱里有的难度。有鬼先用鬼，没有鬼再用里，否则用第一段。Oni、おに、3 是鬼，Edit、Ura、裏、4 是里；易、普、难也可以写成 0、1、2。大小写不拘。</p>
               </div>
             </div>
 
@@ -1238,7 +1248,7 @@ LEVEL:6
             <p class="hint" id="src"></p>
             <div id="error" hidden></div>
 
-            <div class="blank-chart-fields">
+            <div class="blank-chart-fields" id="settingsBlankFields" hidden>
               <label class="blank-chart-field blank-chart-field-title">歌名
                 <input id="settingsBlankTitle" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="未命名">
               </label>
@@ -1255,7 +1265,7 @@ LEVEL:6
             </div>
             <div id="settingsBlankHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。这三个框在打开空谱面之后才出现，打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
             </div>
           </div>
         </details>
@@ -1351,39 +1361,25 @@ LEVEL:6
             </div>
 
             <label class="check"><input id="labels" type="checkbox"> R/L 标签（调试）</label>
-          </div>
-        </details>
 
-        <details class="settings" id="settingsBatch">
-          <summary>
-            <span>批量出片</span>
-            <button type="button" class="route-hint-btn" id="batchHintBtn" popovertarget="batchHint" aria-expanded="false" aria-controls="batchHint" aria-label="批量出片说明">!</button>
-          </summary>
-          <div class="settings-body">
-            <fieldset class="batch-fields">
-              <div class="batch-actions">
-                <label class="file-btn">加入谱面<input id="batchTja" type="file" accept=".tja,text/plain" multiple></label>
-                <label class="file-btn">选择原曲<input id="batchSong" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
-                <button type="button" class="file-btn" id="batchAddCurrent">把当前谱面加入队列</button>
+            <div id="singleRender">
+              <div class="route-head">
+                <p class="block-label">出片</p>
+                <button type="button" class="route-hint-btn" id="renderHintBtn" popovertarget="renderHint" aria-expanded="false" aria-controls="renderHint" aria-label="出片说明">!</button>
               </div>
-              <p class="hint" id="batchSongName">未选择原曲：成片不含原曲。打点声可以另外叠。</p>
-              <label class="check"><input id="batchHits" type="checkbox"> 叠打点声（合成 don/ka，不是原曲）</label>
-              <ol class="batch-list" id="batchList"></ol>
-              <button type="button" class="primary-btn" id="batchStart">开始渲染</button>
-              <label class="hint" id="batchItemLabel" for="batchItemProgress">当前</label>
-              <progress id="batchItemProgress" class="batch-progress" max="1" value="0" aria-labelledby="batchItemLabel"></progress>
-              <label class="hint" id="batchOverallLabel" for="batchOverallProgress">整批 0%</label>
-              <progress id="batchOverallProgress" class="batch-progress" max="1" value="0" aria-labelledby="batchOverallLabel"></progress>
-              <p class="hint" id="batchStatus" role="status"></p>
-              <div id="batchDownloads"></div>
-            </fieldset>
+              <label class="check"><input id="renderHits" type="checkbox"> 叠打点声</label>
+              <button type="button" class="primary-btn" id="renderStart">开始渲染</button>
+              <progress id="renderProgress" class="batch-progress" max="1" value="0" aria-label="渲染进度"></progress>
+              <p class="hint" id="renderStatus" role="status"></p>
+              <div id="renderDownloads"></div>
+            </div>
+            <div id="renderHint" class="route-hint route-hint-wide" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="renderHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>渲当前已打开的这一首，不用先排队。原曲用已经选好的那首，以及预览旁的「原曲」开关。叠打点声只管成片，默认不叠，勾上才进视频。</p>
+              <p>GitHub Pages 只预览，不会在网页上渲染。要在自己的电脑上运行 node render.js --serve。</p>
+            </div>
           </div>
         </details>
-        <div id="batchHint" class="route-hint route-hint-wide" popover="auto">
-          <button type="button" class="route-hint-close" popovertarget="batchHint" popovertargetaction="hide" aria-label="关闭">×</button>
-          <p>在自己的电脑上排队渲染。选了原曲，成片从「第一个音的时间 − 0.7 秒」对齐这首音频（OFFSET 已经算进音符时间，不会再减一次）。只放 TJA 时不含原曲。</p>
-          <p>批量出片要在自己的电脑上运行 node render.js --serve。GitHub Pages 只预览动画，不会在网页上渲染。</p>
-        </div>
       </div>
     </aside>
   </div>
@@ -1446,7 +1442,7 @@ LEVEL:6
         <div class="editor-advanced" id="editorAdvanced">
           <button type="button" class="editor-advanced-btn" id="editorAdvancedBtn" aria-expanded="false">高级 <span class="chevron" aria-hidden="true"></span></button>
           <div class="editor-advanced-panel" id="editorAdvancedPanel" hidden>
-            <div class="blank-chart-fields">
+            <div class="blank-chart-fields" id="editorBlankFields" hidden>
               <label class="blank-chart-field blank-chart-field-title">歌名
                 <input id="editorBlankTitle" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="未命名">
               </label>
@@ -1463,7 +1459,7 @@ LEVEL:6
             </div>
             <div id="editorBlankHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="editorBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。这三个框在打开空谱面之后才出现，打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
             </div>
             <label class="file-btn">导入 JSON<input id="editorJsonFile" type="file" accept=".json,application/json"></label>
             <button type="button" class="file-btn" id="editorExportJson">导出 JSON</button>
@@ -1573,7 +1569,7 @@ LEVEL:6
             </span>
             <div id="editorPreviewHitsHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="editorPreviewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
+              <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览。成片默认不叠，要另外勾上才进视频。</p>
             </div>
             <div id="editorOriginalHint" class="route-hint route-hint-wide" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="editorOriginalHint" popovertargetaction="hide" aria-label="关闭">×</button>

@@ -210,11 +210,11 @@ check("原曲 switches sit beside 叠打点声; explanation lives in the !", () 
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   assert.strictEqual(html.split("打开原曲").length - 1, 1);
   assert.strictEqual(html.split("不要原曲").length - 1, 1);
-  assert.strictEqual((html.match(/>选择原曲<input/g) || []).length, 1);
-  assert.strictEqual(html.split(song.ACCEPT).length - 1, 2);
+  assert.strictEqual((html.match(/>选择原曲<input/g) || []).length, 0);
+  assert.strictEqual(html.split(song.ACCEPT).length - 1, 1);
   assert.strictEqual(html.split("data-original-use").length - 1, 2);
   assert.strictEqual(html.split(">原曲</label>").length - 1, 2);
-  assert.strictEqual(html.split("叠打点声（合成 don/ka，不是原曲）").length - 1, 1);
+  assert.strictEqual(html.split("叠打点声（合成 don/ka，不是原曲）").length - 1, 0);
   assert.ok(!html.includes("未选择原曲：预览和出片都不含原曲。"));
   for (const line of song.EXPLAIN) {
     assert.strictEqual(html.split(line).length - 1, 2, line);
@@ -226,7 +226,7 @@ check("原曲 switches sit beside 叠打点声; explanation lives in the !", () 
   assert.ok(!html.includes("谱面与设置"));
   assert.ok(!html.includes('id="settingsAdvanced"'));
   const home = html.slice(0, editorAt);
-  for (const id of ["settingsOpen", "settingsHands", "settingsPlay", "settingsBatch"]) {
+  for (const id of ["settingsOpen", "settingsHands", "settingsPlay"]) {
     const at = home.indexOf('id="' + id + '"');
     assert.ok(at >= 0, id);
     const tag = home.slice(Math.max(0, at - 80), at + 40);
@@ -307,10 +307,10 @@ check("原曲 switches sit beside 叠打点声; explanation lives in the !", () 
 
   const batchUi = fs.readFileSync(path.join(__dirname, "..", "js", "batch-ui.js"), "utf8");
   assert.ok(batchUi.includes(song.ACCEPT));
-  const sharedFn = batchUi.slice(batchUi.indexOf("function sharedOriginalFile"), batchUi.indexOf("function pushRow"));
+  const sharedFn = batchUi.slice(batchUi.indexOf("function sharedOriginalFile"), batchUi.indexOf("function chartName"));
   assert.ok(sharedFn.includes("activeFile()"));
   const addStart = batchUi.indexOf("if (addCurrent)");
-  const addBody = batchUi.slice(addStart, batchUi.indexOf("function showDownloads"));
+  const addBody = batchUi.slice(addStart, batchUi.indexOf("startBtn.addEventListener", addStart));
   assert.ok(addBody.includes("sharedOriginalFile()"));
   assert.ok(!addBody.includes("defaultSong"));
   const addFiles = batchUi.slice(batchUi.indexOf("if (tjaInput)"), addStart);
@@ -605,13 +605,35 @@ function hintBox(hintId) {
     assertSynced(returned, "returned");
 
     await page.evaluate(() => {
-      document.getElementById("settingsBatch").open = true;
+      document.getElementById("settingsPlay").open = true;
+      window.__renderPosts = [];
+      window.fetch = function (url, opts) {
+        if (String(url).indexOf("/api/batch") >= 0 && opts && opts.method === "POST") {
+          window.__renderPosts.push(JSON.parse(opts.body));
+          return Promise.resolve({
+            ok: true,
+            text: function () { return Promise.resolve(JSON.stringify({ id: "t" })); },
+          });
+        }
+        return Promise.resolve({ ok: false, text: function () { return Promise.resolve(""); } });
+      };
+      window.EventSource = function () {
+        const es = this;
+        this.close = function () {};
+        setTimeout(function () {
+          if (es.onmessage) {
+            es.onmessage({ data: JSON.stringify({ done: true, failed: 0, files: [], itemFraction: 1, currentLabel: "当前" }) });
+          }
+        }, 0);
+      };
     });
-    await page.click("#batchAddCurrent");
-    await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 1);
-    const queuedOn = await page.evaluate(songState);
-    assert.deepStrictEqual(queuedOn.queueSongs, ["bachi-original-stay.wav"]);
-    assertSynced(queuedOn, "queued on");
+    await page.click("#renderStart");
+    await page.waitForFunction(() => window.__renderPosts.length === 1 && !document.getElementById("renderStart").disabled);
+    const postedOn = await page.evaluate(() => window.__renderPosts[0].jobs[0]);
+    assert.strictEqual(postedOn.songName, "bachi-original-stay.wav");
+    assert.ok(postedOn.songBase64);
+    assert.strictEqual(postedOn.hits, false);
+    assert.strictEqual(await page.evaluate(() => window.__renderPosts[0].jobs.length), 1);
 
     await page.click("#settingsOriginalUse");
     const silenced = await page.evaluate(songState);
@@ -622,10 +644,11 @@ function hintBox(hintId) {
     assert.strictEqual(silenced.play, false);
     assert.strictEqual(silenced.src, src);
     assertSynced(silenced, "silenced");
-    await page.click("#batchAddCurrent");
-    await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 2);
-    const queuedOff = await page.evaluate(songState);
-    assert.deepStrictEqual(queuedOff.queueSongs, ["bachi-original-stay.wav", "无原曲"]);
+    await page.click("#renderStart");
+    await page.waitForFunction(() => window.__renderPosts.length === 2 && !document.getElementById("renderStart").disabled);
+    const postedOff = await page.evaluate(() => window.__renderPosts[1].jobs[0]);
+    assert.strictEqual(postedOff.songBase64, null);
+    assert.strictEqual(postedOff.songName, null);
 
     await page.click("#settingsOriginalUse");
     const again = await page.evaluate(songState);
@@ -633,10 +656,11 @@ function hintBox(hintId) {
     assert.strictEqual(again.activeName, "bachi-original-stay.wav");
     assert.strictEqual(again.src, src);
     assertSynced(again, "again");
-    await page.click("#batchAddCurrent");
-    await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 3);
-    const queuedAgain = await page.evaluate(songState);
-    assert.deepStrictEqual(queuedAgain.queueSongs, ["bachi-original-stay.wav", "无原曲", "bachi-original-stay.wav"]);
+    await page.click("#renderStart");
+    await page.waitForFunction(() => window.__renderPosts.length === 3 && !document.getElementById("renderStart").disabled);
+    const postedAgain = await page.evaluate(() => window.__renderPosts[2].jobs[0]);
+    assert.strictEqual(postedAgain.songName, "bachi-original-stay.wav");
+    assert.ok(postedAgain.songBase64);
 
     passed += 1;
     console.log("  ✓ homepage and editor keep 原曲 across a round trip");

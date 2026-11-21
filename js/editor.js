@@ -1378,8 +1378,10 @@
   function importTjaText(text) {
     const a = app();
     if (a && a.loadChartText) {
-      a.loadChartText(text, { forget: true, preferDefault: true, clearJson: state.mode === "custom" });
+      a.loadChartText(text, { forget: true, preferDefault: true, clearJson: state.mode === "custom", surface: "tja" });
     } else if (a && a.setTja) a.setTja(text);
+    // 跟主页打开 TJA 一样：谱面改成自定义，不要停在练习谱 2。
+    if (a && a.syncChartPicker) a.syncChartPicker("custom");
     if (state.mode === "custom") {
       state.mode = "tweak";
       if (a && a.setMode) a.setMode("zhuren");

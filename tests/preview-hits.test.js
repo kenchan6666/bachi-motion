@@ -201,7 +201,7 @@ function reached(now, noteT) {
   await check("preview toggle defaults on and is not the batch export checkbox", () => {
     const previewTag = html.match(/<input id="previewHits"[^>]*>/);
     const editorTag = html.match(/<input id="editorPreviewHits"[^>]*>/);
-    const batchTag = html.match(/<input id="batchHits"[^>]*>/);
+    const batchTag = html.match(/<input id="renderHits"[^>]*>/);
     assert.ok(previewTag && editorTag && batchTag);
     assert.ok(previewTag[0].includes("checked"), previewTag[0]);
     assert.ok(editorTag[0].includes("checked"), editorTag[0]);
@@ -223,10 +223,12 @@ function reached(now, noteT) {
     assert.strictEqual(mainHint, editorHint);
     assert.ok(mainHint.includes("咚") && mainHint.includes("咔"), mainHint);
     assert.ok(mainHint.includes("1.25"), mainHint);
-    assert.strictEqual(html.split("叠打点声（合成 don/ka，不是原曲）").length - 1, 1);
+    assert.strictEqual(html.split("叠打点声（合成 don/ka，不是原曲）").length - 1, 0);
+    assert.ok(mainHint.includes("成片默认不叠") && mainHint.includes("要另外勾上才进视频"), mainHint);
+    assert.ok(!mainHint.includes("批量出片"), mainHint);
     assert.ok(playerSrc.includes("assets/sounds/"));
-    assert.ok(!playerSrc.includes("batchHits"));
-    assert.ok(!engine.includes("batchHits"));
+    assert.ok(!playerSrc.includes("renderHits"));
+    assert.ok(!engine.includes("renderHits"));
     const seekFn = engine.slice(engine.indexOf("function seek("), engine.indexOf("function setData"));
     const renderFn = engine.slice(engine.indexOf("function renderAt("), engine.indexOf("function signalBachiDone"));
     const tickFn = engine.slice(engine.indexOf("function tick("), engine.indexOf("function renderAt("));
@@ -334,7 +336,7 @@ async function runPage() {
       const setup = await page.evaluate(() => {
         const previewBox = document.getElementById("previewHits");
         const editorBox = document.getElementById("editorPreviewHits");
-        const batchBox = document.getElementById("batchHits");
+        const batchBox = document.getElementById("renderHits");
         window.startEngine({
           events: [
             { t: 1, hand: "R", face: "don", big: false },
@@ -365,7 +367,7 @@ async function runPage() {
       assert.strictEqual(setup.sameNode, false);
       assert.strictEqual(setup.previewLabel, "叠打点声");
       assert.strictEqual(setup.editorLabel, "叠打点声");
-      assert.ok(setup.batchLabel.includes("叠打点声（合成don/ka，不是原曲）"), setup.batchLabel);
+      assert.strictEqual(setup.batchLabel, "叠打点声");
       assert.strictEqual(setup.mainHint, setup.editorHint);
       assert.ok(setup.mainHint.includes("咚") && setup.mainHint.includes("咔"), setup.mainHint);
       assert.ok(setup.mainHint.includes("1.25"), setup.mainHint);
@@ -466,7 +468,7 @@ async function runPage() {
       const muted = await page.evaluate(() => {
         const previewBox = document.getElementById("previewHits");
         const editorBox = document.getElementById("editorPreviewHits");
-        const batchBox = document.getElementById("batchHits");
+        const batchBox = document.getElementById("renderHits");
         previewBox.checked = false;
         previewBox.dispatchEvent(new Event("change"));
         const syncedOff = !editorBox.checked && !previewBox.checked && !batchBox.checked;
@@ -496,7 +498,7 @@ async function runPage() {
       const slow = await page.evaluate(() => {
         const editorBox = document.getElementById("editorPreviewHits");
         const previewBox = document.getElementById("previewHits");
-        const batchBox = document.getElementById("batchHits");
+        const batchBox = document.getElementById("renderHits");
         editorBox.checked = true;
         editorBox.dispatchEvent(new Event("change"));
         window.__hitLog = [];
@@ -576,7 +578,7 @@ async function runPage() {
         usingAudio: window.PreviewHits.player.usingAudio(),
         enabled: window.PreviewHits.player.isEnabled(),
         previewOn: document.getElementById("previewHits").checked,
-        batchOn: document.getElementById("batchHits").checked,
+        batchOn: document.getElementById("renderHits").checked,
         sounds: performance.getEntriesByType("resource").map((entry) => entry.name).filter((name) => /don\.wav|ka\.wav/.test(name)),
         playing: window.taikoAnim.state.playing,
         now: window.taikoAnim.state.now,

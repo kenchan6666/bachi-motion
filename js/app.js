@@ -12,6 +12,8 @@
   const songEl = $("song");
   let blankLive = false;
   let writingTja = false;
+  // idle: 还没打开谱。tja: 打开了 TJA。blank: 打开了空谱面。
+  let chartSurface = "idle";
   const BLANK_IDS = {
     settings: {
       title: "settingsBlankTitle",
@@ -312,11 +314,20 @@
     }
   }
 
+  function syncBlankFields() {
+    const show = chartSurface === "blank";
+    ["settingsBlankFields", "editorBlankFields"].forEach((id) => {
+      const el = $(id);
+      if (el) el.hidden = !show;
+    });
+  }
+
   function renderCoursePicker() {
     const picker = $("coursePicker");
+    syncBlankFields();
     if (!picker) return;
     picker.replaceChildren();
-    if (!courseList.length) {
+    if (chartSurface !== "tja" || !courseList.length) {
       picker.hidden = true;
       return;
     }
@@ -338,6 +349,7 @@
   }
 
   function syncCourseUrl(name) {
+    if (chartSurface !== "tja") name = "";
     if (pageParams.get("export") === "1") return;
     if (typeof history === "undefined" || !history.replaceState) return;
     let url;
@@ -440,6 +452,7 @@
       forgetCourseHands();
       blankLive = false;
     }
+    if (opts.surface === "tja" || opts.surface === "blank") chartSurface = opts.surface;
     tjaInput.value = String(text || "");
     if (opts.clearJson) {
       setJsonValue("");
@@ -562,7 +575,7 @@
     const decode = window.TjaEncoding && window.TjaEncoding.readFile;
     const pending = decode ? decode(file) : file.text();
     pending.then((text) => {
-      loadChartText(String(text || ""), { forget: true, preferDefault: true, clearJson: true });
+      loadChartText(String(text || ""), { forget: true, preferDefault: true, clearJson: true, surface: "tja" });
       syncChartPicker("custom");
       openSettings();
       showError("");
@@ -584,6 +597,7 @@
     if (!tjaRes.ok) throw new Error(tjaRes.status);
     forgetCourseHands();
     tjaInput.value = await tjaRes.text();
+    chartSurface = "tja";
     blankLive = false;
     let hasHands = false;
     try {
@@ -780,7 +794,7 @@
 
   setupRouteHint("routeHintBtn", "routeHint");
   setupRouteHint("chartHintBtn", "chartHint");
-  setupRouteHint("batchHintBtn", "batchHint");
+  setupRouteHint("renderHintBtn", "renderHint");
   setupRouteHint("modeHintBtn", "modeHint");
   setupRouteHint("rollHintBtn", "rollHint");
   setupRouteHint("bigNoteHintBtn", "bigNoteHint");
@@ -877,7 +891,7 @@
       if (!ok) return false;
     }
     writingTja = true;
-    loadChartText(author.blankTja(opts), { forget: true, preferDefault: true, clearJson: true });
+    loadChartText(author.blankTja(opts), { forget: true, preferDefault: true, clearJson: true, surface: "blank" });
     writingTja = false;
     blankLive = true;
     paintBlankMeta(opts, sourceSide || "settings");
@@ -1000,6 +1014,7 @@
       refreshCourses();
     },
     loadChartText,
+    syncChartPicker,
     selectedCourseName,
     refreshCourses,
     getJson: () => jsonInput.value,
@@ -1035,13 +1050,17 @@
 
     const rawTja = pageParams.get("tja");
     if (rawTja) {
-      try { tjaInput.value = decodeURIComponent(rawTja); }
-      catch (err) { showError("URL 里的 tja 参数无法解码"); }
-      forgetCourseHands();
-      setJsonValue("");
-      setMode("zhuren");
-      releaseEditorCustom();
-      syncChartPicker("custom");
+      try {
+        tjaInput.value = decodeURIComponent(rawTja);
+        forgetCourseHands();
+        chartSurface = "tja";
+        setJsonValue("");
+        setMode("zhuren");
+        releaseEditorCustom();
+        syncChartPicker("custom");
+      } catch (err) {
+        showError("URL 里的 tja 参数无法解码");
+      }
     }
 
     if (pageParams.get("settings") === "1") openSettings();

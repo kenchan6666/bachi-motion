@@ -49,6 +49,10 @@ echo "== course picker (multi-COURSE difficulty) =="
 node tests/course-picker.test.js
 echo
 
+echo "== editor-opened TJA syncs the homepage chart picker =="
+node tests/editor-home-chart.test.js
+echo
+
 echo "== chart author (blank chart + 16th notes) =="
 node tests/chart-author.test.js
 echo
@@ -83,6 +87,10 @@ echo
 
 echo "== batch queue + progress =="
 node tests/batch-queue.test.js
+echo
+
+echo "== single-chart render on the public page =="
+node tests/single-render-ui.test.js
 echo
 
 echo "== auto-sticking (55 cases from suyue@ebd21a0) =="

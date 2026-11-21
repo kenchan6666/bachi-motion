@@ -698,23 +698,31 @@
   }
   .seg {
     display: flex;
+    align-items: stretch;
     width: 100%;
-    border: 1.5px solid var(--line-strong);
+    border: 0;
     border-radius: var(--radius-pill);
     background: var(--btn);
     box-shadow: var(--shadow);
     overflow: hidden;
   }
   .seg button {
+    -webkit-appearance: none;
     appearance: none;
     display: flex;
     align-items: center;
+    align-self: stretch;
     justify-content: center;
     text-align: center;
     flex: 1 1 0;
-    border: 0;
-    border-right: 1.5px solid var(--line);
+    height: auto;
+    min-height: 100%;
+    margin: 0;
+    border-radius: 0;
+    border: 1.5px solid var(--line-strong);
+    border-right-color: var(--line);
     background: transparent;
+    background-clip: border-box;
     color: var(--ink);
     padding: 6px 8px;
     font-size: 13px;
@@ -722,10 +730,14 @@
     line-height: 1.3;
     min-width: 0;
   }
-  .seg button:last-child { border-right: 0; }
+  .seg button + button { margin-left: -1.5px; }
+  .seg button:last-child { border-right-color: var(--line-strong); }
   .seg button:hover { background: #F3EBE0; }
   .seg button.on {
+    position: relative;
+    z-index: 1;
     background: var(--ink-deep);
+    border-color: var(--ink-deep);
     color: var(--paper);
   }
   .seg button:disabled {
@@ -931,6 +943,8 @@
       border-radius: var(--radius-pill);
     }
     .settings[open] { border-radius: 16px; }
+    /* iOS zooms a focused field under 16px. Desktop stays 12px. */
+    #tjaInput { font-size: 16px; }
   }
 
   @media (prefers-reduced-motion: reduce) {

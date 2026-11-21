@@ -873,6 +873,16 @@ body.editor-mode .editor {
   color: var(--ink-soft);
 }
 .editor-chart-legend .items { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: center; }
+.editor-chart-export {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 18px 14px;
+}
+#editorExportTja:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .editor-swatch {
   display: inline-flex;
   align-items: center;
@@ -1215,6 +1225,7 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
     flex-wrap: wrap;
     padding: 8px 12px 10px;
   }
+  .editor-chart-export { padding: 0 12px 12px; }
   .editor-preview {
     flex: none;
     width: 100%;

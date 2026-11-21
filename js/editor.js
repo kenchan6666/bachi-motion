@@ -292,6 +292,8 @@
     } catch (err) {
       if (a && a.showError) a.showError(err.message || String(err));
       else console.error(err);
+    } finally {
+      syncExportTja();
     }
   }
 
@@ -1360,6 +1362,39 @@
     setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   }
 
+  function syncExportTja() {
+    const btn = $("editorExportTja");
+    if (!btn) return;
+    const api = window.BachiTjaExport;
+    const a = app();
+    const text = a && a.getTja ? a.getTja() : "";
+    const opts = currentOpts();
+    const ok = !!(api && typeof api.canExport === "function" && api.canExport(text, {
+      courseIndex: opts.courseIndex,
+      course: opts.course,
+    }));
+    btn.disabled = !ok;
+  }
+
+  function exportTjaFile() {
+    const api = window.BachiTjaExport;
+    const a = app();
+    if (!api || !a || typeof a.getTja !== "function") return;
+    const opts = currentOpts();
+    const file = api.exportChart(a.getTja(), {
+      courseIndex: opts.courseIndex,
+      course: opts.course,
+    });
+    if (!file) return;
+    const blob = new Blob([file.bytes], { type: "text/plain;charset=utf-8" });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.download = file.filename;
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => { URL.revokeObjectURL(link.href); link.remove(); }, 500);
+  }
+
   function importJsonText(text) {
     const raw = String(text || "");
     const a = app();
@@ -1516,6 +1551,9 @@
     }
     const exportBtn = $("editorExportJson");
     if (exportBtn) exportBtn.addEventListener("click", () => exportJson());
+    const exportTjaBtn = $("editorExportTja");
+    if (exportTjaBtn) exportTjaBtn.addEventListener("click", () => exportTjaFile());
+    syncExportTja();
     if (ui.jsonFile) {
       ui.jsonFile.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
@@ -2086,6 +2124,7 @@
     expandAdvanced: (v) => setAdvanced(v !== false),
     importJsonText: importJsonText,
     noteChartReplaced: noteChartReplaced,
+    syncExportTja: syncExportTja,
     setAddingNotes: setAddingNotes,
     getState: () => state,
     getResolved: resolvedNow,

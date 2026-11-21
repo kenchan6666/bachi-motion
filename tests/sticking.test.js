@@ -501,6 +501,114 @@ extra("24分滚奏 keeps the original pairing", function () {
   assertStick("16 stays singles", "dddddddd", 0.25, "RLRLRLRL", "", { 滚奏: "24分滚奏" });
   assertStick("16 left stays singles", "dddddddd", 0.25, "LRLRLRLR", "", { 滚奏: "24分滚奏", 惯用手: "L" });
   assertStick("12 stays unrolled", "kddkdd", 1 / 3, "RLRLRL", "", { 滚奏: "24分滚奏" });
+  // 纯 24 的四音已经是从段首起的 1-2，四颗就是 1-2-1。夹心格不能把这条改掉。
+  assertStick("24 four notes already 1-2-1", "dddd", 1 / 6, "RLLR", "1-2", { 滚奏: "24分滚奏" });
+});
+
+// 咚 = don，咔 = ka。下面都是合成音符，不读谱面、不读音频。
+function notesByGaps(pat, gaps) {
+  const notes = [];
+  let beat = 0;
+  for (let i = 0; i < pat.length; i++) {
+    if (i > 0) beat += gaps[i - 1];
+    const c = pat[i];
+    notes.push({
+      beat: beat,
+      colour: (c === "d" || c === "o") ? "don" : "ka",
+      big: false,
+    });
+  }
+  return notes;
+}
+
+function sandwichNotes(cells, outer, junction) {
+  const mid = 1 / 6;
+  const join = junction == null ? outer : junction;
+  let pat = "";
+  const gaps = [];
+  cells.forEach(function (cell, idx) {
+    if (idx > 0) gaps.push(join);
+    pat += cell;
+    gaps.push(outer, mid, outer);
+  });
+  return notesByGaps(pat, gaps);
+}
+
+function leadThenSandwich(lead, cell, outer) {
+  const gaps = [];
+  for (let i = 0; i < lead.length - 1; i++) gaps.push(0.25);
+  gaps.push(0.25);
+  gaps.push(outer, 1 / 6, outer);
+  return notesByGaps(lead + cell, gaps);
+}
+
+function assertRoll(name, notes, hands, pairs, opts) {
+  const out = sticking.autoSticking(notes, Object.assign({
+    bpm: 170, 手法: "全换", 惯用手: "R", 滚奏: "24分滚奏",
+  }, opts || {}));
+  assert.strictEqual(out.hands.join(""), hands, name + " hands " + out.hands.join("") + " / " + pairSig(out));
+  assert.strictEqual(pairSig(out), pairs, name + " pairs " + pairSig(out));
+}
+
+extra("24分滚奏 16夹24 and 12夹24 quads are 1-2-1", function () {
+  // 四音型 oxxo / ooox / xxxo 及咚咔对调。1-2-1 的形状固定：
+  // 两头同一只手单打，中间两颗 24 分在另一只手成对。
+  // 正手起是右、左左、右；惯用手为左时正手起是左、右右、左。
+  const quads = [
+    ["dkkd", "咚咔咔咚"],
+    ["kddk", "咔咚咚咔"],
+    ["dddk", "咚咚咚咔"],
+    ["kkkd", "咔咔咔咚"],
+  ];
+  quads.forEach(function (row) {
+    const pat = row[0];
+    const label = row[1];
+    assertRoll("16 " + label, sandwichNotes([pat], 0.25), "RLLR", "1-2");
+    assertRoll("12 " + label, sandwichNotes([pat], 1 / 3), "RLLR", "1-2");
+    assertRoll("16 " + label + " L", sandwichNotes([pat], 0.25), "LRRL", "1-2", { 惯用手: "L" });
+    assertRoll("12 " + label + " L", sandwichNotes([pat], 1 / 3), "LRRL", "1-2", { 惯用手: "L" });
+  });
+
+  // 同一串里接着前面：上一颗是右，这格就是左、右右、左。不在密串中间再正手起。
+  assertRoll("16 after stream ended R", leadThenSandwich("ddd", "dkkd", 0.25), "RLRLRRL", "4-5");
+  assertRoll("12 after stream ended R", leadThenSandwich("ddd", "dkkd", 1 / 3), "RLRLRRL", "4-5");
+  // 上一颗是左，这格回到右、左左、右。
+  assertRoll("16 after stream ended L", leadThenSandwich("dd", "dkkd", 0.25), "RLRLLR", "3-4");
+  assertRoll("12 after stream ended L", leadThenSandwich("dd", "dkkd", 1 / 3), "RLRLLR", "3-4");
+
+  // 一长串若只是四音型重复，每格各自 1-2-1，手顺接着上一格。
+  assertRoll("16 two cells", sandwichNotes(["dkkd", "dkkd"], 0.25), "RLLRLRRL", "1-2,5-6");
+  assertRoll("12 two cells", sandwichNotes(["dkkd", "dkkd"], 1 / 3), "RLLRLRRL", "1-2,5-6");
+
+  // 新乐句（间隔大于一拍）再正手起。半拍仍是同一乐句，全换接着走。
+  assertRoll("16 new phrase", sandwichNotes(["dkkd", "dkkd"], 0.25, 1.5), "RLLRRLLR", "1-2,5-6");
+  assertRoll("12 new phrase", sandwichNotes(["dkkd", "dkkd"], 1 / 3, 1.5), "RLLRRLLR", "1-2,5-6");
+  assertRoll("16 half beat carries", sandwichNotes(["dkkd", "dkkd"], 0.25, 0.5), "RLLRLRRL", "1-2,5-6");
+
+  // 不是四音型的夹心不另立规则：同色、鱼蛋仍按细分切开，24 分只剩单颗，所以不滚。
+  assertRoll("16 same colour stays singles", sandwichNotes(["dddd"], 0.25), "RLRL", "");
+  assertRoll("12 same colour stays singles", sandwichNotes(["dddd"], 1 / 3), "RLRL", "");
+  assertRoll("16 鱼蛋 stays singles", sandwichNotes(["kdkd"], 0.25), "RLRL", "");
+  assertRoll("12 鱼蛋 stays singles", sandwichNotes(["kdkd"], 1 / 3), "RLRL", "");
+});
+
+extra("炒菜 sandwich cells start on the dominant hand at a new cluster", function () {
+  // 16 分串里只空一格仍是同一串，后面不另起正手。
+  assertRoll("炒菜 16 hole carries", sandwichNotes(["dkkd", "dkkd"], 0.25, 0.5), "RLLRLRRL", "1-2,5-6", { 手法: "炒菜" });
+  // 间隔到一拍是新的一句，每格从正手起。12 夹 24 的半拍不是 16 分空拍，也分开。
+  assertRoll("炒菜 16 new cluster", sandwichNotes(["dkkd", "dkkd"], 0.25, 1), "RLLRRLLR", "1-2,5-6", { 手法: "炒菜" });
+  assertRoll("炒菜 12 new cluster", sandwichNotes(["dkkd", "dkkd"], 1 / 3, 0.5), "RLLRRLLR", "1-2,5-6", { 手法: "炒菜" });
+  assertRoll("炒菜 L", sandwichNotes(["dkkd"], 0.25), "LRRL", "1-2", { 手法: "炒菜", 惯用手: "L" });
+});
+
+extra("自动滚奏 keeps 16夹24 oxxo on continuous 2-2", function () {
+  // 16 分 oxxo 的 2-2 在上面的四音型用例里。这里锁混合间隔，避免 24 分模式的 1-2-1 漏进自动滚奏。
+  assertRoll("auto 16 oxxo", sandwichNotes(["dkkd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
+  assertRoll("auto 16 two", sandwichNotes(["dkkd", "dkkd"], 0.25), "RRLLRRLL", "0-1,2-3,4-5,6-7", { 滚奏: "自动滚奏" });
+  assertRoll("auto 12 oxxo", sandwichNotes(["dkkd"], 1 / 3), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
+  assertRoll("auto 16 咔咚咚咔", sandwichNotes(["kddk"], 0.25), "RLLR", "1-2", { 滚奏: "自动滚奏" });
+  assertRoll("auto 16 ooox", sandwichNotes(["dddk"], 0.25), "RLLR", "1-2", { 滚奏: "自动滚奏" });
+  assertRoll("auto 16 xxxo", sandwichNotes(["kkkd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
 });
 
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);

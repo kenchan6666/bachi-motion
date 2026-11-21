@@ -847,11 +847,8 @@
     return out;
   }
 
-  function choose24ModePairs(notes, start, end) {
-    // 16 / 12: no roll. Each 24-subsegment from its first note 1-2 (no downbeat align).
-    // Each 32-subsegment from its first note 2-2.
+  function append24DivPairs(pairs, notes, start, end) {
     var parts = splitByDiv(notes, start, end);
-    var pairs = [];
     for (var p = 0; p < parts.length; p++) {
       var part = parts[p];
       var n = part.end - part.start + 1;
@@ -860,9 +857,11 @@
           return !notes[localStart + i].big && !notes[localStart + j].big;
         };
       };
+      var rel;
+      var r;
       if (part.div === 24) {
-        var rel = plan12From(n, 0, canPair(part.start));
-        for (var r = 0; r < rel.length; r++) {
+        rel = plan12From(n, 0, canPair(part.start));
+        for (r = 0; r < rel.length; r++) {
           pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
         }
       } else if (part.div === 32) {
@@ -871,6 +870,45 @@
           pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
         }
       }
+    }
+  }
+
+  // oxxo / ooox / xxxo，以及把咚和咔对调：xoox。中间两颗同色，1-2-1 不会配成外刷。
+  var SANDWICH_QUADS = { oxxo: 1, xoox: 1, ooox: 1, xxxo: 1 };
+
+  function sandwichQuadAt(notes, i, end) {
+    if (i + 3 > end) return false;
+    var mark = "";
+    for (var k = 0; k < 4; k++) mark += (notes[i + k].colour === "ka" ? "x" : "o");
+    if (!SANDWICH_QUADS[mark]) return false;
+    var left = classifyDelta(inbound(notes, i + 1));
+    var mid = classifyDelta(inbound(notes, i + 2));
+    var right = classifyDelta(inbound(notes, i + 3));
+    if (mid !== 24) return false;
+    // 16夹24：16、24、16。12夹24：12、24、12。其他混合型不在这里。
+    return (left === 16 && right === 16) || (left === 12 && right === 12);
+  }
+
+  function choose24ModePairs(notes, start, end) {
+    // 纯 16 / 纯 12 不滚。每段纯 24 从该段第一颗 1-2（不对齐拍头）。
+    // 每段纯 32 从该段第一颗 2-2。
+    // 16夹24、12夹24 的四音型整格 1-2-1，不按 16/12 和 24 切开：
+    // 两头单打同一只手，中间两颗 24 分在另一只手成对。
+    // 起手沿用这一串已经排好的下一只手（正手起为右、左左、右；
+    // 同一串里上一颗是右，则为左、右右、左）。这里不另行正手起。
+    // 重复的四音型逐格 1-2-1。其他更长的混合型仍只把 24 分段按 1-2。
+    var pairs = [];
+    var i = start;
+    while (i <= end) {
+      if (sandwichQuadAt(notes, i, end)) {
+        if (!notes[i + 1].big && !notes[i + 2].big) pairs.push([i + 1, i + 2]);
+        i += 4;
+        continue;
+      }
+      var j = i;
+      while (j <= end && !sandwichQuadAt(notes, j, end)) j++;
+      if (j > i) append24DivPairs(pairs, notes, i, j - 1);
+      i = j;
     }
     return pairs;
   }

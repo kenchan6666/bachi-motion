@@ -372,8 +372,12 @@
       };
       if (boxesOverlap(candidate, brand)) left = brand.right + LOGO_CLEAR;
     }
-    bar.style.left = px(left) + "px";
-    bar.style.top = px(top) + "px";
+    // Narrow pages scroll, and the bar is position:absolute so it travels
+    // with the stage. top/left above are viewport coordinates.
+    const scrollX = narrow ? (window.scrollX || window.pageXOffset || 0) : 0;
+    const scrollY = narrow ? (window.scrollY || window.pageYOffset || 0) : 0;
+    bar.style.left = px(left + scrollX) + "px";
+    bar.style.top = px(top + scrollY) + "px";
     bar.style.width = px(metrics.width) + "px";
   }
 

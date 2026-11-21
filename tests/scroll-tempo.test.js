@@ -1,5 +1,6 @@
 /**
- * 变速开关在慢放和流速上面；流速要能取 1.1、1.2。
+ * 变速开关在慢放和流速上面；流速滑条最低 0.5，步进 0.1，要能取 0.5、0.6、1.1、1.2。
+ * 拨到 0.5 只把像素/秒减半（仍是公式里的流速乘数），BPM 和击打时刻不变。
  * 打开变速：跟本家。每颗音用自己命中时刻的 BPM 和 #SCROLL 匀速移动，
  *   像素/秒 = 基准 × (该音 BPM / 谱面最高 BPM) × 该音 SCROLL × 流速。
  *   最高 BPM 且 SCROLL 为 1 是单位速度，和关掉变速一样快。
@@ -154,7 +155,7 @@ function startStaticServer(root) {
 }
 
 (async function main() {
-  await check("变速勾选在慢放和流速上面，流速滑条能取 1.1 和 1.2", () => {
+  await check("变速勾选在慢放和流速上面，流速滑条最低 0.5，并能取 1.1 和 1.2", () => {
     const { html, transport } = transportHtml();
     const problems = [];
     const tempoAt = transport.indexOf('id="showTempo"');
@@ -175,6 +176,12 @@ function startStaticServer(root) {
     const min = +attr(scrollTag, "min");
     const max = +attr(scrollTag, "max");
     const step = +attr(scrollTag, "step");
+    if (attr(scrollTag, "min") !== "0.5") problems.push("流速最低不是 0.5（min=" + attr(scrollTag, "min") + "）");
+    if (attr(scrollTag, "max") !== "4") problems.push("流速上限被改了（max=" + attr(scrollTag, "max") + "）");
+    if (attr(scrollTag, "step") !== "0.1") problems.push("流速步进不是 0.1（step=" + attr(scrollTag, "step") + "）");
+    if (attr(scrollTag, "value") !== "1") problems.push("流速默认不是 1");
+    if (!reaches(min, max, step, 0.5)) problems.push("流速取不到 0.5");
+    if (!reaches(min, max, step, 0.6)) problems.push("流速取不到 0.6");
     if (!reaches(min, max, step, 1.1)) problems.push("流速取不到 1.1（step=" + attr(scrollTag, "step") + "）");
     if (!reaches(min, max, step, 1.2)) problems.push("流速取不到 1.2（step=" + attr(scrollTag, "step") + "）");
     const scripts = Array.from(html.matchAll(/<script src="([^"]+)"/g)).map((m) => m[1]);
@@ -190,15 +197,64 @@ function startStaticServer(root) {
     assert.strictEqual(ScrollTempo.scrollFromControl("1.2"), 1.2);
     assert.strictEqual(ScrollTempo.scrollFromControl(1.1000000000000001), 1.1);
     assert.strictEqual(ScrollTempo.scrollFromControl(1.1999999999999997), 1.2);
+    assert.strictEqual(ScrollTempo.scrollFromControl("0.5"), 0.5);
+    assert.strictEqual(ScrollTempo.scrollFromControl(0.5), 0.5);
+    assert.strictEqual(ScrollTempo.formatScroll(0.5), "0.5×");
+    assert.strictEqual(ScrollTempo.formatScroll(0.6), "0.6×");
     assert.strictEqual(ScrollTempo.formatScroll(1), "1×");
     assert.strictEqual(ScrollTempo.formatScroll(1.1), "1.1×");
     assert.strictEqual(ScrollTempo.formatScroll(1.2), "1.2×");
     assert.strictEqual(ScrollTempo.formatScroll(1.5), "1.5×");
     assert.strictEqual(ScrollTempo.formatScroll(2), "2×");
-    assert.strictEqual(ScrollTempo.reachesScroll(1, 4, 0.1, 1.1), true);
-    assert.strictEqual(ScrollTempo.reachesScroll(1, 4, 0.1, 1.2), true);
-    assert.strictEqual(ScrollTempo.reachesScroll(1, 4, 0.5, 1.1), false);
-    assert.strictEqual(ScrollTempo.reachesScroll(1, 4, 0.5, 1.2), false);
+    assert.strictEqual(ScrollTempo.reachesScroll(0.5, 4, 0.1, 0.5), true);
+    assert.strictEqual(ScrollTempo.reachesScroll(0.5, 4, 0.1, 0.6), true);
+    assert.strictEqual(ScrollTempo.reachesScroll(0.5, 4, 0.1, 1.1), true);
+    assert.strictEqual(ScrollTempo.reachesScroll(0.5, 4, 0.1, 1.2), true);
+    assert.strictEqual(ScrollTempo.reachesScroll(0.5, 4, 0.5, 1.1), false);
+    assert.strictEqual(ScrollTempo.reachesScroll(0.5, 4, 0.5, 1.2), false);
+    assert.strictEqual(ScrollTempo.reachesScroll(1, 4, 0.1, 0.5), false);
+  });
+
+  await check("流速 0.5 时像素/秒是 1× 的一半，击打时刻和 BPM 不变", () => {
+    const ScrollTempo = loadScrollTempo();
+    const data = parse("#SCROLL 2\n1111,\n#BPMCHANGE 240\n11,", 120);
+    const before = data.events.map((e) => ({ t: e.t, bpm: e.bpm, scroll: e.scroll }));
+    assert.strictEqual(ScrollTempo.referenceBpm(data.bpmTimeline), 240);
+    function pxPerSec(note, user, show) {
+      const far = ScrollTempo.noteX({
+        tNote: note.t, now: note.t - 1, scroll: user, showTempo: show,
+        chartScroll: note.scroll, bpm: note.bpm, timeline: data.bpmTimeline,
+        judgeX: JUDGE_X, basePxPerSec: BASE_PX,
+      });
+      const hit = ScrollTempo.noteX({
+        tNote: note.t, now: note.t, scroll: user, showTempo: show,
+        chartScroll: note.scroll, bpm: note.bpm, timeline: data.bpmTimeline,
+        judgeX: JUDGE_X, basePxPerSec: BASE_PX,
+      });
+      return far - hit;
+    }
+    for (const note of data.events) {
+      nearly(pxPerSec(note, 0.5, true), pxPerSec(note, 1, true) * 0.5);
+      nearly(pxPerSec(note, 0.5, false), pxPerSec(note, 1, false) * 0.5);
+    }
+    const slow = data.events.find((e) => e.bpm === 120 && e.scroll === 2);
+    const fast = data.events.find((e) => e.bpm === 240 && e.scroll === 2);
+    assert.ok(slow && fast, "没有 120×2 和 240×2 的音");
+    // 最高 BPM 是 240。120×2 等于单位速度，240×2 是两倍；流速只乘在最后。
+    nearly(pxPerSec(slow, 1, true), BASE_PX);
+    nearly(pxPerSec(slow, 0.5, true), BASE_PX * 0.5);
+    nearly(pxPerSec(fast, 1, true), BASE_PX * 2);
+    nearly(pxPerSec(fast, 0.5, true), BASE_PX);
+    nearly(pxPerSec(slow, 1, false), BASE_PX);
+    nearly(pxPerSec(slow, 0.5, false), BASE_PX * 0.5);
+    nearly(pxPerSec(fast, 1, false), BASE_PX);
+    nearly(pxPerSec(fast, 0.5, false), BASE_PX * 0.5);
+    nearly(slow.t, 0);
+    nearly(fast.t, 2);
+    const plain = parse("1111,\n#BPMCHANGE 240\n11,", 120);
+    assert.deepStrictEqual(data.events.map((e) => e.t), plain.events.map((e) => e.t));
+    assert.deepStrictEqual(data.events.map((e) => e.bpm), plain.events.map((e) => e.bpm));
+    assert.deepStrictEqual(data.events.map((e) => ({ t: e.t, bpm: e.bpm, scroll: e.scroll })), before);
   });
 
   await check("#SCROLL 记在音符上，不改变 #BPMCHANGE 的击打时刻", () => {
@@ -476,6 +532,9 @@ function startStaticServer(root) {
     nearly(speed(main, true, 1.2), vMain * 1.2);
     nearly(speed(ooo[0], true, 1.1), vOoo * 1.1);
     nearly(speed(kaOff[0], true, 1.2), vMain * 1.2);
+    nearly(speed(ooo[0], true, 0.5), vOoo * 0.5);
+    nearly(speed(main, true, 0.5), vMain * 0.5);
+    nearly(speed(ooo[0], false, 0.5), BASE_PX * 0.5);
 
     // 还在 150 段里看后面的 300 音：它已经按自己的 300×1 在跑，不是先跟当前段再突然加速。
     const ahead = ScrollTempo.noteX({
@@ -530,7 +589,7 @@ function startStaticServer(root) {
     nearly(speedOf(head, false), BASE_PX);
   });
 
-  await check("页面上可以开关变速，并把流速拨到 1.1 和 1.2", async () => {
+  await check("页面上可以开关变速，并把流速拨到 0.5、1.1 和 1.2", async () => {
     const ScrollTempo = loadScrollTempo();
     const puppeteer = require(path.join(ROOT, "node_modules", "puppeteer-core"));
     const chrome = process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/google-chrome";
@@ -551,22 +610,31 @@ function startStaticServer(root) {
         const label = tempo && tempo.closest("label");
         const box = (label || tempo).getBoundingClientRect();
         const rates = document.querySelector(".rates").getBoundingClientRect();
-        const scroll = document.getElementById("scroll").getBoundingClientRect();
+        const scroll = document.getElementById("scroll");
         return {
           checked: tempo.checked,
           disabled: tempo.disabled,
-          step: document.getElementById("scroll").step,
+          min: scroll.min,
+          max: scroll.max,
+          step: scroll.step,
+          value: scroll.value,
           tempoBottom: box.bottom,
           ratesTop: rates.top,
-          scrollTop: scroll.top,
+          scrollTop: scroll.getBoundingClientRect().top,
           show: window.taikoAnim.state.showTempo,
         };
       });
       assert.strictEqual(layout.checked, true, "变速默认打开");
       assert.strictEqual(layout.show, true);
       assert.strictEqual(layout.disabled, false);
-      assert.ok(reaches(1, 4, +layout.step, 1.1), "页面流速 step 取不到 1.1，step=" + layout.step);
-      assert.ok(reaches(1, 4, +layout.step, 1.2), "页面流速 step 取不到 1.2，step=" + layout.step);
+      assert.strictEqual(layout.min, "0.5", "页面流速最低不是 0.5");
+      assert.strictEqual(layout.max, "4", "页面流速上限被改了");
+      assert.strictEqual(layout.step, "0.1", "页面流速步进不是 0.1");
+      assert.strictEqual(layout.value, "1", "页面流速默认不是 1");
+      assert.ok(reaches(+layout.min, +layout.max, +layout.step, 0.5), "页面流速取不到 0.5");
+      assert.ok(reaches(+layout.min, +layout.max, +layout.step, 0.6), "页面流速取不到 0.6");
+      assert.ok(reaches(+layout.min, +layout.max, +layout.step, 1.1), "页面流速取不到 1.1，step=" + layout.step);
+      assert.ok(reaches(+layout.min, +layout.max, +layout.step, 1.2), "页面流速取不到 1.2，step=" + layout.step);
       assert.ok(layout.tempoBottom <= layout.ratesTop + 1, "变速应在慢放上面");
       assert.ok(layout.tempoBottom <= layout.scrollTop + 1, "变速应在流速上面");
 
@@ -578,10 +646,23 @@ function startStaticServer(root) {
           return {
             scroll: window.taikoAnim.state.scroll,
             label: document.getElementById("scrollVal").textContent,
+            value: input.value,
             mismatch: input.validity.stepMismatch,
+            underflow: input.validity.rangeUnderflow,
           };
         }, value);
       }
+      const at05 = await setScroll("0.5");
+      assert.strictEqual(at05.mismatch, false, "0.5 被滑条 step 拒绝");
+      assert.strictEqual(at05.underflow, false, "0.5 低于滑条下限");
+      assert.strictEqual(+at05.value, 0.5);
+      assert.strictEqual(at05.scroll, 0.5);
+      assert.strictEqual(at05.label, "0.5×");
+      const at06 = await setScroll("0.6");
+      assert.strictEqual(at06.mismatch, false, "0.6 被滑条 step 拒绝");
+      assert.strictEqual(at06.underflow, false, "0.6 低于滑条下限");
+      assert.strictEqual(at06.scroll, 0.6);
+      assert.strictEqual(at06.label, "0.6×");
       const at11 = await setScroll("1.1");
       assert.strictEqual(at11.mismatch, false, "1.1 被滑条 step 拒绝");
       assert.strictEqual(at11.scroll, 1.1);
@@ -732,6 +813,95 @@ function startStaticServer(root) {
       assert.ok(bpmPlaced.xs.length > 0, "开头的 ooo 没有画出来");
       nearly(closest(bpmPlaced.xs, wantOoo), wantOoo, 0.2);
       assert.ok(Math.abs(wantOoo - timeOnly) < 1, "150×2 应该和单位速度的等距一样");
+
+      const slowed = await page.evaluate((text) => {
+        function stamp() {
+          return window.taikoAnim.state.events
+            .filter((e) => !e.both || e.hand === "R")
+            .slice()
+            .sort((a, b) => a.t - b.t)
+            .map((e) => ({ t: e.t, bpm: e.bpm, scroll: e.scroll }));
+        }
+        const input = document.getElementById("scroll");
+        function apply(v) {
+          input.value = String(v);
+          input.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+        apply(1);
+        document.getElementById("tjaInput").value = text;
+        document.getElementById("btnGenerate").click();
+        const box = document.getElementById("showTempo");
+        if (!box.checked) box.click();
+        const events = stamp();
+        const note = events.find((e) => e.bpm === 240 && e.scroll === 2);
+        const now = note ? note.t - 0.5 : 0;
+        function shot(show, scroll) {
+          if (box.checked !== show) box.click();
+          apply(scroll);
+          window.renderAt(now);
+          return {
+            scroll: window.taikoAnim.state.scroll,
+            label: document.getElementById("scrollVal").textContent,
+            value: input.value,
+            mismatch: input.validity.stepMismatch,
+            underflow: input.validity.rangeUnderflow,
+            show: window.taikoAnim.state.showTempo,
+            xs: [...document.querySelectorAll("#chart circle")].map((el) => +el.getAttribute("cx")),
+            times: stamp(),
+          };
+        }
+        return {
+          missing: !note,
+          t: note && note.t,
+          bpm: note && note.bpm,
+          chartScroll: note && note.scroll,
+          now,
+          timeline: window.taikoAnim.state.bpmTimeline,
+          before: events,
+          on1: shot(true, 1),
+          onHalf: shot(true, 0.5),
+          off1: shot(false, 1),
+          offHalf: shot(false, 0.5),
+        };
+      }, tja("#SCROLL 2\n1111,\n#BPMCHANGE 240\n11,", 120));
+      assert.ok(!slowed.missing, "页面没有解析出 240×2 的音");
+      nearly(slowed.t, 2);
+      assert.strictEqual(slowed.bpm, 240);
+      assert.strictEqual(slowed.chartScroll, 2);
+      assert.deepStrictEqual(slowed.onHalf.times, slowed.before, "拨到 0.5 后击打时刻或 BPM 变了");
+      assert.deepStrictEqual(slowed.offHalf.times, slowed.before, "关掉变速再拨到 0.5 后击打时刻或 BPM 变了");
+      assert.strictEqual(slowed.onHalf.scroll, 0.5);
+      assert.strictEqual(slowed.onHalf.label, "0.5×");
+      assert.strictEqual(slowed.onHalf.mismatch, false, "0.5 被滑条 step 拒绝");
+      assert.strictEqual(slowed.onHalf.underflow, false, "0.5 低于滑条下限");
+      assert.strictEqual(+slowed.onHalf.value, 0.5);
+      function expectHalfX(show, user) {
+        return ScrollTempo.noteX({
+          tNote: slowed.t,
+          now: slowed.now,
+          scroll: user,
+          showTempo: show,
+          chartScroll: slowed.chartScroll,
+          bpm: slowed.bpm,
+          timeline: slowed.timeline,
+          judgeX: JUDGE_X,
+          basePxPerSec: BASE_PX,
+        });
+      }
+      const on1 = expectHalfX(true, 1);
+      const onHalf = expectHalfX(true, 0.5);
+      const off1 = expectHalfX(false, 1);
+      const offHalf = expectHalfX(false, 0.5);
+      nearly(on1 - JUDGE_X, 0.5 * BASE_PX * 2);
+      nearly(onHalf - JUDGE_X, (on1 - JUDGE_X) / 2);
+      nearly(off1 - JUDGE_X, 0.5 * BASE_PX);
+      nearly(offHalf - JUDGE_X, (off1 - JUDGE_X) / 2);
+      assert.ok(slowed.on1.xs.length > 0 && slowed.onHalf.xs.length > 0, "1× 或 0.5× 没有画出音符");
+      assert.ok(slowed.off1.xs.length > 0 && slowed.offHalf.xs.length > 0, "等速下没有画出音符");
+      nearly(closest(slowed.on1.xs, on1), on1, 0.2);
+      nearly(closest(slowed.onHalf.xs, onHalf), onHalf, 0.2);
+      nearly(closest(slowed.off1.xs, off1), off1, 0.2);
+      nearly(closest(slowed.offHalf.xs, offHalf), offHalf, 0.2);
 
       const offPage = await browser.newPage();
       await offPage.setViewport({ width: 1280, height: 800, deviceScaleFactor: 1 });

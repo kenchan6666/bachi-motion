@@ -4,7 +4,8 @@
  * Click a note swaps L/R immediately and keeps the selection.
  * Drag-select shows 1-2 / 2-1 / 2-2 / 循环试听 beside the selection.
  * Those brushes do not start playback. 循环试听 loops only the selection.
- * Arrows scroll the timeline. Notes, buttons, and other controls do not pan.
+ * Arrows scroll the timeline and sit just under the chart, clear of 小节总览.
+ * Notes, buttons, and other controls do not pan.
  * 分开小节 is off by default (one strip) and on restores separate measure cards.
  * Clicking a collapsed string still opens the zoom card.
  *
@@ -160,6 +161,19 @@ function overlaps(a, b) {
       const hintBox = hintBtn.getBoundingClientRect();
       const left = document.getElementById("editorNudgeLeft").getBoundingClientRect();
       const right = document.getElementById("editorNudgeRight").getBoundingClientRect();
+      const hands = document.querySelector("#editorMeasures .editor-hands").getBoundingClientRect();
+      const overview = document.getElementById("editorOverview").getBoundingClientRect();
+      const arrow = (rect) => ({
+        x: rect.left,
+        right: rect.right,
+        top: rect.top,
+        bottom: rect.bottom,
+        w: rect.width,
+        h: rect.height,
+        chartGap: rect.top - scroll.bottom,
+        handsGap: rect.top - hands.bottom,
+        overviewGap: overview.top - rect.bottom,
+      });
       const checked = document.getElementById("editorSplitMeasures").checked;
       const m1 = document.querySelector('.editor-measure[data-index="1"]').getBoundingClientRect();
       const m2 = document.querySelector('.editor-measure[data-index="2"]').getBoundingClientRect();
@@ -185,8 +199,8 @@ function overlaps(a, b) {
         cardLeft: card.left,
         cardRight: card.right,
         scrollBottom: scroll.bottom,
-        left: { x: left.left, right: left.right, top: left.top, label: document.getElementById("editorNudgeLeft").textContent.trim() },
-        right: { x: right.left, right: right.right, top: right.top, label: document.getElementById("editorNudgeRight").textContent.trim() },
+        left: Object.assign(arrow(left), { label: document.getElementById("editorNudgeLeft").textContent.trim() }),
+        right: Object.assign(arrow(right), { label: document.getElementById("editorNudgeRight").textContent.trim() }),
         standing: [...document.querySelectorAll("p, label")]
           .filter((el) => !el.closest(".route-hint"))
           .some((el) => el.textContent.includes("小节之间不拆开")),
@@ -211,6 +225,14 @@ function overlaps(a, b) {
     if (chromeBox.cardRight - chromeBox.right.right > 28) fail("right arrow is not at the far right");
     if (chromeBox.left.top < chromeBox.scrollBottom - 2) fail("left arrow is not below the chart");
     if (chromeBox.right.top < chromeBox.scrollBottom - 2) fail("right arrow is not below the chart");
+    if (chromeBox.left.chartGap > 12) fail("left arrow floats " + chromeBox.left.chartGap.toFixed(1) + "px under the chart");
+    if (chromeBox.right.chartGap > 12) fail("right arrow floats " + chromeBox.right.chartGap.toFixed(1) + "px under the chart");
+    if (chromeBox.left.handsGap > 36) fail("left arrow is not just under the chart (" + chromeBox.left.handsGap.toFixed(1) + "px below the hands)");
+    if (chromeBox.right.handsGap > 36) fail("right arrow is not just under the chart (" + chromeBox.right.handsGap.toFixed(1) + "px below the hands)");
+    if (chromeBox.left.overviewGap < 8) fail("left arrow sits on 小节总览 (" + chromeBox.left.overviewGap.toFixed(1) + "px)");
+    if (chromeBox.right.overviewGap < 8) fail("right arrow sits on 小节总览 (" + chromeBox.right.overviewGap.toFixed(1) + "px)");
+    if (chromeBox.left.w < 44 || chromeBox.left.h < 36) fail("left arrow is small " + chromeBox.left.w.toFixed(0) + "×" + chromeBox.left.h.toFixed(0));
+    if (chromeBox.right.w < 44 || chromeBox.right.h < 36) fail("right arrow is small " + chromeBox.right.w.toFixed(0) + "×" + chromeBox.right.h.toFixed(0));
     if (chromeBox.left.label.indexOf("←") < 0 && chromeBox.left.label.indexOf("‹") < 0) fail("left arrow glyph " + chromeBox.left.label);
     if (chromeBox.right.label.indexOf("→") < 0 && chromeBox.right.label.indexOf("›") < 0) fail("right arrow glyph " + chromeBox.right.label);
 

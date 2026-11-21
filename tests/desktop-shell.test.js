@@ -17,9 +17,9 @@ function check(name, fn) {
   console.log("  ✓ " + name);
 }
 
-check("package version is 0.2.0 and the desktop entry is the window", () => {
+check("package version is 0.2.1 and the desktop entry is the window", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.strictEqual(pkg.version, "0.2.0");
+  assert.strictEqual(pkg.version, "0.2.1");
   assert.strictEqual(pkg.main, "desktop/main.js");
   assert.ok(!JSON.stringify(pkg).includes("1.0.0"));
 });
@@ -48,22 +48,24 @@ check("batch UI keeps the local server path and adds the desktop window path", (
   assert.ok(ui.includes("function runOnDesktop"));
 });
 
-check("the Windows workflow publishes 0.2.0-style tags with GITHUB_TOKEN only", () => {
+check("the Windows workflow publishes 0.2.1-style tags with GITHUB_TOKEN only", () => {
   const yml = read(".github/workflows/release-windows.yml");
   assert.ok(yml.includes("windows-latest"));
   assert.ok(yml.includes("workflow_dispatch"));
   assert.ok(yml.includes("tags:"));
   assert.ok(yml.includes("secrets.GITHUB_TOKEN"));
   assert.ok(!/secrets\.(?!GITHUB_TOKEN\b)[A-Z0-9_]+/.test(yml));
-  assert.ok(yml.includes("v0.2.0") || yml.includes("refs/tags/v"));
+  assert.ok(yml.includes("v0.2.1") || yml.includes("refs/tags/v"));
   const notes = read("packaging/windows/release-notes.md");
-  assert.ok(notes.includes("0.2.0"));
-  assert.ok(notes.includes("bachi-motion-0.2.0-windows-x64.zip"));
+  assert.ok(notes.includes("0.2.1"));
+  assert.ok(notes.includes("bachi-motion-0.2.1-windows-x64.zip"));
   assert.ok(notes.includes("这个版本新增"));
+  assert.ok(notes.includes("#SCROLL"));
+  assert.ok(notes.includes("0.2.1 修正了 0.2.0"));
   assert.ok(!notes.includes("1.0.0"));
   const doc = read("出片说明.md");
   assert.ok(doc.includes("bachi-motion.exe"));
-  assert.ok(doc.includes("v0.2.0"));
+  assert.ok(doc.includes("v0.2.1"));
   assert.ok(doc.includes("ffmpeg"));
   assert.ok(doc.includes("不需要联网") || doc.includes("断网"));
 });

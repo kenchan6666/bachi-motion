@@ -5,6 +5,7 @@ const os = require("os");
 const path = require("path");
 
 const TaikoParser = require("./parser.js");
+const tjaEncoding = require("./tja-encoding.js");
 const audio = require("./audio-mux.js");
 const LoopRange = require("./loop-range.js");
 
@@ -134,7 +135,9 @@ function optionalSeconds(value) {
 }
 
 function buildPayload(args) {
-  const tjaText = args.tjaText != null ? String(args.tjaText) : fs.readFileSync(path.resolve(args.tja), "utf8");
+  const tjaText = args.tjaText != null
+    ? String(args.tjaText)
+    : tjaEncoding.decodeTjaBytes(fs.readFileSync(path.resolve(args.tja)));
   const opts = {
     course: args.course,
     measures: args.measures,

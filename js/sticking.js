@@ -61,8 +61,41 @@
   }
 
   // 炒菜的散音不看 BPM：8 分或更慢（间隔 ≥ 半拍）永远断开，270 也不并进连音。
+  // 密串中间单独一格 16 分空不走这里，见 isSingle16thHole。
   function chaoLinked(delta) {
     return gt(delta, 0) && lt(delta, 0.5);
+  }
+
+  function is16thStep(delta) {
+    return delta != null && near(delta, 0.25);
+  }
+
+  function is16thRestGap(delta) {
+    return delta != null && near(delta, 0.5);
+  }
+
+  // 16 分密串中间只空一格：这一拍的入间隔正好半拍，前一拍是 16 分步进，
+  // 后一拍也是 16 分步进（或这颗就是串尾，后面没有音）。
+  // 串尾规矩：这格空拍不断开，后面的音不另起正手，也不改判成散音。
+  // 右侧紧接着是 8 分或更慢（下一间隔也 ≥ 半拍）则不是这格空，仍按散音断开。
+  function isSingle16thHole(notes, rightIndex) {
+    if (rightIndex < 2 || rightIndex >= notes.length) return false;
+    if (!is16thRestGap(inbound(notes, rightIndex))) return false;
+    if (!is16thStep(inbound(notes, rightIndex - 1))) return false;
+    if (rightIndex >= notes.length - 1) return true;
+    return is16thStep(inbound(notes, rightIndex + 1));
+  }
+
+  function segmentLinked(notes, index, globalBpm) {
+    var delta = inbound(notes, index);
+    var bpm = noteBpm(notes, index, globalBpm);
+    if (connected(delta, bpm)) return true;
+    return isSingle16thHole(notes, index);
+  }
+
+  function chaoSegmentLinked(notes, index) {
+    if (chaoLinked(inbound(notes, index))) return true;
+    return isSingle16thHole(notes, index);
   }
 
   function noteBpm(notes, i, globalBpm) {
@@ -127,9 +160,7 @@
     while (i <= end) {
       var j = i;
       while (j < end) {
-        var d = inbound(notes, j + 1);
-        var bpm = noteBpm(notes, j + 1, globalBpm);
-        if (!connected(d, bpm)) break;
+        if (!segmentLinked(notes, j + 1, globalBpm)) break;
         j++;
       }
       // j is the last note of this connected run; length 1 is 散音
@@ -138,14 +169,8 @@
         // absorb following isolated 散音, but do not swallow the first note of a later 连音
         while (j < end) {
           var nxt = j + 1;
-          if (nxt < end) {
-            var dN = inbound(notes, nxt + 1);
-            var bpmN = noteBpm(notes, nxt + 1, globalBpm);
-            if (connected(dN, bpmN)) break; // nxt starts a 连音
-          }
-          var d2 = inbound(notes, nxt);
-          var bpm2 = noteBpm(notes, nxt, globalBpm);
-          if (connected(d2, bpm2)) break;
+          if (nxt < end && segmentLinked(notes, nxt + 1, globalBpm)) break; // nxt starts a 连音
+          if (segmentLinked(notes, nxt, globalBpm)) break;
           j = nxt;
         }
       }
@@ -258,23 +283,23 @@
     return figs;
   }
 
-  // 炒菜 segments: 散音 is interval >= 0.5 at every BPM. A fast run is then
-  // cut into the figures above. Other 手法 keep segmentsInPhrase / connected().
+  // 炒菜 segments: 真 8 分或更慢（间隔 ≥ 半拍，且不是 16 分串里的一格空）才是散音。
+  // 16 分密串中间只空一格仍是同一串，后面不改判成散音。快的一段再切成下面的句型。
   function chaoSegments(notes, start, end) {
     var groups = [];
     var i = start;
     while (i <= end) {
       var j = i;
       while (j < end) {
-        if (!chaoLinked(inbound(notes, j + 1))) break;
+        if (!chaoSegmentLinked(notes, j + 1)) break;
         j++;
       }
       var kind = (j > i) ? "连音" : "散音";
       if (kind === "散音") {
         while (j < end) {
           var nxt = j + 1;
-          if (nxt < end && chaoLinked(inbound(notes, nxt + 1))) break;
-          if (chaoLinked(inbound(notes, nxt))) break;
+          if (nxt < end && chaoSegmentLinked(notes, nxt + 1)) break;
+          if (chaoSegmentLinked(notes, nxt)) break;
           j = nxt;
         }
         groups.push({ start: i, end: j, kind: "散音" });
@@ -822,11 +847,8 @@
     return out;
   }
 
-  function choose24ModePairs(notes, start, end) {
-    // 16 / 12: no roll. Each 24-subsegment from its first note 1-2 (no downbeat align).
-    // Each 32-subsegment from its first note 2-2.
+  function append24DivPairs(pairs, notes, start, end) {
     var parts = splitByDiv(notes, start, end);
-    var pairs = [];
     for (var p = 0; p < parts.length; p++) {
       var part = parts[p];
       var n = part.end - part.start + 1;
@@ -835,9 +857,11 @@
           return !notes[localStart + i].big && !notes[localStart + j].big;
         };
       };
+      var rel;
+      var r;
       if (part.div === 24) {
-        var rel = plan12From(n, 0, canPair(part.start));
-        for (var r = 0; r < rel.length; r++) {
+        rel = plan12From(n, 0, canPair(part.start));
+        for (r = 0; r < rel.length; r++) {
           pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
         }
       } else if (part.div === 32) {
@@ -846,6 +870,44 @@
           pairs.push([rel[r][0] + part.start, rel[r][1] + part.start]);
         }
       }
+    }
+  }
+
+  function sandwichQuadAt(notes, i, end) {
+    if (i + 3 > end) return false;
+    // 中间两颗 24 分必须是同一面（咚咚或咔咔），含同色夹心。
+    // 鱼蛋中间一咚一咔，不在这里，保持单打。
+    if (notes[i + 1].colour !== notes[i + 2].colour) return false;
+    var left = classifyDelta(inbound(notes, i + 1));
+    var mid = classifyDelta(inbound(notes, i + 2));
+    var right = classifyDelta(inbound(notes, i + 3));
+    if (mid !== 24) return false;
+    // 16夹24：16、24、16。12夹24：12、24、12。其他混合型不在这里。
+    return (left === 16 && right === 16) || (left === 12 && right === 12);
+  }
+
+  function choose24ModePairs(notes, start, end) {
+    // 纯 16 / 纯 12 不滚。每段纯 24 从该段第一颗 1-2（不对齐拍头）。
+    // 每段纯 32 从该段第一颗 2-2。
+    // 16夹24、12夹24 里，中间两颗 24 分是同一面的四音整格 1-2-1，
+    // 不按 16/12 和 24 切开。含咚咔咔咚这类，也含同色夹心
+    // （咚咚咚咚、咔咚咚咚、咚咔咔咔、咔咔咔咔）。
+    // 两头单打同一只手，中间两颗在另一只手成对。鱼蛋中间不同色不滚。
+    // 起手沿用这一串已经排好的下一只手（正手起为右、左左、右；
+    // 同一串里上一颗是右，则为左、右右、左）。这里不另行正手起。
+    // 重复的四音型逐格 1-2-1。其他更长的混合型仍只把 24 分段按 1-2。
+    var pairs = [];
+    var i = start;
+    while (i <= end) {
+      if (sandwichQuadAt(notes, i, end)) {
+        if (!notes[i + 1].big && !notes[i + 2].big) pairs.push([i + 1, i + 2]);
+        i += 4;
+        continue;
+      }
+      var j = i;
+      while (j <= end && !sandwichQuadAt(notes, j, end)) j++;
+      if (j > i) append24DivPairs(pairs, notes, i, j - 1);
+      i = j;
     }
     return pairs;
   }

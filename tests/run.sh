@@ -45,6 +45,18 @@ echo "== settings hint popovers anchor to their buttons =="
 node tests/hint-popover.test.js
 echo
 
+echo "== chart author (blank chart + 16th notes) =="
+node tests/chart-author.test.js
+echo
+
+echo "== chart author UI (高级空谱面 / 加入音符) =="
+node tests/chart-author-ui.test.js
+echo
+
+echo "== editor pan (measure overview, hidden scrollbar, zoom pan) =="
+node tests/editor-pan.test.js
+echo
+
 echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo
@@ -79,6 +91,10 @@ echo
 
 echo "== hand-order editor edits (roll / alternate / restore / swap / undo) =="
 node tests/hand-edits.test.js
+echo
+
+echo "== zoom card uses real note timing =="
+node tests/zoom-layout.test.js
 echo
 
 echo "== roll-dot cache (cached 720-sample pos must match uncached) =="

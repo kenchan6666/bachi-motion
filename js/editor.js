@@ -8,6 +8,7 @@
   const $ = (id) => document.getElementById(id);
   const Edits = () => window.BachiHandEdits;
   const Parser = () => window.TaikoParser;
+  const Author = () => window.BachiChartAuthor;
 
   const MEASURE_W = 344;
   const LANE_MARGIN = 8;
@@ -46,6 +47,9 @@
     drag: null,
     playerViewBox: "0 0 800 860",
     raf: 0,
+    addingNotes: false,
+    noteFace: "don",
+    noteSize: "normal",
   };
 
   function app() { return window.BachiApp || null; }
@@ -245,20 +249,30 @@
 
       if (state.mode === "custom") {
         const raw = (a && a.getJson ? a.getJson() : "").trim();
-        if (!raw) {
+        const noteCount = (parsed.notes || []).length;
+        const keepAuthored = !opts.fresh && state.session && state.session.authored
+          && state.session.notes && state.session.notes.length === noteCount;
+        if (keepAuthored) {
+          state.notes = state.session.notes;
+          const resolved = Edits().resolve(state.session);
+          state.chartData = payloadFromResolved(parsed, resolved, poke);
+          if (state.chartData) state.chartData.source = state.session.source || "hand-json";
+          setLocked(true);
+        } else if (!raw) {
           state.session = null;
           state.chartData = null;
           renderTracks();
           updateStatus();
           return;
+        } else {
+          const data = P.chartFromTjaAndHands(a.getTja(), raw, poke);
+          const notes = P.notesToStickingInput(parsed.notes, parsed.measures, P.normBigMode(poke.bigNote) === "small");
+          const resolved = Edits().resolvedFromEvents(data.events);
+          state.notes = notes;
+          state.session = Edits().createSessionFromResolved(notes, poke, resolved);
+          state.chartData = data;
+          setLocked(true);
         }
-        const data = P.chartFromTjaAndHands(a.getTja(), raw, poke);
-        const notes = P.notesToStickingInput(parsed.notes, parsed.measures, P.normBigMode(poke.bigNote) === "small");
-        const resolved = Edits().resolvedFromEvents(data.events);
-        state.notes = notes;
-        state.session = Edits().createSessionFromResolved(notes, poke, resolved);
-        state.chartData = data;
-        setLocked(true);
       } else {
         setLocked(false);
         if (!state.session || opts.fresh) {
@@ -279,6 +293,142 @@
       if (a && a.showError) a.showError(err.message || String(err));
       else console.error(err);
     }
+  }
+
+  function noteChartReplaced() {
+    state.session = null;
+    state.notes = [];
+    state.selection = null;
+    state.expanded = null;
+    if (state.mode === "custom") {
+      state.mode = "tweak";
+      setModeButtons();
+      setLocked(false);
+    }
+    if (state.open) rebuild({ keepTime: false, fresh: true });
+  }
+
+  function applyAuthoringChange(nextTja, change) {
+    const a = app();
+    const P = Parser();
+    const author = Author();
+    if (!author) return;
+    if (a && a.setTja) a.setTja(nextTja);
+    try {
+      const parsed = parseCurrentCourse();
+      const poke = currentOpts();
+      state.parsed = parsed;
+      state.rawNotes = parsed.notes || [];
+      state.measures = parsed.measures || [];
+      const newNotes = P.notesToStickingInput(parsed.notes, parsed.measures, P.normBigMode(poke.bigNote) === "small");
+      if (change.type === "append") {
+        if (!state.session) {
+          const made = freshAutoSession(parsed, poke);
+          state.notes = made.notes;
+          state.session = made.session;
+        } else {
+          state.session.notes = newNotes;
+          state.notes = newNotes;
+        }
+      } else if (!state.session || author.shouldRegenerate(state.session)) {
+        const made = freshAutoSession(parsed, poke);
+        state.notes = made.notes;
+        state.session = made.session;
+      } else {
+        author.shiftSession(state.session, {
+          type: change.type,
+          index: change.index,
+          notes: newNotes,
+          dominant: poke.惯用手,
+        });
+        state.notes = newNotes;
+      }
+      const resolved = Edits().resolve(state.session);
+      state.chartData = payloadFromResolved(parsed, resolved, poke);
+      if (state.session && state.session.source === "hand-json" && state.chartData) {
+        state.chartData.source = "hand-json";
+      }
+      state.selection = null;
+      hidePops();
+      applyToEngine(state.chartData, true);
+      renderTracks();
+      updateStatus();
+    } catch (err) {
+      if (a && a.showError) a.showError(err.message || String(err));
+      else console.error(err);
+    }
+  }
+
+  function placeOnGrid(measure, cell) {
+    const a = app();
+    const author = Author();
+    if (!a || !author || !a.getTja) return;
+    const res = author.placeNote(a.getTja(), {
+      measure: measure,
+      cell: cell,
+      face: state.noteFace,
+      size: state.noteSize,
+    });
+    if (!res.changed) return;
+    applyAuthoringChange(res.tja, { type: "insert", index: res.index });
+  }
+
+  function deleteOnGrid(measure, cell) {
+    const a = app();
+    const author = Author();
+    if (!a || !author || !a.getTja) return;
+    const res = author.deleteNote(a.getTja(), { measure: measure, cell: cell });
+    if (!res.changed) return;
+    applyAuthoringChange(res.tja, { type: "delete", index: res.index });
+  }
+
+  function appendEmptyMeasure() {
+    const a = app();
+    const author = Author();
+    if (!a || !author || !a.getTja) return;
+    const res = author.appendMeasure(a.getTja());
+    applyAuthoringChange(res.tja, { type: "append" });
+  }
+
+  function cellOfNote(index) {
+    const n = state.rawNotes[index];
+    if (!n) return null;
+    const m = (state.measures || []).find((mm) => mm.index === n.measure);
+    const beats = m && m.beats != null ? m.beats : (n.measureBeats || 4);
+    const count = Math.max(1, Math.round(beats * 4));
+    const slots = n.slots || count;
+    let cell = Math.round(n.pos * count / slots);
+    if (cell >= count) cell = count - 1;
+    if (cell < 0) cell = 0;
+    return { measure: n.measure, cell: cell };
+  }
+
+  function setFaceSize(kind, value) {
+    if (kind === "face") state.noteFace = value === "ka" ? "ka" : "don";
+    else state.noteSize = value === "big" ? "big" : "normal";
+    const root = kind === "face" ? ui.faceSeg : ui.sizeSeg;
+    const attr = kind === "face" ? "data-face" : "data-size";
+    const current = kind === "face" ? state.noteFace : state.noteSize;
+    if (!root) return;
+    root.querySelectorAll("[" + attr + "]").forEach((b) => {
+      const on = b.getAttribute(attr) === current;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", String(on));
+    });
+  }
+
+  function setAddingNotes(on) {
+    state.addingNotes = !!on;
+    if (ui.addNoteBtn) {
+      ui.addNoteBtn.setAttribute("aria-pressed", String(state.addingNotes));
+    }
+    if (ui.notePicker) ui.notePicker.hidden = !state.addingNotes;
+    if (ui.root) ui.root.classList.toggle("is-adding-notes", state.addingNotes);
+    if (!state.addingNotes) {
+      hidePops();
+      state.selection = null;
+    }
+    if (state.open) renderTracks();
   }
 
   function resolvedNow() {
@@ -359,6 +509,38 @@
   const ZOOM_VIEW_PAD = 12;
   const ZOOM_SIDE_SLOT = ZOOM_NOTE_W; // 左右各留约一颗音的空位
   const ZOOM_EDGE = 16;              // 放大框离编辑区可见边缘的最小间距
+  let zoomCenters = null;
+
+  // 放大卡按真实时间排，最密的一档仍用 ZOOM_NOTE_W + ZOOM_GUTTER，
+  // 更宽的间隔按比例拉开，8 分和 16 分不会挤成一样宽。
+  function zoomNoteLayout(times, opts) {
+    const pad = opts.pad;
+    const noteW = opts.noteW;
+    const gutter = opts.gutter;
+    const n = times ? times.length : 0;
+    const minStep = noteW + gutter;
+    const centers = new Array(n);
+    let usable = n > 0;
+    for (let i = 0; i < n; i++) {
+      if (times[i] == null || !isFinite(times[i])) usable = false;
+    }
+    let minDt = Infinity;
+    if (usable) {
+      for (let i = 1; i < n; i++) {
+        const dt = times[i] - times[i - 1];
+        if (dt > 1e-6 && dt < minDt) minDt = dt;
+      }
+    }
+    if (!usable || !isFinite(minDt)) {
+      for (let k = 0; k < n; k++) centers[k] = pad + k * minStep + noteW / 2;
+    } else {
+      const px = minStep / minDt;
+      const t0 = times[0];
+      for (let k = 0; k < n; k++) centers[k] = pad + noteW / 2 + (times[k] - t0) * px;
+    }
+    const innerW = n ? centers[n - 1] + noteW / 2 + pad : pad * 2;
+    return { centers: centers, innerW: innerW };
+  }
 
   function warnCaption(type) {
     if (type === "同拍重复") return "拿不准：同一拍有重复音符";
@@ -492,6 +674,7 @@
     state.expanded = null;
     if (ui.scroll) ui.scroll.classList.remove("is-zoomed");
     if (ui.zoomCard) ui.zoomCard.hidden = true;
+    syncOverview();
   }
 
   function expandString(s, opts) {
@@ -508,11 +691,8 @@
     renderZoomCard();
   }
 
-  function zoomInnerWidth(n) {
-    return ZOOM_PAD * 2 + n * ZOOM_NOTE_W + Math.max(0, n - 1) * ZOOM_GUTTER;
-  }
-
   function zoomNoteCenterX(k) {
+    if (zoomCenters && zoomCenters[k] != null) return zoomCenters[k];
     return ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER) + ZOOM_NOTE_W / 2;
   }
 
@@ -587,8 +767,11 @@
     }
     if (!notes.length) { collapseString(); return; }
 
-    const n = notes.length;
-    const innerW = zoomInnerWidth(n);
+    const layout = zoomNoteLayout(notes.map((i) => raw[i] && raw[i].t), {
+      pad: ZOOM_PAD, noteW: ZOOM_NOTE_W, gutter: ZOOM_GUTTER,
+    });
+    zoomCenters = layout.centers;
+    const innerW = layout.innerW;
     const first = raw[notes[0]];
     const mi = state.measures.findIndex((m) => m.index === first.measure);
 
@@ -605,7 +788,7 @@
       btn.type = "button";
       btn.className = "editor-note" + (isKa ? " is-ka" : "") + (isBig ? " is-big" : "");
       btn.dataset.index = String(i);
-      btn.style.left = (ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER) + ZOOM_NOTE_W / 2) + "px";
+      btn.style.left = layout.centers[k] + "px";
       btn.setAttribute("aria-label", (isBig ? "大" : "") + (isKa ? "咔" : "咚") + " 第 " + (i + 1) + " 音");
       lane.appendChild(btn);
     }
@@ -619,7 +802,7 @@
       cap.type = "button";
       cap.className = "editor-zoom-cap is-" + hand;
       cap.dataset.index = String(i);
-      cap.style.left = (ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER)) + "px";
+      cap.style.left = (layout.centers[k] - ZOOM_NOTE_W / 2) + "px";
       cap.style.width = ZOOM_NOTE_W + "px";
       cap.textContent = hand === "L" ? "左" : "右";
       cap.setAttribute("aria-label", "第 " + (i + 1) + " 音换手");
@@ -662,6 +845,7 @@
       // keep the source measure identifiable; dimming is CSS on .is-zoomed
       if (mEl) mEl.classList.add("is-source");
     }
+    syncOverview();
   }
 
   function renderTracks() {
@@ -693,9 +877,11 @@
       el.dataset.index = String(measure.index);
       el.style.width = MEASURE_W + "px";
 
-      const num = document.createElement("div");
+      const num = document.createElement("button");
+      num.type = "button";
       num.className = "editor-barnum";
       num.textContent = String(measure.index);
+      num.setAttribute("aria-label", "第 " + measure.index + " 小节");
       el.appendChild(num);
 
       const lane = document.createElement("div");
@@ -707,6 +893,19 @@
         tick.className = "editor-tick" + (t % 4 === 0 ? " is-beat" : "");
         tick.style.left = (LANE_PAD + (t / ticks) * INNER_W) + "px";
         lane.appendChild(tick);
+      }
+      if (state.addingNotes) {
+        for (let c = 0; c < ticks; c++) {
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = "editor-cell";
+          cell.dataset.measure = String(measure.index);
+          cell.dataset.cell = String(c);
+          cell.style.left = (LANE_PAD + (c / ticks) * INNER_W) + "px";
+          cell.style.width = (INNER_W / ticks) + "px";
+          cell.setAttribute("aria-label", "第 " + measure.index + " 小节 第 " + (c + 1) + " 个 16 分");
+          lane.appendChild(cell);
+        }
       }
       const idxs = notesByMeasure[measure.index] || [];
       for (let k = 0; k < idxs.length; k++) {
@@ -802,6 +1001,14 @@
       el.appendChild(handsEl);
       frag.appendChild(el);
     });
+    if (state.addingNotes) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "editor-add-measure";
+      add.id = "editorAddMeasure";
+      add.textContent = "加一小节";
+      frag.appendChild(add);
+    }
     ui.measuresEl.replaceChildren(frag);
     if (ui.playhead) ui.playhead.hidden = !measures.length;
     paintPlayhead();
@@ -814,6 +1021,7 @@
       if (ui.zoomCard) ui.zoomCard.hidden = true;
     }
     if (state.selection) restoreSelectionVisual();
+    renderOverview();
   }
 
   function restoreSelectionVisual() {
@@ -1200,6 +1408,10 @@
     ui.jsonFile = $("editorJsonFile");
     ui.tjaFile = $("editorTjaFile");
     ui.scroll = $("editorScroll");
+    ui.overview = $("editorOverview");
+    ui.overviewTrack = $("editorOverviewTrack");
+    ui.overviewWindow = $("editorOverviewWindow");
+    ui.overviewMeasures = $("editorOverviewMeasures");
     ui.measuresEl = $("editorMeasures");
     ui.playhead = $("editorPlayhead");
     ui.sel = $("editorSel");
@@ -1207,6 +1419,10 @@
     ui.rangePopTitle = $("editorRangePopTitle");
     ui.swapPop = $("editorSwapPop");
     ui.chartHint = $("editorChartHint");
+    ui.addNoteBtn = $("editorAddNoteBtn");
+    ui.notePicker = $("editorNotePicker");
+    ui.faceSeg = $("editorFaceSeg");
+    ui.sizeSeg = $("editorSizeSeg");
     ui.stageHost = $("editorStageHost");
     ui.playText = $("editorPlayText");
     ui.playHand = $("editorPlayHand");
@@ -1333,11 +1549,51 @@
     }
     if (ui.playBtn) ui.playBtn.addEventListener("click", () => togglePlay());
 
+    if (ui.addNoteBtn) {
+      ui.addNoteBtn.addEventListener("click", () => setAddingNotes(!state.addingNotes));
+    }
+    if (ui.faceSeg) {
+      ui.faceSeg.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-face]");
+        if (!btn) return;
+        setFaceSize("face", btn.dataset.face);
+      });
+    }
+    if (ui.sizeSeg) {
+      ui.sizeSeg.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-size]");
+        if (!btn) return;
+        setFaceSize("size", btn.dataset.size);
+      });
+    }
+    if (ui.measuresEl) {
+      ui.measuresEl.addEventListener("click", (e) => {
+        const btn = e.target.closest(".editor-add-measure");
+        if (!btn || !state.addingNotes) return;
+        appendEmptyMeasure();
+      });
+    }
+
     if (ui.scroll) {
       ui.scroll.addEventListener("mousedown", onPointerDown);
       ui.scroll.addEventListener("wheel", onZoomWheel, { passive: false });
+      ui.scroll.addEventListener("scroll", syncOverview, { passive: true });
+      ui.scroll.addEventListener("click", (e) => {
+        const barnum = e.target.closest(".editor-barnum");
+        if (!barnum || e.detail !== 0) return;
+        const measure = barnum.closest(".editor-measure");
+        if (!measure) return;
+        jumpToMeasure(+measure.dataset.index);
+      });
       bindZoomTouch();
     }
+    bindOverview();
+    if (typeof ResizeObserver === "function") {
+      const ro = new ResizeObserver(() => syncOverview());
+      if (ui.scroll) ro.observe(ui.scroll);
+      if (ui.overviewTrack) ro.observe(ui.overviewTrack);
+    }
+    window.addEventListener("resize", syncOverview);
 
     document.addEventListener("click", (e) => {
       if (ui.tech && !ui.tech.contains(e.target)) closeMenus();
@@ -1378,16 +1634,140 @@
     return Number.isFinite(i) ? i : null;
   }
 
+  const OVERVIEW_MIN_W = 56;
+
+  function overviewMetrics() {
+    const scroll = ui.scroll;
+    const track = ui.overviewTrack;
+    const sw = scroll ? scroll.scrollWidth : 0;
+    const cw = scroll ? scroll.clientWidth : 0;
+    const max = Math.max(0, sw - cw);
+    const trackW = track ? track.clientWidth : 0;
+    const ratio = sw > 0 ? Math.min(1, cw / sw) : 1;
+    let winW = trackW * ratio;
+    if (max > 0) winW = Math.max(Math.min(OVERVIEW_MIN_W, trackW), winW);
+    winW = Math.min(trackW, Math.max(0, winW));
+    const travel = Math.max(0, trackW - winW);
+    const left = max > 0 && travel > 0 ? (scroll.scrollLeft / max) * travel : 0;
+    return { sw: sw, cw: cw, max: max, trackW: trackW, winW: winW, travel: travel, left: left };
+  }
+
+  function scrollFromWindowLeft(left, metrics) {
+    if (!metrics || metrics.max <= 0 || metrics.travel <= 0) return 0;
+    return (left / metrics.travel) * metrics.max;
+  }
+
+  function syncOverview() {
+    if (!ui.overviewTrack || !ui.overviewWindow || !ui.scroll) return;
+    if (ui.overview && ui.overview.hidden) return;
+    const metrics = overviewMetrics();
+    ui.overviewWindow.style.left = metrics.left + "px";
+    ui.overviewWindow.style.width = metrics.winW + "px";
+    const pct = metrics.max > 0 ? Math.round((ui.scroll.scrollLeft / metrics.max) * 100) : 0;
+    ui.overviewTrack.setAttribute("aria-valuenow", String(pct));
+    if (!ui.overviewMeasures) return;
+    ui.overviewMeasures.querySelectorAll(".editor-overview-cell").forEach((cell) => {
+      const span = cell.querySelector("span");
+      if (span) span.hidden = cell.clientWidth < 16;
+    });
+  }
+
+  function renderOverview() {
+    if (!ui.overview || !ui.overviewMeasures) return;
+    const measures = state.measures || [];
+    ui.overview.hidden = !measures.length;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < measures.length; i++) {
+      const cell = document.createElement("div");
+      cell.className = "editor-overview-cell";
+      cell.dataset.index = String(measures[i].index);
+      const label = document.createElement("span");
+      label.textContent = String(measures[i].index);
+      cell.appendChild(label);
+      frag.appendChild(cell);
+    }
+    ui.overviewMeasures.replaceChildren(frag);
+    syncOverview();
+  }
+
+  function bindOverview() {
+    const track = ui.overviewTrack;
+    if (!track) return;
+    track.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest("button, a, input, textarea")) return;
+      e.preventDefault();
+      const metrics = overviewMetrics();
+      const x = e.clientX - track.getBoundingClientRect().left;
+      const onWindow = x >= metrics.left - 1 && x <= metrics.left + metrics.winW + 1;
+      const grab = onWindow ? x - metrics.left : metrics.winW / 2;
+      const apply = (clientX) => {
+        const now = overviewMetrics();
+        const xx = clientX - track.getBoundingClientRect().left;
+        const left = Math.max(0, Math.min(now.travel, xx - grab));
+        ui.scroll.scrollLeft = scrollFromWindowLeft(left, now);
+        syncOverview();
+      };
+      if (!onWindow) apply(e.clientX);
+      track.classList.add("is-panning");
+      const move = (ev) => apply(ev.clientX);
+      const up = () => {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        track.classList.remove("is-panning");
+      };
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    });
+    track.addEventListener("keydown", (e) => {
+      if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const max = Math.max(0, ui.scroll.scrollWidth - ui.scroll.clientWidth);
+      const step = Math.max(48, ui.scroll.clientWidth * 0.25);
+      if (e.key === "ArrowRight") { e.preventDefault(); ui.scroll.scrollLeft += step; }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); ui.scroll.scrollLeft -= step; }
+      else if (e.key === "Home") { e.preventDefault(); ui.scroll.scrollLeft = 0; }
+      else if (e.key === "End") { e.preventDefault(); ui.scroll.scrollLeft = max; }
+      else return;
+      syncOverview();
+    });
+  }
+
+  function jumpToMeasure(measureIndex) {
+    if (!ui.scroll || !ui.measuresEl || !Number.isFinite(+measureIndex)) return;
+    const el = ui.measuresEl.querySelector('.editor-measure[data-index="' + measureIndex + '"]');
+    if (!el) return;
+    const max = Math.max(0, ui.scroll.scrollWidth - ui.scroll.clientWidth);
+    const target = el.offsetLeft + (ui.measuresEl.offsetLeft || 0);
+    ui.scroll.scrollLeft = Math.max(0, Math.min(max, target));
+    syncOverview();
+  }
+
+  function measureIndexFromPoint(target, clientX) {
+    const direct = target && target.closest && target.closest(".editor-measure");
+    if (direct && ui.scroll && ui.scroll.contains(direct)) {
+      const idx = +direct.dataset.index;
+      if (Number.isFinite(idx)) return idx;
+    }
+    if (!ui.measuresEl || clientX == null) return null;
+    const nodes = ui.measuresEl.querySelectorAll(".editor-measure");
+    for (let i = 0; i < nodes.length; i++) {
+      const rect = nodes[i].getBoundingClientRect();
+      if (clientX >= rect.left - MEASURE_GAP / 2 && clientX <= rect.right + MEASURE_GAP / 2) {
+        const idx = +nodes[i].dataset.index;
+        if (Number.isFinite(idx)) return idx;
+      }
+    }
+    return null;
+  }
+
   function onScrollbar(e) {
     const el = ui.scroll;
     if (!el) return false;
     const r = el.getBoundingClientRect();
-    // Overlay bars don't change client size, but they still sit on the
-    // trailing edge. Leave that strip to the native scrollbar.
-    const barY = Math.max(el.offsetHeight - el.clientHeight, 18);
-    const barX = Math.max(el.offsetWidth - el.clientWidth, 12);
-    if (el.scrollWidth > el.clientWidth + 1 && e.clientY >= r.bottom - barY && e.clientY <= r.bottom + 2) return true;
-    if (el.scrollHeight > el.clientHeight + 1 && e.clientX >= r.right - barX && e.clientX <= r.right + 2) return true;
+    const barY = el.offsetHeight - el.clientHeight;
+    const barX = el.offsetWidth - el.clientWidth;
+    if (barY > 2 && el.scrollWidth > el.clientWidth + 1 && e.clientY >= r.bottom - barY && e.clientY <= r.bottom + 2) return true;
+    if (barX > 2 && el.scrollHeight > el.clientHeight + 1 && e.clientX >= r.right - barX && e.clientX <= r.right + 2) return true;
     return false;
   }
 
@@ -1395,6 +1775,39 @@
     if (!target || !target.closest || !ui.scroll || !ui.scroll.contains(target)) return false;
     if (target.closest(".editor-note, .editor-string, .editor-zoom, .editor-popover, button, a, input, textarea, label")) return false;
     return true;
+  }
+
+  function isZoomBackground(target) {
+    if (!target || !target.closest || !state.expanded) return false;
+    if (!target.closest(".editor-zoom")) return false;
+    if (target.closest(".editor-note, .editor-zoom-cap, .editor-popover, a, input, textarea, button")) return false;
+    return true;
+  }
+
+  function beginZoomPan(e) {
+    if (!state.expanded) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const originPan = state.expanded.panX || 0;
+    let moved = false;
+    const move = (ev) => {
+      const dx = ev.clientX - startX;
+      if (!moved && Math.abs(dx) <= 4) return;
+      moved = true;
+      const innerW = ui.zoomInner ? ui.zoomInner.scrollWidth : 0;
+      const viewW = ui.zoomView ? Math.max(0, ui.zoomView.clientWidth - ZOOM_VIEW_PAD * 2) : 0;
+      state.expanded.panX = clampZoomPan(originPan + dx, innerW, viewW);
+      if (ui.zoomInner) ui.zoomInner.style.transform = "translateX(" + state.expanded.panX + "px)";
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      if (moved) return;
+      hidePops();
+      state.selection = null;
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
   }
 
   function beginTrackPan(e) {
@@ -1413,12 +1826,15 @@
       ui.scroll.classList.add("is-panning");
       ui.scroll.scrollLeft = startLeft - dx;
       ui.scroll.scrollTop = startTop - dy;
+      syncOverview();
     };
     const up = (ev) => {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
       ui.scroll.classList.remove("is-panning");
       if (moved) return;
+      const idx = measureIndexFromPoint(origin, ev.clientX);
+      if (idx != null) jumpToMeasure(idx);
       const t = timeAtClientX(ev.clientX);
       if (t != null && origin && origin.closest && (origin.closest(".editor-lane") || origin.closest(".editor-hands"))) {
         seekTo(t);
@@ -1440,6 +1856,44 @@
   function onPointerDown(e) {
     if (e.button !== 0) return;
     if (e.target.closest(".editor-popover")) return;
+    if (e.target.closest(".editor-add-measure")) return;
+
+    if (state.addingNotes) {
+      const note = e.target.closest(".editor-note");
+      const cell = !note && e.target.closest(".editor-cell");
+      if (note || cell) {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startLeft = ui.scroll.scrollLeft;
+        const startTop = ui.scroll.scrollTop;
+        let moved = false;
+        const move = (ev) => {
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if (!moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
+          moved = true;
+          ui.scroll.classList.add("is-panning");
+          ui.scroll.scrollLeft = startLeft - dx;
+          ui.scroll.scrollTop = startTop - dy;
+        };
+        const up = () => {
+          document.removeEventListener("mousemove", move);
+          document.removeEventListener("mouseup", up);
+          ui.scroll.classList.remove("is-panning");
+          if (moved) return;
+          if (note) {
+            const hit = cellOfNote(+note.dataset.index);
+            if (hit) deleteOnGrid(hit.measure, hit.cell);
+          } else if (cell) {
+            placeOnGrid(+cell.dataset.measure, +cell.dataset.cell);
+          }
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+        return;
+      }
+    }
 
     // Clicking a collapsed string (or its tag) expands it; clicking another
     // string while zoomed switches to that one.
@@ -1457,8 +1911,14 @@
       return;
     }
 
-    if (isEmptyTrack(e.target)) {
-      if (onScrollbar(e)) return;
+    if (isZoomBackground(e.target)) {
+      beginZoomPan(e);
+      return;
+    }
+
+    const barnum = e.target.closest(".editor-barnum");
+    if (barnum || isEmptyTrack(e.target)) {
+      if (!barnum && onScrollbar(e)) return;
       beginTrackPan(e);
       return;
     }
@@ -1541,7 +2001,8 @@
     const dy = wheelPixels(e.deltaY, e.deltaMode);
     const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
     if (!delta) return;
-    if (state.expanded) {
+    const overZoom = !!(state.expanded && e.target.closest && e.target.closest(".editor-zoom"));
+    if (overZoom) {
       e.preventDefault();
       panZoom(delta);
       return;
@@ -1551,6 +2012,7 @@
     if (max <= 0) return;
     e.preventDefault();
     ui.scroll.scrollLeft += delta;
+    syncOverview();
   }
 
   function bindZoomTouch() {
@@ -1591,6 +2053,11 @@
     }
   }
 
+  if (typeof module === "object" && module.exports) {
+    module.exports = { zoomNoteLayout: zoomNoteLayout };
+  }
+  if (typeof window === "undefined" || typeof document === "undefined") return;
+
   window.BachiEditor = {
     open: openEditor,
     close: closeEditor,
@@ -1614,6 +2081,8 @@
     },
     expandAdvanced: (v) => setAdvanced(v !== false),
     importJsonText: importJsonText,
+    noteChartReplaced: noteChartReplaced,
+    setAddingNotes: setAddingNotes,
     getState: () => state,
     getResolved: resolvedNow,
   };

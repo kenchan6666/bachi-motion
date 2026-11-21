@@ -121,6 +121,10 @@ echo "== preview don/ka hits =="
 node tests/preview-hits.test.js
 echo
 
+echo "== preview render (paused skip, retained hands) =="
+node tests/preview-render.test.js
+echo
+
 echo "== batch queue + progress =="
 node tests/batch-queue.test.js
 echo

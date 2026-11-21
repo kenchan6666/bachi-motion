@@ -82,6 +82,7 @@ function assertFoldStructure(fails) {
   if (!editor.includes('id="editorAdvancedBtn"') || !editor.includes('id="editorRollHint"')) {
     fails.push("editor 高级 or standing roll hint changed");
   }
+  if (!editor.includes('data-roll="全2-2"')) fails.push("editor roll control missing 全 2-2");
   const summaries = [...home.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map((m) => summaryTitle(m[1]));
   const want = ["打开谱面", "手顺", "演奏"];
   if (summaries.join("|") !== want.join("|")) fails.push("fold titles " + summaries.join("|"));
@@ -99,7 +100,7 @@ function assertFoldStructure(fails) {
   const standing = stripPopovers(home);
   const moved = [
     "选『滚奏演示』会自动载入配套的手顺 JSON",
-    "12 分仍 1-2；16 分三连 2-1；四连 24 分 1-2-1；不是三连的密 16 分和更长的 24 分仍可 2-2",
+    "12 分仍 1-2；16 分三连 2-1；四连 24 分 1-2-1；短于 8 音从第一颗 2-2，8 音及以上才可挪位躲开逆手外刷",
     "单手：轮流打；双手：两棒一起落；当小音符：画小、单手打",
     "覆盖自动手顺，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json",
   ];
@@ -111,6 +112,11 @@ function assertFoldStructure(fails) {
     fails.push("batch queue still on the homepage");
   }
   if (!home.includes("开始渲染") || !home.includes('id="renderStart"')) fails.push("single render button missing");
+  const rolls = [...home.matchAll(/id="rollSeg"[\s\S]*?<\/div>/g)][0];
+  const rollOrder = rolls ? [...rolls[0].matchAll(/data-roll="([^"]+)"/g)].map((m) => m[1]) : [];
+  if (rollOrder.join(",") !== "不滚奏,自动滚奏,24分滚奏,全2-2") {
+    fails.push("roll order " + rollOrder.join(","));
+  }
   if (home.includes("咕") || editor.includes("咕")) fails.push("typo 咕");
   if (!home.includes("2 咔")) fails.push("chart rules dropped 咔");
 }
@@ -210,12 +216,15 @@ function assertNear(fails, id, phase, pop, btn) {
       document.getElementById("settingsHands").open = true;
       document.querySelector('#rollSeg [data-roll="24分滚奏"]').click();
       const dense = document.querySelector("#rollHint p").textContent;
+      document.querySelector('#rollSeg [data-roll="全2-2"]').click();
+      const all22 = document.querySelector("#rollHint p").textContent;
       document.querySelector('#rollSeg [data-roll="不滚奏"]').click();
       const flat = document.querySelector("#rollHint p").textContent;
       document.querySelector('#rollSeg [data-roll="自动滚奏"]').click();
-      return { dense: dense, flat: flat };
+      return { dense: dense, all22: all22, flat: flat };
     });
     if (!rollFollows.dense.includes("32 分 2-2")) fails.push("roll hint did not follow 24分滚奏: " + rollFollows.dense);
+    if (!rollFollows.all22.includes("都从第一颗起 2-2")) fails.push("roll hint did not follow 全2-2: " + rollFollows.all22);
     if (!rollFollows.flat.includes("全部单打")) fails.push("roll hint did not follow 不滚奏: " + rollFollows.flat);
 
     const desktopTitles = await page.evaluate(() => {

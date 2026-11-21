@@ -23,6 +23,13 @@
   var DEFAULT_惯用手 = "R";
   var DEFAULT_滚奏 = "自动滚奏";
 
+  function canonicalRoll(mode) {
+    if (mode == null || mode === "") return DEFAULT_滚奏;
+    var s = String(mode).trim();
+    if (s === "全2-2" || s === "全 2-2") return "全2-2";
+    return s;
+  }
+
   function ge(a, b) { return a >= b - EPS; }
   function le(a, b) { return a <= b + EPS; }
   function gt(a, b) { return a > b + EPS; }
@@ -747,9 +754,12 @@
     return { start: i, end: end };
   }
 
-  function chooseAuto22PairsLegacy(runNotes, startHand, dominant) {
+  function chooseAuto22PairsLegacy(runNotes, startHand, dominant, pure22) {
     var n = runNotes.length;
     var canPair = function (i, j) { return !runNotes[i].big && !runNotes[j].big; };
+    // 全 2-2：这段不属于三连或四连，16/24/32 都从第一颗 2-2。
+    // 不挪位，也不改成 1-2 / 2-1，逆手外刷留在对里。
+    if (pure22) return plan22(n, canPair);
     var cycle = detectCycle(runNotes);
     var pairs;
     if (cycle === "xoo") {
@@ -767,6 +777,9 @@
       return pairs;
     } else {
       var p22 = plan22(n, canPair);
+      // 短于 8 音从第一颗 2-2。不为了躲开逆手外刷把配对往后挪一颗，
+      // 已经配上的逆手外刷也留着。oxxxo 就是 ox xx o。
+      if (n < 8) return p22;
       var pSh = planShift1(n, canPair);
       var c22 = countNizyteWaishua(runNotes, 0, p22, startHand, dominant);
       var cSh = countNizyteWaishua(runNotes, 0, pSh, startHand, dominant);
@@ -778,7 +791,7 @@
   // 16 分三连（xoo/oxx/xxo/oox，至少两格）一律 2-1。中途换型就从新格重切，
   // 不把开头的 1-2 锁到整串，也不把后面的三连留在 2-2 上。
   // 同色三颗走默认 2-2，长度 3 时自然是 (oo)o / (xx)x。四音型不在这里。
-  function chooseAuto22Pairs(runNotes, startHand, dominant) {
+  function chooseAuto22Pairs(runNotes, startHand, dominant, pure22) {
     var n = runNotes.length;
     var segments = [];
     var i = 0;
@@ -812,7 +825,7 @@
         var canPair = function (a, b) { return !slice[a].big && !slice[b].big; };
         rel = breakNizytePairs(slice, 0, plan21(slice.length, canPair), h, dominant);
       } else {
-        rel = chooseAuto22PairsLegacy(slice, h, dominant);
+        rel = chooseAuto22PairsLegacy(slice, h, dominant, pure22);
       }
       var abs = toAbsPairs(rel, seg.start);
       for (var p = 0; p < abs.length; p++) pairs.push(abs[p]);
@@ -1059,7 +1072,8 @@
       return toAbsPairs(rel, start);
     }
 
-    // 自动滚奏
+    // 自动滚奏，以及全 2-2。12 分都按 1-2。
+    // 全 2-2 的 16/24/32 在三连、四连之外从第一颗 2-2，不再改成别的切法。
     var divs = {};
     for (var k = start; k <= end; k++) {
       var d = (k === start) ? classifyDelta(outbound(notes, k)) : classifyDelta(inbound(notes, k));
@@ -1079,7 +1093,7 @@
     // 16 / 24 / 32 / mixed (and mixed with leftover 12 after family split shouldn't appear)
     // If a run somehow mixed 12 with 16 after we failed to split, 5.5 says 16+24 don't split
     // but 16↔12 on downbeat should have been split already.
-    var auto22 = chooseAuto22Pairs(sliceNotes(notes, start, end), startHand, dominant);
+    var auto22 = chooseAuto22Pairs(sliceNotes(notes, start, end), startHand, dominant, mode === "全2-2");
     return toAbsPairs(auto22, start);
   }
 
@@ -1226,7 +1240,7 @@
     var 手法 = opts.手法 || DEFAULT_手法;
     var dominant = opts.惯用手 || DEFAULT_惯用手;
     if (dominant !== "L") dominant = "R";
-    var 滚奏 = opts.滚奏 || DEFAULT_滚奏;
+    var 滚奏 = canonicalRoll(opts.滚奏 || DEFAULT_滚奏);
     var globalBpm = opts.bpm;
     var rest = markRests(notes);
     var phrases = splitPhrases(notes, rest);

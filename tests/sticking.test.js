@@ -173,13 +173,13 @@ extra("16th 3-cycles pair 2-1: xoo oxx xxo oox and same-colour triples", functio
   assertStick("xoo left", "kddkdd", s16, "LLRLLR", "0-1,3-4", { 惯用手: "L" });
 });
 
-extra("16th 4-note figures stay on the old grid, not 2-1", function () {
+extra("16th 4-note figures are 2-2 from the first note, not a shift", function () {
   const s16 = 0.25;
-  // oxxo / ooox / xxxo, and the other colour polarity. Not re-cut as a 3-cycle.
+  // 短于 8 音，也不当三连。ooox / xood 以前会挪成第一颗单打；现在从第一颗 2-2。
   assertStick("oxxo dkkd", "dkkd", s16, "RRLL", "0-1,2-3");
-  assertStick("ooox dddk", "dddk", s16, "RLLR", "1-2");
+  assertStick("ooox dddk", "dddk", s16, "RRLL", "0-1,2-3");
   assertStick("xxxo kkkd", "kkkd", s16, "RRLL", "0-1,2-3");
-  assertStick("xood kddk", "kddk", s16, "RLLR", "1-2");
+  assertStick("xood kddk", "kddk", s16, "RRLL", "0-1,2-3");
   assertStick("dense 8", "dddddddd", s16, "RRLLRRLL", "0-1,2-3,4-5,6-7");
 });
 
@@ -647,8 +647,8 @@ extra("自动滚奏 keeps 16夹24 oxxo on continuous 2-2", function () {
   assertRoll("auto 16 oxxo", sandwichNotes(["dkkd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
   assertRoll("auto 16 two", sandwichNotes(["dkkd", "dkkd"], 0.25), "RRLLRRLL", "0-1,2-3,4-5,6-7", { 滚奏: "自动滚奏" });
   assertRoll("auto 12 oxxo", sandwichNotes(["dkkd"], 1 / 3), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
-  assertRoll("auto 16 咔咚咚咔", sandwichNotes(["kddk"], 0.25), "RLLR", "1-2", { 滚奏: "自动滚奏" });
-  assertRoll("auto 16 ooox", sandwichNotes(["dddk"], 0.25), "RLLR", "1-2", { 滚奏: "自动滚奏" });
+  assertRoll("auto 16 咔咚咚咔", sandwichNotes(["kddk"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
+  assertRoll("auto 16 ooox", sandwichNotes(["dddk"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
   assertRoll("auto 16 xxxo", sandwichNotes(["kkkd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
   assertRoll("auto 16 咚咚咚咚", sandwichNotes(["dddd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
 });
@@ -840,6 +840,92 @@ extra("全换自动滚奏：有间隔的三连滚完接着数，炒菜仍正手�
   const chao = sticking.autoSticking(notes, { bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "自动滚奏" });
   assert.strictEqual(chao.hands.join(""), "RRLRRRLRRRL", "炒菜 " + chao.hands.join(""));
   assert.strictEqual(pairSig(chao), "0-1,4-5,8-9");
+});
+
+// 一颗 8 分咚后面接 16 分串。BPM 300 时半拍仍算连着打，串从逆手起。
+function leadThen16(pat) {
+  const notes = [{ beat: 0, colour: "don", big: false }];
+  pat.split("").forEach(function (c, i) {
+    notes.push({
+      beat: +(0.5 + i * 0.25).toFixed(6),
+      colour: c === "d" ? "don" : "ka",
+      big: false,
+    });
+  });
+  return notes;
+}
+
+function assertLead(name, pat, hands, pairs, opts) {
+  const out = sticking.autoSticking(leadThen16(pat), Object.assign({
+    bpm: 300, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏",
+  }, opts || {}));
+  assert.strictEqual(out.hands.join(""), hands, name + " hands " + out.hands.join("") + " / " + pairSig(out));
+  assert.strictEqual(pairSig(out), pairs, name + " pairs " + pairSig(out));
+  return out;
+}
+
+extra("short oxxxo is ox xx o; only runs of 8 or more may shift", function () {
+  // 5 音 oxxxo。旧逻辑挪成 o xx xo（RLRRLL / 2-3,4-5）。短于 8 音从第一颗 2-2。
+  const out = assertLead("oxxxo bpm300", "dkkkd", "RLLRRL", "1-2,3-4");
+  assert.deepStrictEqual(out.warnings, [[1, 5, "逆手起"]]);
+  assertStick("oxxxo on the downbeat", "dkkkd", 0.25, "RRLLR", "0-1,2-3", { bpm: 300 });
+  // 7 音仍不挪。同一色型到第 8 音才允许挪位，用来减少逆手外刷。
+  assertLead("7 does not shift", "dkkkddd", "RLLRRLLR", "1-2,3-4,5-6");
+  const shifted = assertLead("8 may shift", "dkkkdddd", "RLRRLLRRL", "2-3,4-5,6-7");
+  assert.deepStrictEqual(shifted.warnings, [[1, 8, "逆手起"]]);
+  // 8 音同色没有逆手外刷，保持从第一颗 2-2。
+  assertLead("8 same colour stays", "dddddddd", "RLLRRLLRR", "1-2,3-4,5-6,7-8");
+});
+
+extra("16th triplets stay 2-1 and 24th quads stay 1-2-1 ahead of 2-2", function () {
+  // 6 音三连短于 8，仍是 2-1，不改成从第一颗 2-2。
+  assertLead("xoo stays 2-1", "kddkdd", "RLLRLLR", "1-2,4-5");
+  // 第一对是逆手外刷：先按三连 2-1，再拆掉这一对。不是整串改回 2-2。
+  assertLead("oxx 2-1 breaks the off-hand outer brush", "dkkdkk", "RLRLRRL", "4-5");
+  assertStick("quad stays 1-2-1", "dddd", 1 / 6, "RLLR", "1-2", { bpm: 300 });
+  assertStick("quad outer brush still breaks", "kdkd", 1 / 6, "RLRL", "", { bpm: 300 });
+  // 24 分的 xoo 不是 16 分三连。长于 8 音时自动滚奏仍用原来的 1-2。
+  assertStick("24 xoo stays 1-2", "kddkddkdd", 1 / 6, "RLLRLLRLL", "1-2,4-5,7-8");
+});
+
+extra("全2-2 rolls 16 24 32 from the first note after the absolute cuts", function () {
+  const mode = { 滚奏: "全2-2" };
+  assert.strictEqual(parser.normRoll("全2-2"), "全2-2");
+  assert.strictEqual(parser.normRoll("全 2-2"), "全2-2");
+  assert.strictEqual(parser.normRoll("24 分滚奏"), "24分滚奏");
+
+  assertLead("oxxxo", "dkkkd", "RLLRRL", "1-2,3-4", mode);
+  assertLead("spaced alias", "dkkkd", "RLLRRL", "1-2,3-4", { 滚奏: "全 2-2" });
+  // 同一条 8 音，自动滚奏为了躲开逆手外刷会挪位；全 2-2 不挪。
+  assertLead("8 stays 2-2", "dkkkdddd", "RLLRRLLRR", "1-2,3-4,5-6,7-8", mode);
+  assertLead("auto 8 still shifts", "dkkkdddd", "RLRRLLRRL", "2-3,4-5,6-7");
+
+  assertLead("triplet still 2-1", "kddkdd", "RLLRLLR", "1-2,4-5", mode);
+  assertLead("triplet still breaks", "dkkdkk", "RLRLRRL", "4-5", mode);
+  assertStick("quad still 1-2-1", "dddd", 1 / 6, "RLLR", "1-2", mode);
+  assertStick("quad still breaks", "kdkd", 1 / 6, "RLRL", "", mode);
+
+  // 不属于绝对规则的 24 分不再改成三连 2-1 或 1-2。24 分滚奏本身不变。
+  assertStick("24 six is 2-2", "dddddd", 1 / 6, "RRLLRR", "0-1,2-3,4-5", mode);
+  assertStick("24 five is 2-2", "ddddd", 1 / 6, "RRLLR", "0-1,2-3", mode);
+  assertStick("24 xoo is 2-2", "kddkddkdd", 1 / 6, "RRLLRRLLR", "0-1,2-3,4-5,6-7", mode);
+  assertStick("24 mode six unchanged", "dddddd", 1 / 6, "RRLRRL", "0-1,3-4", { 滚奏: "24分滚奏" });
+
+  assertStick("16 is 2-2", "dddddddd", 0.25, "RRLLRRLL", "0-1,2-3,4-5,6-7", mode);
+  assertStick("32 is 2-2", "dddddddd", 0.125, "RRLLRRLL", "0-1,2-3,4-5,6-7", mode);
+  assertStick("12 stays 1-2", "kddkdd", 1 / 3, "RLLRLL", "1-2,4-5", mode);
+  // 两音逆手外刷：自动滚奏拆成单打。全 2-2 不改切法，仍是从第一颗起的一对。
+  const two = [
+    { beat: 0, colour: "ka", big: false },
+    { beat: 0.75, colour: "don", big: false },
+    { beat: 1, colour: "ka", big: false },
+  ];
+  const kept = sticking.autoSticking(two, { bpm: 250, 手法: "全换", 惯用手: "R", 滚奏: "全2-2" });
+  assert.strictEqual(kept.hands.join(""), "RLL");
+  assert.strictEqual(pairSig(kept), "1-2");
+
+  const around = notesByGaps("ddkkkkd", [0.25, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 0.25]);
+  assertRoll("quad inside 16s", around, "RRLRRLR", "0-1,3-4", Object.assign({ bpm: 250 }, mode));
 });
 
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);

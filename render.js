@@ -21,7 +21,10 @@ const { spawn, spawnSync } = require("node:child_process");
 const jobs = require("./js/render-jobs.js");
 const audio = require("./js/audio-mux.js");
 const batch = require("./js/batch-queue.js");
-const { startRenderServer } = require("./js/render-server.js");
+const chromeLaunch = require("./js/chrome-launch.js");
+const { startRenderServer, stripExternalFontLinks } = require("./js/render-server.js");
+
+let ffmpegCommand = "ffmpeg";
 
 const ROOT = __dirname;
 const MIME = {
@@ -55,25 +58,7 @@ function parseSize(s) {
   throw new Error("--size 应为 1080p、720p 或 WxH，例如 1920x1080");
 }
 
-function findChrome() {
-  const candidates = [
-    process.env.CHROME_PATH,
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/microsoft-edge",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe",
-  ].filter(Boolean);
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
-  }
-  return null;
-}
-
-function startStaticServer(root) {
+function startStaticServer(root, rewriteHtml) {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url || "/", "http://127.0.0.1");
@@ -85,8 +70,12 @@ function startStaticServer(root) {
       }
       fs.readFile(file, (err, data) => {
         if (err) { res.writeHead(404); res.end("not found"); return; }
+        let body = data;
+        if (rewriteHtml && path.extname(file).toLowerCase() === ".html") {
+          body = Buffer.from(stripExternalFontLinks(data.toString("utf8")), "utf8");
+        }
         res.writeHead(200, { "Content-Type": MIME[path.extname(file).toLowerCase()] || "application/octet-stream" });
-        res.end(data);
+        res.end(body);
       });
     });
     server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port }));
@@ -96,7 +85,7 @@ function startStaticServer(root) {
 
 function runFfmpeg(argv) {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffmpeg", argv, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(ffmpegCommand, argv, { stdio: ["ignore", "pipe", "pipe"] });
     let err = "";
     proc.stderr.on("data", (d) => { err += d; });
     proc.on("error", reject);
@@ -108,7 +97,7 @@ function runFfmpeg(argv) {
 }
 
 function spawnFfmpegPipe(argv) {
-  const proc = spawn("ffmpeg", argv, { stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(ffmpegCommand, argv, { stdio: ["pipe", "pipe", "pipe"] });
   let err = "";
   let exited = false;
   let exitCode = null;
@@ -258,8 +247,13 @@ function noteFrame(hooks, frame, frameCount) {
   if (frame === 1 || frame === frameCount || frame % 5 === 0) hooks.onFrame(frame, frameCount);
 }
 
-async function renderSingleWorker(browser, url, size, data, args, work, outPath, hooks) {
-  const page = await browser.newPage();
+async function renderSingleWorker(openPage, url, size, data, args, work, outPath, hooks) {
+  const handle = await openPage(size);
+  const page = handle.page;
+  let chartStart;
+  let chartEnd;
+  let pad;
+  try {
   await setupExportPage(page, url, size, data, args.rate, false);
 
   const timing = await page.evaluate(() => ({
@@ -267,15 +261,15 @@ async function renderSingleWorker(browser, url, size, data, args, work, outPath,
     end: window.chartDuration,
     ready: window.__BACHI_READY__,
   }));
-  const chartStart = timing.start;
-  const chartEnd = timing.end;
+  chartStart = timing.start;
+  chartEnd = timing.end;
   const chartLen = chartEnd - chartStart;
   const videoDur = chartLen / args.rate;
   const frameCount = Math.ceil(videoDur * args.fps);
 
   logJobHeader(args, data, chartStart, chartEnd, chartLen, videoDur, frameCount, size, 1);
 
-  const pad = Math.max(5, String(frameCount).length);
+  pad = Math.max(5, String(frameCount).length);
   for (let f = 0; f < frameCount; f++) {
     const t = Math.min(chartEnd, chartStart + (f / args.fps) * args.rate);
     await page.evaluate((t) => window.renderAt(t), t);
@@ -287,7 +281,9 @@ async function renderSingleWorker(browser, url, size, data, args, work, outPath,
     }
   }
 
-  await browser.close();
+  } finally {
+    try { await handle.close(); } catch { /* ignore */ }
+  }
 
   const pattern = path.join(work, "frame_%0" + pad + "d.png");
   const ff = [
@@ -309,25 +305,17 @@ async function renderSingleWorker(browser, url, size, data, args, work, outPath,
   await runFfmpeg(ff);
 }
 
-async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath, hooks) {
-  const browsers = [];
+async function renderParallelWorkers(openPage, url, size, data, args, work, outPath, hooks) {
+  const handles = [];
   let timing;
   let segments;
   let workerCount;
   const activePipes = [];
   try {
     const pages = await Promise.all(Array.from({ length: args.workers }, async () => {
-      let b;
-      try {
-        b = await puppeteer.launch(launchOpts);
-      } catch (err) {
-        throw new Error(
-          "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
-          "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
-        );
-      }
-      browsers.push(b);
-      const p = await b.newPage();
+      const handle = await openPage(size);
+      handles.push(handle);
+      const p = handle.page;
       await setupExportPage(p, url, size, data, args.rate, true);
       return p;
     }));
@@ -345,10 +333,10 @@ async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, arg
     const frameCount = Math.ceil(videoDur * args.fps);
     workerCount = Math.min(args.workers, Math.max(1, frameCount));
 
-    if (browsers.length > workerCount) {
-      const extra = browsers.splice(workerCount);
+    if (handles.length > workerCount) {
+      const extra = handles.splice(workerCount);
       pages.splice(workerCount);
-      await Promise.all(extra.map((b) => b.close().catch(() => {})));
+      await Promise.all(extra.map((handle) => Promise.resolve(handle.close()).catch(() => {})));
     }
 
     logJobHeader(args, data, chartStart, chartEnd, chartLen, videoDur, frameCount, size, workerCount);
@@ -417,7 +405,7 @@ async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, arg
     for (const pipe of activePipes) pipe.kill();
     throw err;
   } finally {
-    await Promise.all(browsers.map((b) => b.close().catch(() => {})));
+    await Promise.all(handles.map((handle) => Promise.resolve(handle.close()).catch(() => {})));
   }
 
   const concatListPath = path.join(work, "concat.txt");
@@ -481,29 +469,26 @@ async function renderOne(args, ctx) {
   if (args.sticking && !fs.existsSync(path.resolve(args.sticking))) {
     throw new Error("找不到手顺 JSON：" + args.sticking);
   }
-  if (spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).error) {
-    throw new Error("找不到 ffmpeg，请先把它安装到 PATH");
-  }
-
-  let puppeteer;
-  try {
-    puppeteer = require("puppeteer-core");
-  } catch {
-    try { puppeteer = require("puppeteer"); }
-    catch {
-      throw new Error("找不到 puppeteer-core。请在项目根目录运行 npm install");
-    }
-  }
-  const chrome = findChrome();
-  if (!chrome && !puppeteer.executablePath) {
-    throw new Error("找不到 Chrome / Chromium。请安装浏览器，或设置环境变量 CHROME_PATH");
+  const ffmpeg = chromeLaunch.resolveFfmpeg({
+    env: process.env,
+    exists: (file) => {
+      try { return fs.existsSync(file); } catch { return false; }
+    },
+  });
+  if (!ffmpeg.ok) throw new Error(ffmpeg.error);
+  ffmpegCommand = ffmpeg.command;
+  if (spawnSync(ffmpegCommand, ["-version"], { stdio: "ignore" }).error) {
+    throw new Error(ffmpeg.bundled
+      ? ("无法运行包里的 ffmpeg：" + ffmpegCommand)
+      : "找不到 ffmpeg，请先把它安装到 PATH");
   }
 
   const data = jobs.buildPayload(args);
   const outPath = path.resolve(args.out);
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
 
-  const { server, port } = await startStaticServer(ROOT);
+  const offlineDesktop = typeof ctx.openPage === "function";
+  const { server, port } = await startStaticServer(ROOT, offlineDesktop);
   // Pass --rate so the page's rate-dependent roll blur (扇形模糊 at rate==1) stays off during slow-mo.
   const url = "http://127.0.0.1:" + port + "/index.html?export=1&rate=" + encodeURIComponent(String(args.rate));
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "bachi-frames-"));
@@ -514,46 +499,87 @@ async function renderOne(args, ctx) {
       }
     },
   };
-  let singleBrowser = null;
   try {
-    const launchOpts = {
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--font-render-hinting=none",
-        "--hide-scrollbars",
-      ],
-    };
-    if (chrome) launchOpts.executablePath = chrome;
-
+    const openPage = typeof ctx.openPage === "function"
+      ? ctx.openPage
+      : await openPuppeteerPages();
+    if (typeof ctx.openPage === "function") {
+      console.log("[bachi-motion] " + chromeLaunch.launchModeLabel(ctx.gpu === false, ctx.gpu === false ? false : true, 0));
+    }
     if (args.workers === 1) {
-      try {
-        singleBrowser = await puppeteer.launch(launchOpts);
-      } catch (err) {
-        throw new Error(
-          "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
-          "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
-        );
-      }
-      await renderSingleWorker(singleBrowser, url, size, data, args, work, outPath, hooks);
-      singleBrowser = null;
+      await renderSingleWorker(openPage, url, size, data, args, work, outPath, hooks);
     } else {
-      await renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath, hooks);
+      await renderParallelWorkers(openPage, url, size, data, args, work, outPath, hooks);
     }
 
     const stat = fs.statSync(outPath);
     console.log("[bachi-motion] wrote " + outPath + "  (" + Math.round(stat.size / 1024) + " KB)");
     return outPath;
   } finally {
-    if (singleBrowser) {
-      try { await singleBrowser.close(); } catch { /* ignore */ }
-    }
     server.close();
     try { fs.rmSync(work, { recursive: true, force: true }); } catch { /* ignore */ }
   }
+}
+
+async function openPuppeteerPages() {
+  let puppeteer;
+  try {
+    puppeteer = require("puppeteer-core");
+  } catch {
+    try { puppeteer = require("puppeteer"); }
+    catch {
+      throw new Error("找不到 puppeteer-core。请在项目根目录运行 npm install");
+    }
+  }
+  const chrome = chromeLaunch.findChrome();
+  if (!chrome) {
+    throw new Error("找不到 Chrome / Chromium。请安装浏览器，或设置环境变量 CHROME_PATH");
+  }
+  const launchOpts = await resolveWorkingLaunchOpts(puppeteer, chrome);
+  return () => openPuppeteerPage(puppeteer, launchOpts);
+}
+
+async function openPuppeteerPage(puppeteer, launchOpts) {
+  let browser;
+  try {
+    browser = await puppeteer.launch(launchOpts);
+  } catch (err) {
+    throw new Error(
+      "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
+      "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
+    );
+  }
+  const page = await browser.newPage();
+  return {
+    page: page,
+    close: () => browser.close(),
+  };
+}
+
+async function resolveWorkingLaunchOpts(puppeteer, executablePath) {
+  const hardware = chromeLaunch.hasHardwareGpu(chromeLaunch.probeGpuNames());
+  const attempts = chromeLaunch.gpuAttemptOrder(hardware);
+  let lastErr = null;
+  for (let i = 0; i < attempts.length; i++) {
+    const disableGpu = attempts[i];
+    const launchOpts = chromeLaunch.buildLaunchOptions({
+      executablePath: executablePath,
+      disableGpu: disableGpu,
+      platform: process.platform,
+    });
+    try {
+      const browser = await puppeteer.launch(launchOpts);
+      await browser.close();
+      console.log("[bachi-motion] " + chromeLaunch.launchModeLabel(disableGpu, hardware, i));
+      return launchOpts;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  throw new Error(
+    "无法启动 headless Chrome（" + ((lastErr && lastErr.message) || lastErr) + "）。\n" +
+    "请安装 Chrome 或 Chromium，或设置 CHROME_PATH。没有显卡时会自动改用 CPU；这次是浏览器本身没能启动。",
+  );
 }
 
 async function main() {
@@ -601,7 +627,14 @@ async function main() {
   await renderOne(singleJobFromArgs(args));
 }
 
-main().catch((err) => {
-  console.error(err && err.stack ? err.stack : err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error(err && err.stack ? err.stack : err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  renderOne: renderOne,
+  buildLaunchOptions: chromeLaunch.buildLaunchOptions,
+};

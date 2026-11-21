@@ -1376,7 +1376,8 @@ LEVEL:6
             <div id="renderHint" class="route-hint route-hint-wide" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="renderHint" popovertargetaction="hide" aria-label="关闭">×</button>
               <p>渲当前已打开的这一首，不用先排队。原曲用已经选好的那首，以及预览旁的「原曲」开关。叠打点声只管成片，默认不叠，勾上才进视频。</p>
-              <p>GitHub Pages 只预览，不会在网页上渲染。要在自己的电脑上运行 node render.js --serve。</p>
+              <p>GitHub Pages 只预览，不会在网页上渲染。Windows 版 v0.1.0 会打开自己的窗口，在本机离线出片，不用另开浏览器，也不用打开网页。</p>
+              <p>这个包已经带了 Chromium 和 ffmpeg，不用再单独安装。有显卡就用显卡渲染，没有显卡会自动改用 CPU，不会因为没有显卡而打不开。视频编码仍用 CPU。开发时也可以在项目里运行 node render.js --serve。</p>
             </div>
           </div>
         </details>

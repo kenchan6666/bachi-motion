@@ -1,0 +1,83 @@
+name: Windows package
+
+# Builds a portable Windows exe and uploads it as an Actions artifact.
+# It does not publish a public GitHub Release. After this lands on main,
+# run the workflow manually and enable draft_release to attach the exe to
+# a draft Release v0.1.0. Publishing that Release stays a separate step.
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      draft_release:
+        description: Create a draft (not public) GitHub Release v0.1.0 and attach the exe
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Stage the app and bundled ffmpeg
+        run: node scripts/stage-desktop.js --with-ffmpeg
+
+      - name: Package portable exe
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+        run: npx electron-builder --win portable --x64
+
+      - name: Upload Windows package
+        uses: actions/upload-artifact@v4
+        with:
+          name: bachi-motion-0.1.0-win-x64
+          path: dist/bachi-motion-0.1.0-win-x64.exe
+          if-no-files-found: error
+
+  draft-release:
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && inputs.draft_release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the exe
+        uses: actions/download-artifact@v4
+        with:
+          name: bachi-motion-0.1.0-win-x64
+          path: dist
+
+      - name: Attach to draft Release v0.1.0
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0
+          name: v0.1.0
+          draft: true
+          prerelease: false
+          files: dist/bachi-motion-0.1.0-win-x64.exe
+          body: |
+            bachi-motion v0.1.0 Windows 本地出片（草稿，未公开）。
+
+            下载 `bachi-motion-0.1.0-win-x64.exe`，双击后打开程序自己的窗口。不需要另开浏览器，也不需要再安装 Chrome 或 ffmpeg。断网也可以预览和出片。有显卡时用显卡渲染，没有显卡会自动改用 CPU。
+
+            GitHub Pages 仍然只预览，不会在网页上出片。
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -7,6 +7,10 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 export BM_ROOT="$ROOT"
 
+echo "== chrome launch flags and windows package =="
+node tests/chrome-launch.test.js
+echo
+
 if [ -z "${CHROME_PATH:-}" ]; then
   if [ -n "${PUPPETEER_EXECUTABLE_PATH:-}" ]; then
     export CHROME_PATH="$PUPPETEER_EXECUTABLE_PATH"

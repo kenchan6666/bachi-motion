@@ -191,14 +191,33 @@ check("both previews read the same chosen file while the switch is on", () => {
   song.setFile(null);
 });
 
-check("homepage 原曲 switch is not a file picker; explanation lives in the !", () => {
+function sliceBetween(html, startMark, endMark) {
+  const start = html.indexOf(startMark);
+  const end = html.indexOf(endMark, start + startMark.length);
+  assert.ok(start >= 0 && end > start, startMark + " → " + endMark);
+  return html.slice(start, end);
+}
+
+function withoutPopover(html, id) {
+  const mark = 'id="' + id + '"';
+  const start = html.indexOf(mark);
+  const end = html.indexOf("</div>", start);
+  assert.ok(start >= 0 && end > start, id);
+  return html.slice(0, start) + html.slice(end);
+}
+
+check("原曲 switches sit beside 叠打点声; explanation lives in the !", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
   assert.strictEqual(html.split("打开原曲").length - 1, 1);
   assert.strictEqual(html.split("不要原曲").length - 1, 1);
+  assert.strictEqual((html.match(/>选择原曲<input/g) || []).length, 1);
   assert.strictEqual(html.split(song.ACCEPT).length - 1, 2);
+  assert.strictEqual(html.split("data-original-use").length - 1, 2);
+  assert.strictEqual(html.split(">原曲</label>").length - 1, 2);
+  assert.strictEqual(html.split("叠打点声（合成 don/ka，不是原曲）").length - 1, 1);
   assert.ok(!html.includes("未选择原曲：预览和出片都不含原曲。"));
   for (const line of song.EXPLAIN) {
-    assert.strictEqual(html.split(line).length - 1, 1, line);
+    assert.strictEqual(html.split(line).length - 1, 2, line);
     assert.ok(!/[咕咛咞咐呼咩]/.test(line), line);
   }
 
@@ -212,23 +231,40 @@ check("homepage 原曲 switch is not a file picker; explanation lives in the !",
   assert.ok(!/\sopen(\s|>|=)/.test(openTag.split(">")[0]), openTag);
 
   const adv = html.slice(advancedAt, html.indexOf("</details>", advancedAt));
-  assert.ok(adv.includes('id="settingsOriginalUse"'));
-  assert.ok(adv.includes("data-original-use"));
-  assert.ok(adv.includes("disabled"));
-  assert.ok(adv.includes(">原曲</label>"));
+  assert.ok(!adv.includes('id="settingsOriginalUse"'));
+  assert.ok(!adv.includes('id="originalHint"'));
+  assert.ok(!adv.includes("data-original-use"));
+  assert.ok(!adv.includes(">原曲</label>"));
   assert.ok(!adv.includes("打开原曲"));
   assert.ok(!adv.includes('type="file"'));
   assert.ok(!adv.includes("不要原曲"));
-  const popStart = adv.indexOf('id="originalHint"');
-  const popEnd = adv.indexOf("</div>", popStart);
-  const pop = adv.slice(popStart, popEnd);
-  const rest = adv.slice(0, popStart) + adv.slice(popEnd);
+  for (const line of song.EXPLAIN) assert.ok(!adv.includes(line), line);
+
+  const homeHits = sliceBetween(html, 'class="preview-hits"', 'class="rates"');
+  assert.ok(homeHits.indexOf('id="previewHits"') < homeHits.indexOf('id="settingsOriginalUse"'));
+  const homeTag = homeHits.match(/<input id="settingsOriginalUse"[^>]*>/);
+  assert.ok(homeTag && homeTag[0].includes("data-original-use") && homeTag[0].includes("disabled"), homeTag && homeTag[0]);
+  assert.ok(homeHits.includes(">原曲</label>"));
+  assert.ok(homeHits.includes('id="originalHintBtn"'));
+  const homePop = sliceBetween(homeHits, 'id="originalHint"', "</div>");
+  const homeRest = withoutPopover(homeHits, "originalHint");
   for (const line of song.EXPLAIN) {
-    assert.ok(pop.includes(line), line);
-    assert.ok(!rest.includes(line), line);
+    assert.ok(homePop.includes(line), line);
+    assert.ok(!homeRest.includes(line), line);
   }
-  assert.ok(rest.includes(">原曲</label>"));
-  assert.ok(!rest.includes("原曲文件在手顺编辑器"));
+
+  const editorHits = sliceBetween(html, 'class="editor-preview-hits"', 'class="editor-preview-legend"');
+  assert.ok(editorHits.indexOf('id="editorPreviewHits"') < editorHits.indexOf('id="editorOriginalUse"'));
+  const editorTag = editorHits.match(/<input id="editorOriginalUse"[^>]*>/);
+  assert.ok(editorTag && editorTag[0].includes("data-original-use") && editorTag[0].includes("disabled"), editorTag && editorTag[0]);
+  assert.ok(editorHits.includes(">原曲</label>"));
+  assert.ok(editorHits.includes('id="editorOriginalHintBtn"'));
+  const editorPop = sliceBetween(editorHits, 'id="editorOriginalHint"', "</div>");
+  const editorRest = withoutPopover(editorHits, "editorOriginalHint");
+  for (const line of song.EXPLAIN) {
+    assert.ok(editorPop.includes(line), line);
+    assert.ok(!editorRest.includes(line), line);
+  }
 
   const panelStart = html.indexOf('id="editorAdvancedPanel"');
   const panel = html.slice(panelStart, html.indexOf('id="editorScroll"'));
@@ -240,10 +276,12 @@ check("homepage 原曲 switch is not a file picker; explanation lives in the !",
   assert.ok(panel.includes("导出 JSON"));
   assert.ok(panel.includes("打开 TJA"));
   assert.ok(!panel.includes("data-original-use"));
+  assert.ok(!panel.includes(">原曲</label>"));
+  assert.ok(!panel.includes('id="editorOriginalUse"'));
   for (const line of song.EXPLAIN) assert.ok(!panel.includes(line), line);
 
-  const outside = html.slice(0, html.indexOf('id="originalHint"'))
-    + html.slice(html.indexOf("</div>", html.indexOf('id="originalHint"')));
+  let outside = withoutPopover(html, "originalHint");
+  outside = withoutPopover(outside, "editorOriginalHint");
   for (const line of song.EXPLAIN) assert.ok(!outside.includes(line), line);
 
   const editorJs = fs.readFileSync(path.join(__dirname, "..", "js", "editor.js"), "utf8");
@@ -258,6 +296,7 @@ check("homepage 原曲 switch is not a file picker; explanation lives in the !",
     assert.ok(!body.includes("setFile"));
     assert.ok(!body.includes("setEnabled"));
     assert.ok(!body.includes("settingsOriginalUse"));
+    assert.ok(!body.includes("editorOriginalUse"));
   }
 
   const batchUi = fs.readFileSync(path.join(__dirname, "..", "js", "batch-ui.js"), "utf8");
@@ -280,6 +319,7 @@ check("homepage 原曲 switch is not a file picker; explanation lives in the !",
   assert.ok(html.includes('src="js/original-song.js"'));
   const app = fs.readFileSync(path.join(__dirname, "..", "js", "app.js"), "utf8");
   assert.ok(app.includes('setupRouteHint("originalHintBtn", "originalHint")'));
+  assert.ok(app.includes('setupRouteHint("editorOriginalHintBtn", "editorOriginalHint")'));
 });
 
 function silentWav() {
@@ -337,6 +377,7 @@ function startStaticServer(root) {
 function songState() {
   const api = window.BachiOriginal;
   const box = document.getElementById("settingsOriginalUse");
+  const editorBox = document.getElementById("editorOriginalUse");
   const file = api.getFile();
   const active = api.activeFile();
   const target = api.playbackTarget(active, api.isEnabled(), {
@@ -345,13 +386,27 @@ function songState() {
   const player = api.player();
   const adv = document.getElementById("settingsAdvanced");
   const pop = document.getElementById("originalHint");
+  const editorPop = document.getElementById("editorOriginalHint");
   const advClone = adv.cloneNode(true);
   const popClone = advClone.querySelector("#originalHint");
   if (popClone) popClone.remove();
+  const homeRow = box.closest(".preview-hits");
+  const editorRow = editorBox.closest(".editor-preview-hits");
+  function rect(id) {
+    const el = document.getElementById(id);
+    const r = el.getBoundingClientRect();
+    return { x: r.x, y: r.y, right: r.right, bottom: r.bottom, w: r.width, h: r.height };
+  }
   return {
     disabled: box.disabled,
     checked: box.checked,
     label: box.parentElement.textContent.replace(/\s+/g, ""),
+    editorDisabled: editorBox.disabled,
+    editorChecked: editorBox.checked,
+    editorLabel: editorBox.parentElement.textContent.replace(/\s+/g, ""),
+    homeBesideHits: !!(homeRow && homeRow.querySelector("#previewHits") && !adv.contains(box)),
+    editorBesideHits: !!(editorRow && editorRow.querySelector("#editorPreviewHits") && !document.getElementById("editorAdvancedPanel").contains(editorBox)),
+    settingsHasSwitch: !!adv.querySelector("[data-original-use], #originalHint, #settingsOriginalUse"),
     fileName: file ? file.name : "",
     activeName: active ? active.name : "",
     enabled: api.isEnabled(),
@@ -363,9 +418,64 @@ function songState() {
     editorFiles: document.querySelectorAll("#editorAdvancedPanel input[type=file][data-original-song]").length,
     explainOnPage: advClone.textContent.includes("原曲文件在手顺编辑器"),
     explainInPopover: pop.textContent.includes("原曲文件在手顺编辑器")
-      && pop.textContent.includes("从第一个音 − 0.7 秒对齐"),
+      && pop.textContent.includes("从第一个音 − 0.7 秒对齐")
+      && editorPop.textContent.includes("原曲文件在手顺编辑器")
+      && editorPop.textContent.includes("从第一个音 − 0.7 秒对齐"),
     queueSongs: Array.from(document.querySelectorAll("#batchList .batch-song")).map((el) => el.textContent),
+    homeHits: rect("previewHits"),
+    homeOriginal: rect("settingsOriginalUse"),
+    editorHits: rect("editorPreviewHits"),
+    editorOriginal: rect("editorOriginalUse"),
   };
+}
+
+function assertSynced(state, where) {
+  assert.strictEqual(state.editorChecked, state.checked, where + " checked");
+  assert.strictEqual(state.editorDisabled, state.disabled, where + " disabled");
+  assert.strictEqual(state.label, "原曲", where + " home label");
+  assert.strictEqual(state.editorLabel, "原曲", where + " editor label");
+  assert.strictEqual(state.homeBesideHits, true, where);
+  assert.strictEqual(state.editorBesideHits, true, where);
+  assert.strictEqual(state.settingsHasSwitch, false, where);
+}
+
+function follows(prev, next) {
+  const sameRow = next.y < prev.bottom && prev.y < next.bottom && next.x >= prev.x - 1;
+  const nextLine = next.y >= prev.bottom - 2;
+  const overlaps = next.x < prev.right && prev.x < next.right && next.y < prev.bottom && prev.y < next.bottom;
+  return (sameRow || nextLine) && !overlaps;
+}
+
+function assertBeside(prev, next, where) {
+  assert.ok(prev.w > 0 && next.w > 0, where + " not laid out " + JSON.stringify({ prev, next }));
+  assert.ok(follows(prev, next), where + " not beside 叠打点声 " + JSON.stringify({ prev, next }));
+}
+
+function assertHintNear(box, where) {
+  assert.strictEqual(box.open, true, where + " hint closed");
+  assert.ok(box.pop.x > 8 && box.pop.y > 8, where + " hint at origin " + JSON.stringify(box.pop));
+  const gap = 10;
+  const below = Math.abs(box.pop.y - (box.btn.bottom + gap));
+  const above = Math.abs((box.pop.bottom + gap) - box.btn.top);
+  const vertical = Math.min(below, above);
+  assert.ok(vertical <= 1.5, where + " hint not beside ! vertical=" + vertical + " " + JSON.stringify(box));
+  const coversX = box.pop.x < box.btn.x + box.btn.w && box.pop.x + box.pop.w > box.btn.x;
+  assert.ok(coversX, where + " hint misses the ! horizontally " + JSON.stringify(box));
+}
+
+function hintBox(hintId) {
+  const pop = document.getElementById(hintId);
+  const btn = document.getElementById(hintId + "Btn");
+  if (pop.matches(":popover-open")) pop.hidePopover();
+  btn.scrollIntoView({ block: "center", inline: "nearest" });
+  btn.click();
+  const r = pop.getBoundingClientRect();
+  const b = btn.getBoundingClientRect();
+  const box = (rect) => ({
+    x: rect.x, y: rect.y, w: rect.width, h: rect.height,
+    right: rect.right, bottom: rect.bottom, top: rect.top,
+  });
+  return { pop: box(r), btn: box(b), open: pop.matches(":popover-open") };
 }
 
 (async function browserRoundTrip() {
@@ -399,14 +509,16 @@ function songState() {
     assert.strictEqual(before.editorFiles, 1);
     assert.strictEqual(before.explainOnPage, false);
     assert.strictEqual(before.explainInPopover, true);
+    assertSynced(before, "before");
+    assertBeside(before.homeHits, before.homeOriginal, "homepage");
     await page.evaluate(() => document.getElementById("settingsOriginalUse").click());
     const stillOff = await page.evaluate(songState);
     assert.strictEqual(stillOff.disabled, true);
     assert.strictEqual(stillOff.checked, false);
+    assertSynced(stillOff, "still off");
 
-    await page.click("#originalHintBtn");
-    const hintOpen = await page.evaluate(() => document.getElementById("originalHint").matches(":popover-open"));
-    assert.strictEqual(hintOpen, true);
+    const homeHint = await page.evaluate(hintBox, "originalHint");
+    assertHintNear(homeHint, "homepage");
     await page.evaluate(() => document.getElementById("originalHint").hidePopover());
 
     await page.click("#btnOpenEditor");
@@ -427,6 +539,8 @@ function songState() {
     assert.strictEqual(picked.activeName, "");
     assert.strictEqual(picked.enabled, false);
     assert.ok(picked.src.startsWith("blob:"));
+    assertSynced(picked, "picked");
+    assertBeside(picked.editorHits, picked.editorOriginal, "editor after pick");
 
     await page.click("#btnBackPlayer");
     await page.waitForFunction(() => !document.body.classList.contains("editor-mode"));
@@ -434,6 +548,8 @@ function songState() {
     assert.strictEqual(homeReady.disabled, false);
     assert.strictEqual(homeReady.checked, false);
     assert.strictEqual(homeReady.fileName, "bachi-original-stay.wav");
+    assertSynced(homeReady, "home ready");
+    assertBeside(homeReady.homeHits, homeReady.homeOriginal, "homepage ready");
     await page.click("#settingsOriginalUse");
     const armed = await page.evaluate(songState);
     assert.strictEqual(armed.checked, true);
@@ -456,6 +572,26 @@ function songState() {
     assert.strictEqual(inEditor.src, src);
     assert.strictEqual(inEditor.play, true);
     assert.strictEqual(inEditor.currentTime, 1.3);
+    assertSynced(inEditor, "in editor");
+    assertBeside(inEditor.editorHits, inEditor.editorOriginal, "editor");
+
+    const editorHint = await page.evaluate(hintBox, "editorOriginalHint");
+    assertHintNear(editorHint, "editor");
+    await page.evaluate(() => document.getElementById("editorOriginalHint").hidePopover());
+    await page.click("#editorOriginalUse");
+    const editorOff = await page.evaluate(songState);
+    assert.strictEqual(editorOff.checked, false);
+    assert.strictEqual(editorOff.enabled, false);
+    assert.strictEqual(editorOff.activeName, "");
+    assert.strictEqual(editorOff.fileName, "bachi-original-stay.wav");
+    assertSynced(editorOff, "editor off");
+    await page.click("#editorOriginalUse");
+    const editorOn = await page.evaluate(songState);
+    assert.strictEqual(editorOn.checked, true);
+    assert.strictEqual(editorOn.enabled, true);
+    assert.strictEqual(editorOn.activeName, "bachi-original-stay.wav");
+    assert.strictEqual(editorOn.src, src);
+    assertSynced(editorOn, "editor on");
 
     await page.click("#btnBackPlayer");
     await page.waitForFunction(() => !document.body.classList.contains("editor-mode"));
@@ -468,6 +604,7 @@ function songState() {
     assert.strictEqual(returned.src, src);
     assert.strictEqual(returned.play, true);
     assert.strictEqual(returned.label, "原曲");
+    assertSynced(returned, "returned");
 
     await page.evaluate(() => {
       document.getElementById("settings").open = true;
@@ -477,6 +614,7 @@ function songState() {
     await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 1);
     const queuedOn = await page.evaluate(songState);
     assert.deepStrictEqual(queuedOn.queueSongs, ["bachi-original-stay.wav"]);
+    assertSynced(queuedOn, "queued on");
 
     await page.click("#settingsOriginalUse");
     const silenced = await page.evaluate(songState);
@@ -486,6 +624,7 @@ function songState() {
     assert.strictEqual(silenced.fileName, "bachi-original-stay.wav");
     assert.strictEqual(silenced.play, false);
     assert.strictEqual(silenced.src, src);
+    assertSynced(silenced, "silenced");
     await page.click("#batchAddCurrent");
     await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 2);
     const queuedOff = await page.evaluate(songState);
@@ -496,6 +635,7 @@ function songState() {
     assert.strictEqual(again.checked, true);
     assert.strictEqual(again.activeName, "bachi-original-stay.wav");
     assert.strictEqual(again.src, src);
+    assertSynced(again, "again");
     await page.click("#batchAddCurrent");
     await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 3);
     const queuedAgain = await page.evaluate(songState);

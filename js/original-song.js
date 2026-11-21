@@ -2,12 +2,13 @@
 
 /**
  * One original-song file, chosen only in the hand-order editor's 「高级」.
- * The homepage 「高级」 switch is named 「原曲」. It does not pick a file.
- * It only decides whether preview and export use the file already chosen.
- * No file → the switch is disabled. Off, or no file → preview and export
+ * The 「原曲」 switches sit beside 「叠打点声」 on the homepage and in the
+ * editor preview. They do not pick a file. They share one state and only
+ * decide whether preview and export use the file already chosen.
+ * No file → the switches are disabled. Off, or no file → preview and export
  * stay silent here. On, and a file is chosen → preview and 「生成 / 播放」
  * play that file. Opening the editor and coming back does not clear the
- * file, the switch, or the loaded audio.
+ * file, the switches, or the loaded audio.
  *
  * Chart time is already an audio time (OFFSET subtracted once at parse).
  * Playback lines the file up at state.now + timeShift, which is chartStart
@@ -50,7 +51,7 @@
     return { name: String(file.name || ""), clear: true };
   }
 
-  /** Homepage 「原曲」 switch. Disabled until a file is chosen. */
+  /** 「原曲」 switches beside 「叠打点声」. Disabled until a file is chosen. */
   function controlView(file, enabled) {
     const selected = !!file;
     return {

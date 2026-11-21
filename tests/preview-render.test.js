@@ -466,7 +466,37 @@ function diffSig(name, got, want) {
       assert.ok(page, "没有对应手型页面 " + hands);
       for (const row of rows) {
         const payload = row.chart === "tempo" ? charts.tempo : charts.roll;
-        const got = await page.evaluate((payload, spec) => window.__previewPaint(payload, spec), payload, row);
+        const got = await page.evaluate((payload, spec) => {
+          const frame = window.__previewPaint(payload, spec);
+          if (spec.chart !== "tempo") return frame;
+          const now = window.taikoAnim.state.now;
+          const events = window.taikoAnim.state.events.filter((e) => !e.both || e.hand === "R");
+          const want = [];
+          for (const e of events) {
+            const age = now - e.t;
+            if (age > 0.06) continue;
+            let x = window.ScrollTempo.noteX({
+              tNote: e.t,
+              now: now,
+              scroll: spec.scroll,
+              showTempo: !!spec.showTempo,
+              chartScroll: e.scroll,
+              judgeX: 92,
+              basePxPerSec: 600,
+            });
+            if (age > 0) x = 92;
+            if (x < 10 || x > 795) continue;
+            want.push(+x.toFixed(1));
+          }
+          const drawn = [...document.querySelectorAll("#chart circle")].map((el) => +(+el.getAttribute("cx")).toFixed(1));
+          frame.scrollOk = want.every((x) => drawn.some((d) => Math.abs(d - x) < 0.15));
+          frame.scrollWant = want;
+          frame.scrollDrawn = [...new Set(drawn)];
+          return frame;
+        }, payload, row);
+        if (row.chart === "tempo") {
+          assert.strictEqual(got.scrollOk, true, row.id + " 音符位置不符合 #SCROLL：" + JSON.stringify(got.scrollDrawn) + " 期望 " + JSON.stringify(got.scrollWant));
+        }
         diffSig(row.id + " / " + hands + " 谱面", got.chartSig, row.chartSig);
         diffSig(row.id + " / " + hands + " 动态层", got.dynSig, row.dynSig);
         assert.strictEqual(got.drum, row.drum, row.id + " 鼓的 transform 变了\n现在: " + got.drum + "\n原来: " + row.drum);

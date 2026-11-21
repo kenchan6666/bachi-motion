@@ -263,18 +263,25 @@
   let courseList = [];
   let courseSelection = null;
   let courseSignature = null;
+  let branchSelection = "";
   const handsByCourse = new Map();
 
   function courseKeyOf(entry) {
     if (!entry) return "";
     const name = String(entry.name || "").trim().toLowerCase();
-    return name ? "n:" + name : "i:" + entry.index;
+    const base = name ? "n:" + name : "i:" + entry.index;
+    if (entry.hasBranch) {
+      const id = (window.TaikoParser && TaikoParser.branchCanon(branchSelection)) || "M";
+      return base + ":b:" + id;
+    }
+    return base;
   }
 
   function forgetCourseHands() {
     handsByCourse.clear();
     courseSelection = null;
     courseSignature = null;
+    branchSelection = "";
   }
 
   function stashHands() {
@@ -334,6 +341,7 @@
     picker.replaceChildren();
     if (chartSurface !== "tja" || !courseList.length) {
       picker.hidden = true;
+      renderBranchPicker();
       return;
     }
     picker.hidden = false;
@@ -351,6 +359,92 @@
       btn.addEventListener("click", () => selectCourse(entry.index, { user: true }));
       picker.appendChild(btn);
     });
+    renderBranchPicker();
+  }
+
+  function activeBranchId() {
+    if (chartSurface !== "tja" || !courseSelection || !courseSelection.hasBranch) return "";
+    return (window.TaikoParser && TaikoParser.branchCanon(branchSelection)) || "M";
+  }
+
+  function renderBranchPicker() {
+    const picker = $("branchPicker");
+    if (!picker) return;
+    picker.replaceChildren();
+    const choices = chartSurface === "tja" && courseSelection && courseSelection.hasBranch
+      ? (courseSelection.branches || [])
+      : [];
+    if (!choices.length) {
+      picker.hidden = true;
+      return;
+    }
+    picker.hidden = false;
+    const label = document.createElement("span");
+    label.className = "block-label";
+    label.textContent = "分歧";
+    picker.appendChild(label);
+    const active = activeBranchId();
+    choices.forEach((choice) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chip";
+      btn.setAttribute("role", "radio");
+      btn.dataset.branch = choice.id;
+      btn.textContent = choice.label;
+      const on = choice.id === active;
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-checked", String(on));
+      btn.addEventListener("click", () => selectBranch(choice.id, { user: true }));
+      picker.appendChild(btn);
+    });
+  }
+
+  function syncBranchUrl() {
+    const id = activeBranchId();
+    if (pageParams.get("export") === "1") return;
+    if (typeof history === "undefined" || !history.replaceState) return;
+    let url;
+    try { url = new URL(location.href); }
+    catch (err) { return; }
+    if (id) url.searchParams.set("branch", id);
+    else url.searchParams.delete("branch");
+    const next = url.pathname + url.search + url.hash;
+    const now = location.pathname + location.search + location.hash;
+    if (next !== now) history.replaceState(null, "", next);
+    if (id) pageParams.set("branch", id);
+    else pageParams.delete("branch");
+  }
+
+  function pickBranch(opts) {
+    opts = opts || {};
+    if (!courseSelection || !courseSelection.hasBranch || chartSurface !== "tja") {
+      if (opts.preferDefault) return "";
+      return branchSelection || "";
+    }
+    if (!opts.preferDefault) {
+      const kept = window.TaikoParser && TaikoParser.branchCanon(branchSelection);
+      if (kept) return kept;
+      const fromUrl = window.TaikoParser && TaikoParser.branchCanon(pageParams.get("branch"));
+      if (fromUrl) return fromUrl;
+    }
+    return "M";
+  }
+
+  function selectBranch(id, opts) {
+    opts = opts || {};
+    if (!courseSelection || !courseSelection.hasBranch) return;
+    const canon = (window.TaikoParser && TaikoParser.branchCanon(id)) || "M";
+    if (canon === branchSelection && !opts.force) return;
+    if (opts.user) stashHands();
+    branchSelection = canon;
+    renderBranchPicker();
+    syncBranchUrl();
+    if (opts.user) {
+      applyHandsForCourse(courseSelection);
+      showError("");
+      notifyChartReplaced({ force: true });
+      generate(false);
+    }
   }
 
   function syncCourseUrl(name) {
@@ -406,7 +500,9 @@
       if (opts.preferDefault || opts.forget) {
         courseList = [];
         courseSelection = null;
+        branchSelection = "";
         renderCoursePicker();
+        syncBranchUrl();
       }
       return;
     }
@@ -424,8 +520,10 @@
     courseSignature = signature;
     courseList = model.list;
     courseSelection = pickListedCourse(model, opts);
+    branchSelection = pickBranch(opts);
     renderCoursePicker();
     syncCourseUrl(courseSelection ? courseSelection.name : "");
+    syncBranchUrl();
   }
 
   function selectCourse(index, opts) {
@@ -440,6 +538,7 @@
     courseSelection = entry;
     renderCoursePicker();
     syncCourseUrl(entry.name);
+    syncBranchUrl();
     if (opts.user) {
       applyHandsForCourse(entry);
       showError("");
@@ -481,6 +580,8 @@
       opts.courseIndex = courseSelection.index;
       if (courseSelection.name) opts.course = courseSelection.name;
     } else if (pageParams.get("course")) opts.course = pageParams.get("course");
+    const branch = activeBranchId();
+    if (branch) opts.branch = branch;
     if (pageParams.get("measures")) opts.measures = pageParams.get("measures");
     opts.bigNote = currentBigNote();
     opts.手法 = currentTechnique();
@@ -1090,7 +1191,9 @@
     // slices before the real song is loaded.
     const autoplay = pageParams.get("autoplay") === "1";
     if (pageParams.get("export") !== "1") {
-      refreshCourses({ preferDefault: !String(pageParams.get("course") || "").trim() });
+      const courseQuery = String(pageParams.get("course") || "").trim();
+      const branchQuery = String(pageParams.get("branch") || "").trim();
+      refreshCourses({ preferDefault: !courseQuery && !branchQuery });
       generate(autoplay);
     }
   }

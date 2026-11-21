@@ -33,6 +33,7 @@
       hits: !!job.hits,
       stickingText: job.stickingText || null,
       course: job.course || null,
+      branch: job.branch || null,
       measures: job.measures || null,
       technique: job.technique || "全换",
       hand: job.hand || "R",
@@ -113,10 +114,12 @@
       ? window.taikoAnim.exportSection()
       : null;
     const settings = currentSettings();
+    const opts = app && app.parseOpts ? app.parseOpts() : {};
     return {
       id: String(Date.now()),
       name: chartName(text),
       tjaText: text,
+      branch: opts.branch || null,
       songFile: sharedOriginalFile(),
       stickingText: settings.stickingText,
       technique: settings.technique,
@@ -242,6 +245,7 @@
           rate: row.rate,
           sectionStart: row.sectionStart,
           sectionEnd: row.sectionEnd,
+          branch: row.branch || null,
         });
       });
     })).then(function (payload) {
@@ -461,9 +465,11 @@
           ? window.taikoAnim.exportSection()
           : null;
         const courseName = app && app.selectedCourseName ? app.selectedCourseName() : "";
+        const opts = app && app.parseOpts ? app.parseOpts() : {};
         pushRow({
           name: "当前谱面.tja",
           tjaText: text,
+          branch: opts.branch || null,
           // Snapshot of the shared song only while 「原曲」 is on.
           // A row that later picks its own file keeps that file.
           songFile: sharedOriginalFile(),

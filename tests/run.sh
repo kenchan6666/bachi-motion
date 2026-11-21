@@ -61,6 +61,10 @@ echo "== course picker (multi-COURSE difficulty) =="
 node tests/course-picker.test.js
 echo
 
+echo "== branch picker (普通 / 玄人 / 达人) =="
+node tests/branch-picker.test.js
+echo
+
 echo "== editor-opened TJA syncs the homepage chart picker =="
 node tests/editor-home-chart.test.js
 echo

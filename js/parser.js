@@ -11,6 +11,10 @@
  *   (default: Oni if present, else Ura/Edit, else the first block).
  *   Difficulty aliases are case-insensitive: Easy/0/易, Normal/1/普,
  *   Hard/2/难, Oni/おに/3/鬼, Edit/Ura/裏/4/里.
+ *   #BRANCHSTART … #BRANCHEND splits one passage into #N / #E / #M.
+ *   Those three paths share the same start time; only the selected path
+ *   is played (opts.branch, default 达人 / M). Notes outside the branch
+ *   are common. #N/#E/#M outside a branch are ignored.
  *
  * 手顺 (主人 mode):
  *   Start on R, then alternate R L R L…
@@ -87,19 +91,33 @@
     return false;
   }
 
-  function parseBody(rawLines, startIndex, headers) {
-    let bpm = headers.bpm;
-    let measure = { num: 4, den: 4 };
-    let time = 0;
-    let measureIndex = 0;
-    // Tokens in the current (unclosed) measure: {type:"slot", ch} | {type:"bpm", value} | {type:"delay", value}.
-    // Mid-measure #BPMCHANGE / #DELAY must take effect from that point on, not retroactively.
-    let items = [];
-    const notes = [];
-    const measures = [];
-    const bpmTimeline = [];
+  function parseBody(rawLines, startIndex, headers, branchId) {
+    const wantedBranch = branchCanon(branchId) || "M";
+    function makeSink() {
+      return { notes: [], measures: [], bpmTimeline: [] };
+    }
+    function cloneCursor(src) {
+      return {
+        bpm: src.bpm,
+        measure: { num: src.measure.num, den: src.measure.den },
+        time: src.time,
+        measureIndex: src.measureIndex,
+        items: src.items.map((it) => ({ type: it.type, ch: it.ch, value: it.value })),
+      };
+    }
+    const common = makeSink();
+    let sink = common;
+    let cursor = {
+      bpm: headers.bpm,
+      measure: { num: 4, den: 4 },
+      time: 0,
+      measureIndex: 0,
+      items: [],
+    };
     let i = startIndex;
     let ended = false;
+    let sawBranch = false;
+    const foundBranches = new Set();
 
     // Wall-clock pieces at constant BPM + current #MEASURE (quarter-note beats).
     // Adjacent same-BPM pieces are merged later by TitleBarBpm; mid-measure
@@ -108,7 +126,7 @@
       if (!isFinite(duration) || duration <= 1e-12) return;
       if (!isFinite(pieceBpm) || pieceBpm <= 0) return;
       const beats = (meas.num / meas.den) * 4;
-      bpmTimeline.push({
+      sink.bpmTimeline.push({
         t: tRawStart - headers.offset,
         duration,
         bpm: pieceBpm,
@@ -117,24 +135,26 @@
     }
 
     function inMeasure() {
-      return items.some((it) => it.type === "slot");
+      return cursor.items.some((it) => it.type === "slot");
     }
 
     function flushMeasure() {
+      const items = cursor.items;
       const slotChars = items.filter((it) => it.type === "slot").map((it) => it.ch);
       const n = slotChars.length;
-      measureIndex += 1;
+      cursor.measureIndex += 1;
+      const measure = cursor.measure;
       const beats = (measure.num / measure.den) * 4;
-      const t0 = time;
-      let curBpm = bpm;
-      let tCursor = time;
+      const t0 = cursor.time;
+      let curBpm = cursor.bpm;
+      let tCursor = cursor.time;
       let count = 0;
       let pos = 0;
 
       if (n === 0) {
         const duration = beats * (60 / curBpm);
-        measures.push({
-          index: measureIndex,
+        sink.measures.push({
+          index: cursor.measureIndex,
           tRaw: t0,
           t: t0 - headers.offset,
           duration,
@@ -146,8 +166,8 @@
           slotTimes: [],
         });
         emitBpmPiece(t0, duration, curBpm, measure);
-        time = t0 + duration;
-        items = [];
+        cursor.time = t0 + duration;
+        cursor.items = [];
         return;
       }
 
@@ -171,12 +191,12 @@
         slotTimes.push(tCursor - headers.offset);
         const typ = NOTE_TYPE[it.ch];
         if (typ) {
-          notes.push({
+          sink.notes.push({
             tRaw: tCursor,
             t: tCursor - headers.offset,
             type: typ,
             char: it.ch,
-            measure: measureIndex,
+            measure: cursor.measureIndex,
             pos: pos,
             slots: n,
             bpm: curBpm,
@@ -191,8 +211,8 @@
       emitBpmPiece(pieceStart, tCursor - pieceStart, pieceBpm, measure);
 
       const duration = tCursor - t0;
-      measures.push({
-        index: measureIndex,
+      sink.measures.push({
+        index: cursor.measureIndex,
         tRaw: t0,
         t: t0 - headers.offset,
         duration,
@@ -203,62 +223,145 @@
         notes: count,
         slotTimes: slotTimes,
       });
-      time = tCursor;
-      bpm = curBpm;
-      items = [];
+      cursor.time = tCursor;
+      cursor.bpm = curBpm;
+      cursor.items = [];
+    }
+
+    function processLine(line) {
+      const meas = line.match(/^#MEASURE\s+(.+)$/i);
+      if (meas) {
+        const frac = parseFraction(meas[1], null);
+        if (!frac) throw new Error("无法解析 #MEASURE " + meas[1]);
+        cursor.measure = frac;
+        return;
+      }
+      const bpmCh = line.match(/^#BPMCHANGE\s+(-?\d+(?:\.\d+)?)\s*$/i);
+      if (bpmCh) {
+        const v = +bpmCh[1];
+        if (!isFinite(v) || v <= 0) throw new Error("无效的 #BPMCHANGE " + bpmCh[1]);
+        if (inMeasure()) cursor.items.push({ type: "bpm", value: v });
+        else cursor.bpm = v;
+        return;
+      }
+      const delay = line.match(/^#DELAY\s+(-?\d+(?:\.\d+)?)\s*$/i);
+      if (delay) {
+        const v = +delay[1];
+        if (!isFinite(v)) throw new Error("无效的 #DELAY " + delay[1]);
+        if (inMeasure()) cursor.items.push({ type: "delay", value: v });
+        else {
+          emitBpmPiece(cursor.time, v, cursor.bpm, cursor.measure);
+          cursor.time += v;
+        }
+        return;
+      }
+      if (line.charAt(0) === "#") return;
+      for (let c = 0; c < line.length; c++) {
+        const ch = line.charAt(c);
+        if (ch === ",") { flushMeasure(); continue; }
+        if (ch === " " || ch === "\t" || ch === "|") continue;
+        cursor.items.push({ type: "slot", ch: ch });
+      }
+    }
+
+    function appendSink(dst, src) {
+      for (let k = 0; k < src.notes.length; k++) dst.notes.push(src.notes[k]);
+      for (let k = 0; k < src.measures.length; k++) dst.measures.push(src.measures[k]);
+      for (let k = 0; k < src.bpmTimeline.length; k++) dst.bpmTimeline.push(src.bpmTimeline[k]);
+    }
+
+    function stitch(lanes, snap) {
+      const order = [wantedBranch, "M", "E", "N"];
+      let chosen = null;
+      for (let k = 0; k < order.length; k++) {
+        if (lanes[order[k]]) { chosen = lanes[order[k]]; break; }
+      }
+      if (chosen) {
+        appendSink(common, chosen.sink);
+        cursor = chosen.end ? cloneCursor(chosen.end) : cloneCursor(snap);
+      } else {
+        cursor = cloneCursor(snap);
+      }
+      sink = common;
+    }
+
+    // #N/#E/#M are alternatives for the same span. Each one restarts at the
+    // branch point. Afterwards the chart continues from the selected path.
+    function parseBranch(startIndex) {
+      sawBranch = true;
+      if (cursor.items.length) flushMeasure();
+      let snapshot = cloneCursor(cursor);
+      const lanes = {};
+      let laneId = null;
+      let j = startIndex + 1;
+      function closeLane() {
+        if (!laneId) {
+          if (cursor.items.length) flushMeasure();
+          snapshot = cloneCursor(cursor);
+          return;
+        }
+        if (cursor.items.length) flushMeasure();
+        lanes[laneId].end = cloneCursor(cursor);
+      }
+      for (; j < rawLines.length; j++) {
+        const line = stripComment(rawLines[j]).trim();
+        if (!line) continue;
+        const lane = line.match(/^#([NEM])\b/i);
+        if (lane) {
+          closeLane();
+          laneId = lane[1].toUpperCase();
+          foundBranches.add(laneId);
+          if (!lanes[laneId]) {
+            lanes[laneId] = { sink: makeSink(), end: null };
+            cursor = cloneCursor(snapshot);
+          } else {
+            cursor = lanes[laneId].end ? cloneCursor(lanes[laneId].end) : cloneCursor(snapshot);
+          }
+          sink = lanes[laneId].sink;
+          continue;
+        }
+        if (/^#BRANCHEND\b/i.test(line) || /^#END\b/i.test(line)) {
+          closeLane();
+          stitch(lanes, snapshot);
+          return { nextIndex: j, ended: /^#END\b/i.test(line) };
+        }
+        if (/^#BRANCHSTART\b/i.test(line) || /^#START\b/i.test(line)) continue;
+        processLine(line);
+      }
+      closeLane();
+      stitch(lanes, snapshot);
+      return { nextIndex: j, ended: false };
     }
 
     for (; i < rawLines.length && !ended; i++) {
       const line = stripComment(rawLines[i]).trim();
       if (!line) continue;
       if (/^#START\b/i.test(line)) continue;
+      if (/^#BRANCHSTART\b/i.test(line)) {
+        const res = parseBranch(i);
+        i = res.nextIndex;
+        ended = res.ended;
+        if (ended) break;
+        continue;
+      }
       if (/^#END\b/i.test(line)) {
-        if (items.length) flushMeasure();
+        if (cursor.items.length) flushMeasure();
         ended = true;
         break;
       }
-      const meas = line.match(/^#MEASURE\s+(.+)$/i);
-      if (meas) {
-        const frac = parseFraction(meas[1], null);
-        if (!frac) throw new Error("无法解析 #MEASURE " + meas[1]);
-        measure = frac;
-        continue;
-      }
-      const bpmCh = line.match(/^#BPMCHANGE\s+(-?\d+(?:\.\d+)?)\s*$/i);
-      if (bpmCh) {
-        const v = +bpmCh[1];
-        if (!isFinite(v) || v <= 0) throw new Error("无效的 #BPMCHANGE " + bpmCh[1]);
-        if (inMeasure()) items.push({ type: "bpm", value: v });
-        else bpm = v;
-        continue;
-      }
-      const delay = line.match(/^#DELAY\s+(-?\d+(?:\.\d+)?)\s*$/i);
-      if (delay) {
-        const v = +delay[1];
-        if (!isFinite(v)) throw new Error("无效的 #DELAY " + delay[1]);
-        if (inMeasure()) items.push({ type: "delay", value: v });
-        else {
-          emitBpmPiece(time, v, bpm, measure);
-          time += v;
-        }
-        continue;
-      }
-      if (line.charAt(0) === "#") continue;
-      for (let c = 0; c < line.length; c++) {
-        const ch = line.charAt(c);
-        if (ch === ",") { flushMeasure(); continue; }
-        if (ch === " " || ch === "\t" || ch === "|") continue;
-        items.push({ type: "slot", ch: ch });
-      }
+      processLine(line);
     }
-    if (!ended && items.length) flushMeasure();
-    if (!measureIndex) throw new Error("#START 和 #END 之间没有小节");
+    if (!ended && cursor.items.length) flushMeasure();
+    if (!cursor.measureIndex) throw new Error("#START 和 #END 之间没有小节");
     return {
-      notes,
-      measures,
-      bpmTimeline,
-      duration: time - headers.offset,
+      notes: common.notes,
+      measures: common.measures,
+      bpmTimeline: common.bpmTimeline,
+      duration: cursor.time - headers.offset,
       nextIndex: i,
+      hasBranch: sawBranch,
+      branchIds: ["N", "E", "M"].filter((id) => foundBranches.has(id)),
+      branch: sawBranch ? wantedBranch : "",
     };
   }
 
@@ -269,9 +372,10 @@
    * The first course is also exposed at the top level (notes / measures / headers)
    * so older callers keep working.
    */
-  function parseTja(text) {
+  function parseTja(text, opts) {
     if (text == null) throw new Error("空的谱面");
     const rawLines = String(text).replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").split("\n");
+    const branch = opts && opts.branch;
 
     const global = emptyHeaders();
     let pending = emptyHeaders();
@@ -297,8 +401,17 @@
         // writes via applyHeader, so pending.bpm is either default or set.
         if (pending.bpm === 120 && global.bpm !== 120) headers.bpm = global.bpm;
         if (pending.offset === 0 && global.offset !== 0) headers.offset = global.offset;
-        const body = parseBody(rawLines, i, headers);
-        courses.push({ headers, notes: body.notes, measures: body.measures, duration: body.duration, bpmTimeline: body.bpmTimeline });
+        const body = parseBody(rawLines, i, headers, branch);
+        courses.push({
+          headers,
+          notes: body.notes,
+          measures: body.measures,
+          duration: body.duration,
+          bpmTimeline: body.bpmTimeline,
+          hasBranch: !!body.hasBranch,
+          branchIds: body.branchIds || [],
+          branch: body.branch || "",
+        });
         i = body.nextIndex;
         pending = {
           title: global.title,
@@ -327,6 +440,9 @@
       measures: first.measures,
       duration: first.duration,
       bpmTimeline: first.bpmTimeline,
+      hasBranch: !!first.hasBranch,
+      branchIds: first.branchIds || [],
+      branch: first.branch || "",
       courses,
     };
   }
@@ -386,11 +502,42 @@
     return raw || "（未命名）";
   }
 
+  const BRANCH_CANON = {
+    n: "N",
+    normal: "N",
+    "普通": "N",
+    e: "E",
+    expert: "E",
+    "玄人": "E",
+    m: "M",
+    master: "M",
+    "达人": "M",
+    "達人": "M",
+  };
+
+  const BRANCH_CHOICES = [
+    { id: "N", label: "普通" },
+    { id: "E", label: "玄人" },
+    { id: "M", label: "达人" },
+  ];
+
+  function branchCanon(name) {
+    const key = String(name == null ? "" : name).trim().toLowerCase();
+    return BRANCH_CANON[key] || "";
+  }
+
+  function listBranches(course) {
+    if (!course || !course.hasBranch) return [];
+    return BRANCH_CHOICES.map((choice) => ({ id: choice.id, label: choice.label }));
+  }
+
   function listCourses(parsed) {
     return (parsed.courses || []).map((course, index) => ({
       index: index,
       name: course.headers && course.headers.course ? String(course.headers.course) : "",
       label: courseLabel(course.headers && course.headers.course),
+      hasBranch: !!course.hasBranch,
+      branches: listBranches(course),
     }));
   }
 
@@ -816,13 +963,16 @@
    *  When no 手顺 JSON is supplied, hands come from autoSticking (default 自动滚奏).
    */
   function eventsFromTja(text, opts) {
-    const parsed = parseTja(text);
+    const parsed = parseTja(text, opts);
     const picked = resolveCourse(parsed, opts);
     const sliced = sliceCourse(picked, parseMeasuresOpt(opts && opts.measures));
     const auto = eventsFromAutoSticking(sliced, opts);
+    const branch = picked.hasBranch ? (branchCanon(opts && opts.branch) || "M") : "";
     return coursePayload(sliced, Object.assign({
       courses: parsed.courses.map((c) => c.headers.course),
       chartMeasures: picked.measures,
+      hasBranch: !!picked.hasBranch,
+      branch: branch,
     }, auto));
   }
 
@@ -1355,6 +1505,8 @@
     pickCourse,
     resolveCourse,
     listCourses,
+    listBranches,
+    branchCanon,
     courseLabel,
     courseCanon,
     sliceCourse,

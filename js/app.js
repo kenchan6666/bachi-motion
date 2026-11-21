@@ -1014,6 +1014,7 @@
       refreshCourses();
     },
     loadChartText,
+    syncChartPicker,
     selectedCourseName,
     refreshCourses,
     getJson: () => jsonInput.value,

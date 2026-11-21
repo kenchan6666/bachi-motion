@@ -115,7 +115,7 @@ function check(name, fn) {
     const desktop = accel.missingFfmpegMessage();
     process.env.BACHI_DESKTOP = previous;
     assert.ok(desktop.includes("找不到 ffmpeg"));
-    assert.ok(desktop.includes("0.2.1"));
+    assert.ok(desktop.includes("0.2.2"));
     assert.ok(!desktop.includes("打开浏览器"));
     assert.ok(!desktop.includes("1.0.0"));
     const cli = accel.missingChromeMessage();

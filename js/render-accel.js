@@ -24,7 +24,7 @@ function missingFfmpegMessage() {
   if (process.env.BACHI_DESKTOP === "1") {
     return [
       "找不到 ffmpeg，没法出片。",
-      "bachi-motion 0.2.1 的 Windows 安装包里已经带了 ffmpeg，不需要另外下载，也不需要联网。",
+      "bachi-motion 0.2.2 的 Windows 安装包里已经带了 ffmpeg，不需要另外下载，也不需要联网。",
       "请重新解压完整的 zip，确认 resources\\ffmpeg\\ffmpeg.exe 还在。不要只拷贝 bachi-motion.exe。",
       "预览谱面仍然可以。出片要等 ffmpeg 就位。",
     ].join("\n");
@@ -32,7 +32,7 @@ function missingFfmpegMessage() {
   return [
     "找不到 ffmpeg，出片停住了。",
     "命令行 node render.js 使用本机的 ffmpeg。请把它加入 PATH，或设置环境变量 FFMPEG_PATH 指向 ffmpeg。",
-    "Windows 安装包 0.2.1 自带 ffmpeg。双击 bachi-motion.exe 时不用另外安装。",
+    "Windows 安装包 0.2.2 自带 ffmpeg。双击 bachi-motion.exe 时不用另外安装。",
   ].join("\n");
 }
 
@@ -41,7 +41,7 @@ function missingChromeMessage() {
     "找不到 Chrome，出片停住了。",
     "命令行 node render.js 使用本机的 Chrome 或 Edge，仓库本身不附带浏览器。",
     "请安装 Google Chrome，或设置环境变量 CHROME_PATH 指向 chrome.exe 或 msedge.exe。",
-    "Windows 安装包 0.2.1 自带窗口和浏览器内核。双击 bachi-motion.exe 时不用另外安装 Chrome，也不会打开浏览器。",
+    "Windows 安装包 0.2.2 自带窗口和浏览器内核。双击 bachi-motion.exe 时不用另外安装 Chrome，也不会打开浏览器。",
   ].join("\n");
 }
 

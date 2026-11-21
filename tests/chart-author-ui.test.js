@@ -116,8 +116,7 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
     check(leaks.length === 0, "help leaked outside ! popover: " + leaks.join(" | "));
 
     await page.evaluate(() => {
-      document.getElementById("settings").open = true;
-      document.getElementById("settingsAdvanced").open = true;
+      document.getElementById("settingsOpen").open = true;
     });
     await page.click("#settingsBlankHintBtn");
     const settingsHelp = await page.evaluate(() => {
@@ -376,7 +375,7 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
     console.error("FAIL chart author UI\n" + fails.join("\n"));
     process.exit(1);
   }
-  console.log("ok: blank chart, 16th notes, both 高级 entries, hints in ! popovers");
+  console.log("ok: blank chart, 16th notes, editor 高级, hints in ! popovers");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

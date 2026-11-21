@@ -56,6 +56,63 @@ function startStaticServer(root) {
   });
 }
 
+function stripPopovers(fragment) {
+  return fragment.replace(/<div\b[^>]*\broute-hint\b[^>]*>[\s\S]*?<\/div>/g, "");
+}
+
+function summaryTitle(inner) {
+  const span = inner.match(/<span>([^<]+)<\/span>/);
+  if (span) return span[1].replace(/\s+/g, "");
+  return inner.split("<")[0].replace(/\s+/g, "");
+}
+
+function assertFoldStructure(fails) {
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  const editorAt = html.indexOf('<div class="editor" id="editor"');
+  if (editorAt < 0) {
+    fails.push("editor block missing");
+    return;
+  }
+  const home = html.slice(0, editorAt);
+  const editor = html.slice(editorAt);
+  if (html.includes("谱面与设置")) fails.push("old title 谱面与设置 remains");
+  if (home.includes('id="settingsAdvanced"') || home.includes("<summary>高级</summary>")) {
+    fails.push("homepage 高级 wrapper remains");
+  }
+  if (!editor.includes('id="editorAdvancedBtn"') || !editor.includes('id="editorRollHint"')) {
+    fails.push("editor 高级 or standing roll hint changed");
+  }
+  const summaries = [...home.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map((m) => summaryTitle(m[1]));
+  const want = ["打开谱面", "手顺", "演奏", "批量出片"];
+  if (summaries.join("|") !== want.join("|")) fails.push("fold titles " + summaries.join("|"));
+  const stackAt = home.indexOf('class="settings-stack"');
+  const stack = stackAt >= 0 ? home.slice(stackAt) : "";
+  let depth = 0;
+  let maxDepth = 0;
+  for (const token of stack.matchAll(/<details\b|<\/details>/g)) {
+    depth += token[0].startsWith("</") ? -1 : 1;
+    if (depth > maxDepth) maxDepth = depth;
+  }
+  if ((stack.match(/<details\b/g) || []).length !== 4 || maxDepth !== 1) {
+    fails.push("expected 4 sibling folds, depth " + maxDepth);
+  }
+  const standing = stripPopovers(home);
+  const moved = [
+    "选『滚奏演示』会自动载入配套的手顺 JSON",
+    "12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2",
+    "单手：轮流打；双手：两棒一起落；当小音符：画小、单手打",
+    "覆盖自动手顺，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json",
+  ];
+  for (const line of moved) {
+    if (!home.includes(line)) fails.push("missing hint copy: " + line);
+    if (standing.includes(line)) fails.push("hint still standing: " + line);
+  }
+  const batchLabel = "叠打点声（合成 don/ka，不是原曲）";
+  if (!standing.includes(batchLabel)) fails.push("batch label moved into a ! or dropped");
+  if (home.includes("咕") || editor.includes("咕")) fails.push("typo 咕");
+  if (!home.includes("2 咔")) fails.push("chart rules dropped 咔");
+}
+
 function assertNear(fails, id, phase, pop, btn) {
   const gap = 10;
   const below = Math.abs(pop.y - (btn.bottom + gap));
@@ -86,6 +143,7 @@ function assertNear(fails, id, phase, pop, btn) {
     args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
   });
   const fails = [];
+  assertFoldStructure(fails);
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
@@ -93,19 +151,23 @@ function assertNear(fails, id, phase, pop, btn) {
       waitUntil: "networkidle0",
       timeout: 30000,
     });
-    const hints = ["routeHint", "chartHint", "batchHint", "previewHitsHint", "originalHint"];
+    const hints = [
+      "routeHint", "chartHint", "batchHint", "previewHitsHint", "originalHint",
+      "modeHint", "rollHint", "bigNoteHint", "settingsBlankHint", "jsonHint",
+    ];
     for (const id of hints) {
       const measured = await page.evaluate((hintId) => {
-        const settings = document.getElementById("settings");
-        settings.open = true;
         const btn = document.getElementById(hintId + "Btn");
         const pop = document.getElementById(hintId);
-        if (pop.matches(":popover-open")) pop.hidePopover();
-        const br = btn.getBoundingClientRect();
-        const sr = settings.getBoundingClientRect();
-        if (br.bottom > sr.bottom - 8 || br.top < sr.top + 40) {
-          settings.scrollTop += br.top - sr.top - 120;
+        let node = btn;
+        while (node) {
+          if (node.hidden) node.hidden = false;
+          node = node.parentElement;
         }
+        const fold = btn.closest("details");
+        if (fold) fold.open = true;
+        if (pop.matches(":popover-open")) pop.hidePopover();
+        btn.scrollIntoView({ block: "center", inline: "nearest" });
         btn.click();
         const r = pop.getBoundingClientRect();
         const b = btn.getBoundingClientRect();
@@ -141,6 +203,68 @@ function assertNear(fails, id, phase, pop, btn) {
         if (pop.matches(":popover-open")) pop.hidePopover();
       }, id);
     }
+
+    const rollFollows = await page.evaluate(() => {
+      document.getElementById("settingsHands").open = true;
+      document.querySelector('#rollSeg [data-roll="24分滚奏"]').click();
+      const dense = document.querySelector("#rollHint p").textContent;
+      document.querySelector('#rollSeg [data-roll="不滚奏"]').click();
+      const flat = document.querySelector("#rollHint p").textContent;
+      document.querySelector('#rollSeg [data-roll="自动滚奏"]').click();
+      return { dense: dense, flat: flat };
+    });
+    if (!rollFollows.dense.includes("32 分 2-2")) fails.push("roll hint did not follow 24分滚奏: " + rollFollows.dense);
+    if (!rollFollows.flat.includes("全部单打")) fails.push("roll hint did not follow 不滚奏: " + rollFollows.flat);
+
+    const desktopTitles = await page.evaluate(() => {
+      document.querySelectorAll(".route-hint").forEach((pop) => {
+        if (pop.matches(":popover-open")) pop.hidePopover();
+      });
+      document.querySelectorAll("details.settings").forEach((el) => { el.open = false; });
+      const stack = document.getElementById("settingsStack");
+      if (stack) stack.scrollTop = 0;
+      window.scrollTo(0, 0);
+      return [...document.querySelectorAll(".settings-stack > details > summary")].map((el) => {
+        const r = el.getBoundingClientRect();
+        const label = el.querySelector("span");
+        return {
+          title: (label ? label.textContent : el.childNodes[0].textContent).replace(/\s+/g, ""),
+          top: r.top,
+          bottom: r.bottom,
+          height: r.height,
+        };
+      });
+    });
+    const desktopWant = ["打开谱面", "手顺", "演奏", "批量出片"];
+    if (desktopTitles.map((row) => row.title).join("|") !== desktopWant.join("|")) {
+      fails.push("1280 titles " + desktopTitles.map((row) => row.title).join("|"));
+    }
+    for (const row of desktopTitles) {
+      if (row.height < 8 || row.top < 0 || row.bottom > 900) {
+        fails.push("1280 fold title not in view " + JSON.stringify(row));
+      }
+    }
+
+    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+    const mobile = await page.evaluate(() => {
+      const titles = [...document.querySelectorAll(".settings-stack > details > summary")].map((el) => {
+        const label = el.querySelector("span");
+        return (label ? label.textContent : el.childNodes[0].textContent).replace(/\s+/g, "");
+      });
+      const last = document.getElementById("settingsBatch");
+      const before = document.documentElement.scrollTop;
+      last.scrollIntoView({ block: "end" });
+      const r = last.getBoundingClientRect();
+      return {
+        titles: titles,
+        pageScrolls: document.documentElement.scrollHeight > window.innerHeight + 20,
+        inView: r.top >= 0 && r.bottom <= window.innerHeight + 1 && r.height > 8,
+        moved: document.documentElement.scrollTop !== before || r.top < window.innerHeight,
+      };
+    });
+    if (mobile.titles.join("|") !== desktopWant.join("|")) fails.push("390 titles " + mobile.titles.join("|"));
+    if (!mobile.pageScrolls) fails.push("390 homepage does not scroll");
+    if (!mobile.inView) fails.push("390 cannot reach 批量出片 " + JSON.stringify(mobile));
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

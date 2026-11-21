@@ -93,7 +93,7 @@ function assertNear(fails, id, phase, pop, btn) {
       waitUntil: "networkidle0",
       timeout: 30000,
     });
-    const hints = ["routeHint", "chartHint", "batchHint"];
+    const hints = ["routeHint", "chartHint", "batchHint", "previewHitsHint"];
     for (const id of hints) {
       const measured = await page.evaluate((hintId) => {
         const settings = document.getElementById("settings");
@@ -149,7 +149,7 @@ function assertNear(fails, id, phase, pop, btn) {
     console.error("FAIL hint popovers\n" + fails.join("\n"));
     process.exit(1);
   }
-  console.log("ok: three hint popovers anchor to their ! buttons");
+  console.log("ok: hint popovers anchor to their ! buttons");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

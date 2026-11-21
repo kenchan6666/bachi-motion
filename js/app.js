@@ -484,6 +484,7 @@
   setupRouteHint("routeHintBtn", "routeHint");
   setupRouteHint("chartHintBtn", "chartHint");
   setupRouteHint("batchHintBtn", "batchHint");
+  setupRouteHint("previewHitsHintBtn", "previewHitsHint");
 
   function regenerateKeepTime() {
     const anim = window.taikoAnim;

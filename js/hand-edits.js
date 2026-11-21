@@ -3,7 +3,10 @@
  *
  *   createSession(notes, opts, autoResult?)
  *   applyRoll(session, from, to)
- *   applyAlternate(session, from, to)
+ *   applyAlternate(session, from, to, direction?)
+ *     direction "dominant" / "12" starts on 惯用手 (1-2);
+ *     "other" / "21" starts on the other hand (2-1);
+ *     omitted keeps the old continuation from the previous note.
  *   applyRestore(session, from, to)
  *   applySwap(session, index, hand)  // then re-detect rolls in that phrase (8分及更慢不滚)
  *   setOptions(session, opts)   // re-runs autoSticking, keeps patches
@@ -190,11 +193,28 @@
     return prev === "L" ? "R" : "L";
   }
 
-  function applyAlternate(session, from, to) {
+  function directedStart(session, state, from, direction) {
+    if (direction === "dominant") return dominantOf(session);
+    if (direction === "other") return flip(dominantOf(session));
+    return alternateStartHand(session, state, from);
+  }
+
+  function normalizeDirection(direction) {
+    if (direction === "dominant" || direction === "12" || direction === "1-2") return "dominant";
+    if (direction === "other" || direction === "21" || direction === "2-1") return "other";
+    return null;
+  }
+
+  function applyAlternate(session, from, to, direction) {
     const r = clampRange(session, from, to);
     if (!r) return session;
     pushHistory(session);
-    session.patches.push({ type: "alternate", from: r.from, to: r.to });
+    const patch = { type: "alternate", from: r.from, to: r.to };
+    const aimed = normalizeDirection(direction);
+    // 1-2 / 2-1 remember the direction, not a frozen hand, so a later
+    // 惯用手 change re-aims the same patch.
+    if (aimed) patch.direction = aimed;
+    session.patches.push(patch);
     return session;
   }
 
@@ -340,7 +360,7 @@
     }
     if (patch.type === "alternate") {
       state.rollPairs = dropOverlapping(state.rollPairs, from, to);
-      fillAlternate(state.hands, from, to, alternateStartHand(session, state, from));
+      fillAlternate(state.hands, from, to, directedStart(session, state, from, patch.direction));
       return;
     }
     if (patch.type === "restore") {

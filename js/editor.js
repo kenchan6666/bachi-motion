@@ -42,9 +42,11 @@
     measures: [],
     chartData: null,
     selection: null, // { type:"range", from, to } | { type:"note", index }
+    audition: null, // { t0, t1, from, to, key } loops only the selected range
     expanded: null, // { from, to, panX } zoomed string cluster
     strings: [], // collapsed string clusters, rebuilt in renderTracks
     drag: null,
+    splitMeasures: false,
     playerViewBox: "0 0 800 860",
     raf: 0,
     addingNotes: false,
@@ -138,7 +140,7 @@
     if (ui.chartHint) {
       ui.chartHint.textContent = isReadonly()
         ? (state.mode === "custom" ? "已载入自定义手顺，轨道只读" : "纯自动模式：轨道只读，可在「自动+微调」里改")
-        : "点密串可放大后再换手 · 单击单音可换手 · 拖选一段可改滚奏或交互";
+        : "单击音符立刻换手 · 拖选后可刷 1-2、2-1、2-2 · 点底下密串放大";
     }
   }
 
@@ -273,6 +275,7 @@
     const P = Parser();
     try {
       state.selection = null;
+      state.audition = null;
       hidePops();
       const parsed = parseCurrentCourse();
       const poke = currentOpts();
@@ -337,6 +340,7 @@
     state.session = null;
     state.notes = [];
     state.selection = null;
+    state.audition = null;
     state.expanded = null;
   }
 
@@ -430,6 +434,7 @@
         state.chartData.source = "hand-json";
       }
       state.selection = null;
+      state.audition = null;
       hidePops();
       applyToEngine(state.chartData, true);
       renderTracks();
@@ -508,6 +513,7 @@
     if (!state.addingNotes) {
       hidePops();
       state.selection = null;
+      state.audition = null;
     }
     if (state.open) renderTracks();
   }
@@ -525,8 +531,12 @@
     return LANE_MARGIN + LANE_PAD + frac * INNER_W;
   }
 
+  function measureGap() {
+    return state.splitMeasures ? MEASURE_GAP : 0;
+  }
+
   function measureOffset(index) {
-    return index * (MEASURE_W + MEASURE_GAP);
+    return index * (MEASURE_W + measureGap());
   }
 
   function noteAbsX(noteIndex) {
@@ -931,6 +941,8 @@
 
   function renderTracks() {
     if (!ui.measuresEl) return;
+    if (ui.root) ui.root.classList.toggle("is-continuous", !state.splitMeasures);
+    ui.measuresEl.style.gap = measureGap() + "px";
     hidePops();
     const measures = state.measures || [];
     const raw = state.rawNotes || [];
@@ -1105,11 +1117,48 @@
     renderOverview();
   }
 
+  function selectionKey(sel) {
+    if (!sel) return "";
+    if (sel.type === "note") return "n" + sel.index;
+    if (sel.type === "range") return "r" + sel.from + ":" + sel.to;
+    return "";
+  }
+
+  function pausePlayback() {
+    const anim = window.taikoAnim;
+    if (!anim || !anim.state || !anim.state.playing) return;
+    if (anim.setPlaying) anim.setPlaying(false);
+    else if (typeof window.setPlaying === "function") window.setPlaying(false);
+  }
+
+  function playPlayback() {
+    const anim = window.taikoAnim;
+    if (anim && anim.setPlaying) anim.setPlaying(true);
+    else if (typeof window.setPlaying === "function") window.setPlaying(true);
+  }
+
+  function rememberSelection(sel) {
+    const next = selectionKey(sel);
+    state.selection = sel;
+    if (state.audition && next !== state.audition.key) {
+      state.audition = null;
+      pausePlayback();
+    }
+  }
+
+  function clearSelection() {
+    const had = !!state.audition;
+    state.selection = null;
+    state.audition = null;
+    hidePops();
+    if (had) pausePlayback();
+  }
+
   function restoreSelectionVisual() {
     const sel = state.selection;
     if (!sel) return;
-    if (sel.type === "range") showRangePop(sel.from, sel.to, true);
-    if (sel.type === "note") showSwapPop(sel.index, true);
+    if (sel.type === "range") showRangePop(sel.from, sel.to);
+    if (sel.type === "note") highlightNote(sel.index);
   }
 
   function noteAtClient(x, y) {
@@ -1127,7 +1176,7 @@
     for (let i = 0; i < state.measures.length; i++) {
       const left = measureOffset(i);
       const right = left + MEASURE_W;
-      if (x >= left - MEASURE_GAP / 2 && x <= right + MEASURE_GAP / 2) {
+      if (x >= left - measureGap() / 2 && x <= right + measureGap() / 2) {
         const m = state.measures[i];
         const local = x - left - (LANE_MARGIN + LANE_PAD);
         const frac = Math.max(0, Math.min(1, local / INNER_W));
@@ -1175,48 +1224,59 @@
     }
   }
 
-  function showRangePop(from, to, keepSel) {
-    const a = Math.min(from, to);
-    const b = Math.max(from, to);
-    state.selection = { type: "range", from: a, to: b };
-    if (ui.swapPop) ui.swapPop.hidden = true;
-    const n = b - a + 1;
-    if (ui.rangePopTitle) ui.rangePopTitle.textContent = "将选中的 " + n + " 音设为";
-    showSelBox(a, b);
-    const mid = (noteAbsX(a) + noteAbsX(b)) / 2;
-    const meas = ui.measuresEl.getBoundingClientRect();
-    const host = ui.scroll.getBoundingClientRect();
-    const midClient = meas.left + (mid - 0); // mid is in measures coords, measures may be scrolled
-    // noteAbsX is relative to measures content; convert to client:
-    const clientX = meas.left + mid;
-    const lane = ui.measuresEl.querySelector(".editor-lane");
-    const above = lane ? lane.getBoundingClientRect().top - 6 : host.top + 80;
-    placePop(ui.rangePop, clientX, above);
-    if (!keepSel) { /* already set */ }
+  function placeTrackActions() {
+    const pop = ui.rangePop;
+    const sel = ui.sel;
+    if (!pop || !sel || !ui.scroll || sel.hidden) return;
+    pop.hidden = false;
+    pop.classList.add("is-track");
+    const width = pop.offsetWidth || 220;
+    const height = pop.offsetHeight || 28;
+    const selLeft = parseFloat(sel.style.left) || 0;
+    const selTop = parseFloat(sel.style.top) || 0;
+    const selW = sel.offsetWidth;
+    const selH = sel.offsetHeight;
+    const viewLeft = ui.scroll.scrollLeft;
+    const viewRight = viewLeft + ui.scroll.clientWidth;
+    let left = selLeft + selW + 8;
+    if (left + width > viewRight - 8) left = selLeft - width - 8;
+    if (left < viewLeft + 8) left = Math.max(viewLeft + 8, Math.min(left, viewRight - width - 8));
+    let top = selTop + Math.max(0, selH - height - 4);
+    const viewTop = ui.scroll.scrollTop;
+    const viewBottom = viewTop + ui.scroll.clientHeight;
+    if (top + height > viewBottom - 4) top = viewBottom - height - 4;
+    if (top < viewTop + 4) top = viewTop + 4;
+    pop.style.left = left + "px";
+    pop.style.top = top + "px";
   }
 
-  function showSwapPop(index, keep) {
-    state.selection = { type: "note", index: index };
+  function showRangePop(from, to) {
+    const a = Math.min(from, to);
+    const b = Math.max(from, to);
+    rememberSelection({ type: "range", from: a, to: b });
+    if (ui.swapPop) ui.swapPop.hidden = true;
+    showSelBox(a, b);
+    placeTrackActions();
+  }
+
+  function highlightNote(index) {
+    rememberSelection({ type: "note", index: index });
     if (ui.rangePop) ui.rangePop.hidden = true;
     if (ui.sel) ui.sel.hidden = true;
-    ui.measuresEl && ui.measuresEl.querySelectorAll(".editor-note.is-active").forEach((el) => el.classList.remove("is-active"));
-    if (ui.zoomCard) ui.zoomCard.querySelectorAll(".editor-note.is-active, .editor-zoom-cap.is-active").forEach((el) => el.classList.remove("is-active"));
-    const zoomBtn = ui.zoomCard && !ui.zoomCard.hidden && (
-      ui.zoomCard.querySelector('.editor-zoom-cap[data-index="' + index + '"]') ||
-      ui.zoomCard.querySelector('.editor-note[data-index="' + index + '"]')
-    );
-    const btn = zoomBtn || (ui.measuresEl && ui.measuresEl.querySelector('.editor-note[data-index="' + index + '"]'));
-    if (btn) btn.classList.add("is-active");
-    const resolved = resolvedNow();
-    const hand = resolved && resolved.hands[index] === "L" ? "L" : "R";
-    if (ui.swapPop) {
-      ui.swapPop.querySelectorAll("[data-ed-swap]").forEach((b) => {
-        b.classList.toggle("is-on", b.dataset.edSwap === hand);
+    if (ui.swapPop) ui.swapPop.hidden = true;
+    const mark = (root) => {
+      if (!root) return;
+      root.querySelectorAll(".editor-note.is-active, .editor-zoom-cap.is-active").forEach((el) => el.classList.remove("is-active"));
+      root.querySelectorAll('.editor-note[data-index="' + index + '"], .editor-zoom-cap[data-index="' + index + '"]').forEach((el) => {
+        el.classList.add("is-active");
       });
-    }
-    const mid = btn ? btn.getBoundingClientRect().left + btn.getBoundingClientRect().width / 2 : 0;
-    const above = btn ? btn.getBoundingClientRect().top - 6 : 0;
-    placePop(ui.swapPop, mid, above);
+    };
+    mark(ui.measuresEl);
+    if (ui.zoomCard && !ui.zoomCard.hidden) mark(ui.zoomCard);
+  }
+
+  function showSwapPop(index) {
+    highlightNote(index);
   }
 
   function afterEdit() {
@@ -1228,15 +1288,67 @@
     updateStatus();
   }
 
+  function auditionBounds(from, to) {
+    const raw = state.rawNotes || [];
+    const a = raw[from];
+    const b = raw[to];
+    if (!a || !b || !isFinite(+a.t) || !isFinite(+b.t)) return null;
+    const next = raw[to + 1];
+    let tail = 0.2;
+    if (next && isFinite(+next.t)) {
+      const gap = +next.t - +b.t;
+      if (gap > 0.04) tail = Math.min(0.2, Math.max(0.05, gap * 0.45));
+    }
+    const t0 = +a.t;
+    let t1 = +b.t + tail;
+    if (!(t1 > t0)) t1 = t0 + 0.05;
+    return { t0: t0, t1: t1, from: from, to: to, key: selectionKey({ type: "range", from: from, to: to }) };
+  }
+
+  function startAudition() {
+    const sel = state.selection;
+    if (!sel || sel.type !== "range") return;
+    const bounds = auditionBounds(sel.from, sel.to);
+    if (!bounds) return;
+    state.audition = bounds;
+    seekTo(bounds.t0);
+    playPlayback();
+    paintPlayhead();
+  }
+
+  function serviceAudition() {
+    const aud = state.audition;
+    if (!aud) return;
+    const anim = window.taikoAnim;
+    if (!anim || !anim.state || !anim.state.playing) return;
+    const now = anim.state.now;
+    if (now > aud.t1 + 1e-4 || now < aud.t0 - 1e-3) seekTo(aud.t0);
+  }
+
   function doRangeAction(action) {
     if (!state.session || !state.selection || state.selection.type !== "range") return;
+    if (action === "audition") {
+      startAudition();
+      return;
+    }
     if (isReadonly()) return;
     const { from, to } = state.selection;
-    if (action === "roll") Edits().applyRoll(state.session, from, to);
+    if (action === "12") Edits().applyAlternate(state.session, from, to, "dominant");
+    else if (action === "21") Edits().applyAlternate(state.session, from, to, "other");
+    else if (action === "22" || action === "roll") Edits().applyRoll(state.session, from, to);
     else if (action === "alternate") Edits().applyAlternate(state.session, from, to);
     else if (action === "restore") Edits().applyRestore(state.session, from, to);
-    state.selection = null;
-    hidePops();
+    else return;
+    afterEdit();
+  }
+
+  function swapNote(index) {
+    if (!state.session || isReadonly()) return;
+    if (!Number.isFinite(+index)) return;
+    const resolved = resolvedNow();
+    const hand = resolved && resolved.hands[index] === "L" ? "R" : "L";
+    rememberSelection({ type: "note", index: index });
+    Edits().applySwap(state.session, index, hand);
     afterEdit();
   }
 
@@ -1244,24 +1356,18 @@
     if (!state.session || !state.selection || state.selection.type !== "note") return;
     if (isReadonly()) return;
     Edits().applySwap(state.session, state.selection.index, hand);
-    state.selection = null;
-    hidePops();
     afterEdit();
   }
 
   function doUndo() {
     if (!state.session || isReadonly() || !Edits().canUndo(state.session)) return;
     Edits().undo(state.session);
-    hidePops();
-    state.selection = null;
     afterEdit();
   }
 
   function doRedo() {
     if (!state.session || isReadonly() || !Edits().canRedo(state.session)) return;
     Edits().redo(state.session);
-    hidePops();
-    state.selection = null;
     afterEdit();
   }
 
@@ -1329,6 +1435,7 @@
 
   function loop() {
     if (!state.open) return;
+    serviceAudition();
     paintPlayhead();
     state.raf = requestAnimationFrame(loop);
   }
@@ -1340,6 +1447,7 @@
   }
 
   function togglePlay() {
+    state.audition = null;
     const anim = window.taikoAnim;
     const playing = !!(anim && anim.state && anim.state.playing);
     if (typeof window.setPlaying === "function") window.setPlaying(!playing);
@@ -1510,8 +1618,17 @@
     rebuild({ keepTime: false, fresh: true });
   }
 
+  function nudgeScroll(dir) {
+    if (!ui.scroll) return;
+    const step = Math.max(160, Math.round(ui.scroll.clientWidth * 0.72));
+    const max = Math.max(0, ui.scroll.scrollWidth - ui.scroll.clientWidth);
+    ui.scroll.scrollLeft = Math.max(0, Math.min(max, ui.scroll.scrollLeft + dir * step));
+    syncOverview();
+  }
+
   function bind() {
     ui.root = $("editor");
+    if (ui.root) ui.root.classList.toggle("is-continuous", !state.splitMeasures);
     ui.pageTitle = $("editorPageTitle");
     ui.modeSeg = $("editorModeSeg");
     ui.techBtn = $("editorTechBtn");
@@ -1678,6 +1795,18 @@
     if (ui.addNoteBtn) {
       ui.addNoteBtn.addEventListener("click", () => setAddingNotes(!state.addingNotes));
     }
+    const splitBox = $("editorSplitMeasures");
+    if (splitBox) {
+      splitBox.addEventListener("change", () => {
+        state.splitMeasures = !!splitBox.checked;
+        if (ui.root) ui.root.classList.toggle("is-continuous", !state.splitMeasures);
+        if (state.open) renderTracks();
+      });
+    }
+    const nudgeLeft = $("editorNudgeLeft");
+    const nudgeRight = $("editorNudgeRight");
+    if (nudgeLeft) nudgeLeft.addEventListener("click", () => nudgeScroll(-1));
+    if (nudgeRight) nudgeRight.addEventListener("click", () => nudgeScroll(1));
     if (ui.faceSeg) {
       ui.faceSeg.addEventListener("click", (e) => {
         const btn = e.target.closest("[data-face]");
@@ -1916,7 +2045,7 @@
     const nodes = ui.measuresEl.querySelectorAll(".editor-measure");
     for (let i = 0; i < nodes.length; i++) {
       const rect = nodes[i].getBoundingClientRect();
-      if (clientX >= rect.left - MEASURE_GAP / 2 && clientX <= rect.right + MEASURE_GAP / 2) {
+      if (clientX >= rect.left - measureGap() / 2 && clientX <= rect.right + measureGap() / 2) {
         const idx = +nodes[i].dataset.index;
         if (Number.isFinite(idx)) return idx;
       }
@@ -1967,8 +2096,7 @@
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
       if (moved) return;
-      hidePops();
-      state.selection = null;
+      clearSelection();
     };
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
@@ -2003,8 +2131,7 @@
       if (t != null && origin && origin.closest && (origin.closest(".editor-lane") || origin.closest(".editor-hands"))) {
         seekTo(t);
       }
-      hidePops();
-      state.selection = null;
+      clearSelection();
       if (state.expanded) collapseString();
     };
     document.addEventListener("mousemove", move);
@@ -2029,22 +2156,13 @@
         e.preventDefault();
         const startX = e.clientX;
         const startY = e.clientY;
-        const startLeft = ui.scroll.scrollLeft;
-        const startTop = ui.scroll.scrollTop;
         let moved = false;
         const move = (ev) => {
-          const dx = ev.clientX - startX;
-          const dy = ev.clientY - startY;
-          if (!moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
-          moved = true;
-          ui.scroll.classList.add("is-panning");
-          ui.scroll.scrollLeft = startLeft - dx;
-          ui.scroll.scrollTop = startTop - dy;
+          if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 4) moved = true;
         };
         const up = () => {
           document.removeEventListener("mousemove", move);
           document.removeEventListener("mouseup", up);
-          ui.scroll.classList.remove("is-panning");
           if (moved) return;
           if (note) {
             const hit = cellOfNote(+note.dataset.index);
@@ -2067,8 +2185,7 @@
       const to = +stringBtn.dataset.to;
       const s = (state.strings || []).find((it) => it.from === from && it.to === to);
       if (s) {
-        hidePops();
-        state.selection = null;
+        clearSelection();
         expandString(s, { focusIndex: nearestNoteInString(s, e.clientX) });
       }
       e.preventDefault();
@@ -2081,8 +2198,28 @@
     }
 
     const barnum = e.target.closest(".editor-barnum");
-    if (barnum || isEmptyTrack(e.target)) {
-      if (!barnum && onScrollbar(e)) return;
+    if (barnum) {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startY = e.clientY;
+      let moved = false;
+      const move = (ev) => {
+        if (Math.abs(ev.clientX - startX) + Math.abs(ev.clientY - startY) > 4) moved = true;
+      };
+      const up = (ev) => {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        if (moved) return;
+        const idx = measureIndexFromPoint(barnum, ev.clientX);
+        if (idx != null) jumpToMeasure(idx);
+      };
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+      return;
+    }
+
+    if (isEmptyTrack(e.target)) {
+      if (onScrollbar(e)) return;
       beginTrackPan(e);
       return;
     }
@@ -2129,11 +2266,9 @@
       if (drag.inZoom) {
         const end = zoomNoteAtClient(ev.clientX, ev.clientY);
         if (!drag.moved && end != null) {
-          if (!isReadonly()) showSwapPop(end);
+          if (!isReadonly()) swapNote(end);
         } else if (!drag.moved && end == null) {
-          // click blank inside the zoom chrome: keep zoom, just close pops
-          hidePops();
-          state.selection = null;
+          clearSelection();
         }
         return;
       }
@@ -2141,17 +2276,9 @@
       if (drag.moved && drag.index != null && end != null && end !== drag.index) {
         if (!isReadonly()) showRangePop(drag.index, end);
       } else if (!drag.moved && drag.index != null) {
-        const str = noteInString(drag.index);
-        if (str && !(state.expanded && drag.index >= state.expanded.from && drag.index <= state.expanded.to)) {
-          hidePops();
-          state.selection = null;
-          expandString(str, { focusIndex: drag.index });
-        } else if (!isReadonly()) {
-          showSwapPop(drag.index);
-        }
+        if (!isReadonly()) swapNote(drag.index);
       } else {
-        hidePops();
-        state.selection = null;
+        clearSelection();
         if (state.expanded) collapseString();
       }
     };
@@ -2232,7 +2359,8 @@
     releaseCustomIfEmpty: releaseCustomIfEmpty,
     rebuild: rebuild,
     selectRange: (from, to) => { if (state.open) showRangePop(from, to); },
-    selectNote: (index) => { if (state.open) showSwapPop(index); },
+    selectNote: (index) => { if (state.open) highlightNote(index); },
+    applyRangeAction: (action) => { if (state.open) doRangeAction(action); },
     expandString: (from, to, opts) => {
       const s = (state.strings || []).find((it) => it.from === from && it.to === to) || noteInString(from);
       if (s) expandString(s, opts);

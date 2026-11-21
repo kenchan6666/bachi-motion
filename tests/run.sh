@@ -93,6 +93,10 @@ echo "== editor pan (measure overview, hidden scrollbar, zoom pan) =="
 node tests/editor-pan.test.js
 echo
 
+echo "== editor mouse-first hand editing =="
+node tests/editor-mouse.test.js
+echo
+
 echo "== overview marks for 待确认 measures =="
 node tests/overview-marks.test.js
 echo

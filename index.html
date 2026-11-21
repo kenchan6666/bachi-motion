@@ -1491,10 +1491,21 @@ LEVEL:6
       <section class="editor-chart-card">
         <div class="editor-chart-head">
           <h2>谱面与手顺轨道</h2>
-          <p id="editorChartHint">拖选一段可改滚奏或交互 · 单击音符可换手</p>
+          <p id="editorChartHint">单击音符立刻换手 · 拖选后可刷 1-2、2-1、2-2 · 点底下密串放大</p>
           <div class="editor-author" id="editorAuthor">
             <button type="button" class="file-btn" id="editorAddNoteBtn" aria-pressed="false">加入音符</button>
             <button type="button" class="route-hint-btn" id="editorAddNoteHintBtn" popovertarget="editorAddNoteHint" aria-expanded="false" aria-controls="editorAddNoteHint" aria-label="加入音符说明">!</button>
+            <span class="editor-split">
+              <label class="check" for="editorSplitMeasures">
+                <input id="editorSplitMeasures" type="checkbox">
+                分开小节
+              </label>
+              <button type="button" class="route-hint-btn" id="editorSplitMeasuresHintBtn" popovertarget="editorSplitMeasuresHint" aria-expanded="false" aria-controls="editorSplitMeasuresHint" aria-label="分开小节说明">!</button>
+            </span>
+            <div id="editorSplitMeasuresHint" class="route-hint" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="editorSplitMeasuresHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>不勾选时，谱面是一条连续的轨道，小节之间不拆开。勾选后，按小节分成一张张卡片，方便看乐句。</p>
+            </div>
             <div class="editor-note-picker" id="editorNotePicker" hidden>
               <div class="seg" id="editorFaceSeg" role="radiogroup" aria-label="音符">
                 <button type="button" class="on" data-face="don" role="radio" aria-checked="true">咚</button>
@@ -1515,12 +1526,12 @@ LEVEL:6
           <div class="editor-measures" id="editorMeasures"></div>
           <div class="editor-playhead" id="editorPlayhead" hidden></div>
           <div class="editor-sel" id="editorSel" hidden></div>
-          <div class="editor-popover" id="editorRangePop" hidden>
-            <p class="editor-pop-title" id="editorRangePopTitle">将选中的 0 音设为</p>
-            <div class="editor-pop-actions">
-              <button type="button" class="editor-pop-roll" data-ed-action="roll">滚奏</button>
-              <button type="button" class="editor-pop-alt" data-ed-action="alternate">交互</button>
-              <button type="button" data-ed-action="restore">恢复自动</button>
+          <div class="editor-popover is-track" id="editorRangePop" hidden>
+            <div class="editor-track-actions">
+              <button type="button" data-ed-action="12">1-2</button>
+              <button type="button" data-ed-action="21">2-1</button>
+              <button type="button" data-ed-action="22">2-2</button>
+              <button type="button" data-ed-action="audition">循环试听</button>
             </div>
           </div>
           <div class="editor-popover is-swap" id="editorSwapPop" hidden>
@@ -1531,6 +1542,10 @@ LEVEL:6
             </div>
             <p class="editor-pop-note">点按后立即预览</p>
           </div>
+        </div>
+        <div class="editor-nudge" id="editorNudge">
+          <button type="button" class="editor-nudge-btn" id="editorNudgeLeft" aria-label="向左滚动">←</button>
+          <button type="button" class="editor-nudge-btn" id="editorNudgeRight" aria-label="向右滚动">→</button>
         </div>
         <div class="editor-overview" id="editorOverview" hidden>
           <div class="editor-overview-label">
@@ -1546,7 +1561,7 @@ LEVEL:6
         <div id="overviewHint" class="route-hint" popover="auto">
           <button type="button" class="route-hint-close" popovertarget="overviewHint" popovertargetaction="hide" aria-label="关闭">×</button>
           <p>拖谱面空白处左右移动，滚轮也一样。点小节号，或该小节里的空白，就跳到这一小节。</p>
-          <p>方框标出当前看见的小节，点或拖它也能跳。密串放大后，拖空白或滚轮左右移；点音符仍可换手，拖选仍可改滚奏。</p>
+          <p>方框标出当前看见的小节，点或拖它也能跳。密串放大后，拖空白或滚轮左右移；点音符立刻换手，拖选后可刷 1-2、2-1、2-2。</p>
           <p>有待确认音符的小节，总览上标一个金色叹号，不挡住小节号。</p>
         </div>
         <div class="editor-chart-legend">

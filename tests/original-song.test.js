@@ -6,6 +6,8 @@
 "use strict";
 
 const fs = require("fs");
+const os = require("os");
+const http = require("http");
 const path = require("path");
 const assert = require("assert");
 
@@ -32,19 +34,27 @@ function fakeMedia(opts) {
   };
 }
 
-check("nothing selected shows the exact hint and no clear control", () => {
+check("nothing selected leaves the 原曲 switch off and disabled", () => {
   const view = song.selectionView(null);
-  assert.strictEqual(view.hint, "未选择原曲：预览和出片都不含原曲。");
-  assert.strictEqual(view.hint, song.EMPTY_HINT);
+  const control = song.controlView(null, true);
   assert.strictEqual(view.name, "");
   assert.strictEqual(view.clear, false);
+  assert.strictEqual(control.label, "原曲");
+  assert.strictEqual(control.label, song.SWITCH_LABEL);
+  assert.strictEqual(control.disabled, true);
+  assert.strictEqual(control.checked, false);
 });
 
-check("a chosen file shows its name and 不要原曲", () => {
+check("a chosen file shows its name and can clear", () => {
   const view = song.selectionView({ name: "home.ogg" });
-  assert.strictEqual(view.hint, "");
   assert.strictEqual(view.name, "home.ogg");
   assert.strictEqual(view.clear, true);
+  const off = song.controlView({ name: "home.ogg" }, false);
+  const on = song.controlView({ name: "home.ogg" }, true);
+  assert.strictEqual(off.disabled, false);
+  assert.strictEqual(off.checked, false);
+  assert.strictEqual(on.disabled, false);
+  assert.strictEqual(on.checked, true);
 });
 
 check("no file means preview stays silent", () => {
@@ -102,13 +112,95 @@ check("playback seeks once and does not restart while it is already in time", ()
   assert.strictEqual(media.playCount, 1);
 });
 
-check("both 高级 entries share one collapsed song control", () => {
+check("switch off or no file means preview and export stay silent", () => {
+  song.setFile(null);
+  assert.strictEqual(song.setEnabled(true), false);
+  assert.strictEqual(song.isEnabled(), false);
+  assert.strictEqual(song.activeFile(), null);
+  assert.strictEqual(song.getFile(), null);
+  assert.strictEqual(song.playbackTarget(null, true, { now: 1.3, playing: true, rate: 1 }), null);
+
+  song.setFile({ name: "home.wav" });
+  assert.strictEqual(song.isEnabled(), false);
+  assert.strictEqual(song.getFile().name, "home.wav");
+  assert.strictEqual(song.activeFile(), null);
+  const silent = song.playbackTarget(song.getFile(), song.isEnabled(), {
+    now: 1.3, playing: true, rate: 1, timeShift: 0, offset: -2,
+  });
+  assert.strictEqual(silent, null);
+
+  song.setEnabled(false);
+  assert.strictEqual(song.getFile().name, "home.wav");
+  assert.strictEqual(song.activeFile(), null);
+  song.setFile(null);
+});
+
+check("switch on uses the chosen file and does not subtract OFFSET again", () => {
+  const file = { name: "home.wav" };
+  song.setFile(file);
+  assert.strictEqual(song.setEnabled(true), true);
+  assert.strictEqual(song.isEnabled(), true);
+  assert.strictEqual(song.activeFile(), file);
+  const target = song.playbackTarget(song.activeFile(), song.isEnabled(), {
+    now: 1.3, playing: true, rate: 1, timeShift: 0, offset: -2,
+  });
+  assert.strictEqual(target.currentTime, 1.3);
+  assert.notStrictEqual(target.currentTime, 1.3 - (-2));
+  assert.strictEqual(target.play, true);
+  song.setEnabled(false);
+  assert.strictEqual(song.activeFile(), null);
+  assert.strictEqual(song.getFile(), file);
+  song.setFile(null);
+});
+
+check("clearing the file turns the switch off and a new file can stay on", () => {
+  song.setFile({ name: "first.ogg" });
+  song.setEnabled(true);
+  song.setFile(null);
+  assert.strictEqual(song.getFile(), null);
+  assert.strictEqual(song.isEnabled(), false);
+  assert.strictEqual(song.setEnabled(true), false);
+  const next = { name: "second.ogg" };
+  song.setFile(next);
+  song.setEnabled(true);
+  const replaced = { name: "third.ogg" };
+  song.setFile(replaced);
+  assert.strictEqual(song.isEnabled(), true);
+  assert.strictEqual(song.activeFile(), replaced);
+  song.setFile(null);
+});
+
+check("both previews read the same chosen file while the switch is on", () => {
+  const file = { name: "stay.wav" };
+  song.setFile(file);
+  song.setEnabled(true);
+  // Opening and closing the editor must not be required to touch this module.
+  // The same object is what both previews read after the user comes back.
+  assert.strictEqual(song.getFile(), file);
+  assert.strictEqual(song.isEnabled(), true);
+  assert.strictEqual(song.activeFile(), file);
+  const home = song.playbackTarget(song.activeFile(), true, {
+    now: 1.3, playing: true, rate: 1, timeShift: 0, offset: 0,
+  });
+  const editor = song.playbackTarget(song.activeFile(), song.isEnabled(), {
+    now: 1.3, playing: true, rate: 1, timeShift: 0, offset: 0,
+  });
+  assert.strictEqual(home.play, true);
+  assert.strictEqual(editor.play, true);
+  assert.strictEqual(home.currentTime, editor.currentTime);
+  song.setFile(null);
+});
+
+check("homepage 原曲 switch is not a file picker; explanation lives in the !", () => {
   const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
-  const hint = song.EMPTY_HINT;
-  assert.strictEqual(html.split(hint).length - 1, 2);
-  assert.strictEqual(html.split("打开原曲").length - 1, 2);
-  assert.strictEqual(html.split("不要原曲").length - 1, 2);
-  assert.strictEqual(html.split(song.ACCEPT).length - 1, 3);
+  assert.strictEqual(html.split("打开原曲").length - 1, 1);
+  assert.strictEqual(html.split("不要原曲").length - 1, 1);
+  assert.strictEqual(html.split(song.ACCEPT).length - 1, 2);
+  assert.ok(!html.includes("未选择原曲：预览和出片都不含原曲。"));
+  for (const line of song.EXPLAIN) {
+    assert.strictEqual(html.split(line).length - 1, 1, line);
+    assert.ok(!/[咕咛咞咐呼咩]/.test(line), line);
+  }
 
   const settingsAt = html.indexOf('id="settings"');
   const advancedAt = html.indexOf('id="settingsAdvanced"');
@@ -119,17 +211,59 @@ check("both 高级 entries share one collapsed song control", () => {
   assert.ok(openTag.startsWith("<details"), openTag);
   assert.ok(!/\sopen(\s|>|=)/.test(openTag.split(">")[0]), openTag);
 
+  const adv = html.slice(advancedAt, html.indexOf("</details>", advancedAt));
+  assert.ok(adv.includes('id="settingsOriginalUse"'));
+  assert.ok(adv.includes("data-original-use"));
+  assert.ok(adv.includes("disabled"));
+  assert.ok(adv.includes(">原曲</label>"));
+  assert.ok(!adv.includes("打开原曲"));
+  assert.ok(!adv.includes('type="file"'));
+  assert.ok(!adv.includes("不要原曲"));
+  const popStart = adv.indexOf('id="originalHint"');
+  const popEnd = adv.indexOf("</div>", popStart);
+  const pop = adv.slice(popStart, popEnd);
+  const rest = adv.slice(0, popStart) + adv.slice(popEnd);
+  for (const line of song.EXPLAIN) {
+    assert.ok(pop.includes(line), line);
+    assert.ok(!rest.includes(line), line);
+  }
+  assert.ok(rest.includes(">原曲</label>"));
+  assert.ok(!rest.includes("原曲文件在手顺编辑器"));
+
   const panelStart = html.indexOf('id="editorAdvancedPanel"');
   const panel = html.slice(panelStart, html.indexOf('id="editorScroll"'));
   assert.ok(panel.includes("打开原曲"));
-  assert.ok(panel.includes(hint));
+  assert.ok(panel.includes('id="editorOriginalSong"'));
+  assert.ok(panel.includes('type="file"'));
   assert.ok(panel.includes("不要原曲"));
   assert.ok(panel.includes("导入 JSON"));
   assert.ok(panel.includes("导出 JSON"));
   assert.ok(panel.includes("打开 TJA"));
+  assert.ok(!panel.includes("data-original-use"));
+  for (const line of song.EXPLAIN) assert.ok(!panel.includes(line), line);
+
+  const outside = html.slice(0, html.indexOf('id="originalHint"'))
+    + html.slice(html.indexOf("</div>", html.indexOf('id="originalHint"')));
+  for (const line of song.EXPLAIN) assert.ok(!outside.includes(line), line);
+
+  const editorJs = fs.readFileSync(path.join(__dirname, "..", "js", "editor.js"), "utf8");
+  function fnBody(name, next) {
+    const start = editorJs.indexOf("function " + name);
+    const end = editorJs.indexOf("function " + next);
+    assert.ok(start >= 0 && end > start, name);
+    return editorJs.slice(start, end);
+  }
+  for (const body of [fnBody("openEditor", "closeEditor"), fnBody("closeEditor", "refitTitles")]) {
+    assert.ok(!body.includes("BachiOriginal"), body.slice(0, 40));
+    assert.ok(!body.includes("setFile"));
+    assert.ok(!body.includes("setEnabled"));
+    assert.ok(!body.includes("settingsOriginalUse"));
+  }
 
   const batchUi = fs.readFileSync(path.join(__dirname, "..", "js", "batch-ui.js"), "utf8");
   assert.ok(batchUi.includes(song.ACCEPT));
+  const sharedFn = batchUi.slice(batchUi.indexOf("function sharedOriginalFile"), batchUi.indexOf("function pushRow"));
+  assert.ok(sharedFn.includes("activeFile()"));
   const addStart = batchUi.indexOf("if (addCurrent)");
   const addBody = batchUi.slice(addStart, batchUi.indexOf("function showDownloads"));
   assert.ok(addBody.includes("sharedOriginalFile()"));
@@ -144,6 +278,238 @@ check("both 高级 entries share one collapsed song control", () => {
   assert.ok(engine.includes("offset: state.offset"));
   assert.ok(engine.includes('src="js/original-song.js"') === false);
   assert.ok(html.includes('src="js/original-song.js"'));
+  const app = fs.readFileSync(path.join(__dirname, "..", "js", "app.js"), "utf8");
+  assert.ok(app.includes('setupRouteHint("originalHintBtn", "originalHint")'));
 });
 
-console.log("original-song tests: " + passed);
+function silentWav() {
+  const samples = 800;
+  const dataSize = samples * 2;
+  const buf = Buffer.alloc(44 + dataSize);
+  buf.write("RIFF", 0);
+  buf.writeUInt32LE(36 + dataSize, 4);
+  buf.write("WAVE", 8);
+  buf.write("fmt ", 12);
+  buf.writeUInt32LE(16, 16);
+  buf.writeUInt16LE(1, 20);
+  buf.writeUInt16LE(1, 22);
+  buf.writeUInt32LE(8000, 24);
+  buf.writeUInt32LE(16000, 28);
+  buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34);
+  buf.write("data", 36);
+  buf.writeUInt32LE(dataSize, 40);
+  return buf;
+}
+
+function loadPuppeteer() {
+  const root = path.resolve(process.env.BM_ROOT || path.join(__dirname, ".."));
+  try { return require(path.join(root, "node_modules", "puppeteer-core")); }
+  catch (err) { return require("puppeteer-core"); }
+}
+
+function startStaticServer(root) {
+  const mime = {
+    ".html": "text/html; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".wav": "audio/wav",
+    ".svg": "image/svg+xml",
+    ".json": "application/json; charset=utf-8",
+  };
+  return new Promise((resolve) => {
+    const server = http.createServer((req, res) => {
+      const url = new URL(req.url || "/", "http://127.0.0.1");
+      let rel = decodeURIComponent(url.pathname);
+      if (rel === "/") rel = "/index.html";
+      const file = path.normalize(path.join(root, rel));
+      if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
+      fs.readFile(file, (err, buf) => {
+        if (err) { res.writeHead(404); res.end("not found"); return; }
+        res.writeHead(200, { "Content-Type": mime[path.extname(file)] || "application/octet-stream" });
+        res.end(buf);
+      });
+    });
+    server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port }));
+  });
+}
+
+function songState() {
+  const api = window.BachiOriginal;
+  const box = document.getElementById("settingsOriginalUse");
+  const file = api.getFile();
+  const active = api.activeFile();
+  const target = api.playbackTarget(active, api.isEnabled(), {
+    now: 1.3, playing: true, rate: 1, timeShift: 0, offset: -2,
+  });
+  const player = api.player();
+  const adv = document.getElementById("settingsAdvanced");
+  const pop = document.getElementById("originalHint");
+  const advClone = adv.cloneNode(true);
+  const popClone = advClone.querySelector("#originalHint");
+  if (popClone) popClone.remove();
+  return {
+    disabled: box.disabled,
+    checked: box.checked,
+    label: box.parentElement.textContent.replace(/\s+/g, ""),
+    fileName: file ? file.name : "",
+    activeName: active ? active.name : "",
+    enabled: api.isEnabled(),
+    play: !!(target && target.play),
+    currentTime: target ? target.currentTime : null,
+    src: player && player.src ? player.src : "",
+    editorName: document.getElementById("editorOriginalName").textContent,
+    homepageFiles: adv.querySelectorAll('input[type="file"]').length,
+    editorFiles: document.querySelectorAll("#editorAdvancedPanel input[type=file][data-original-song]").length,
+    explainOnPage: advClone.textContent.includes("原曲文件在手顺编辑器"),
+    explainInPopover: pop.textContent.includes("原曲文件在手顺编辑器")
+      && pop.textContent.includes("从第一个音 − 0.7 秒对齐"),
+    queueSongs: Array.from(document.querySelectorAll("#batchList .batch-song")).map((el) => el.textContent),
+  };
+}
+
+(async function browserRoundTrip() {
+  const root = path.resolve(process.env.BM_ROOT || path.join(__dirname, ".."));
+  const wavPath = path.join(os.tmpdir(), "bachi-original-stay.wav");
+  fs.writeFileSync(wavPath, silentWav());
+  const puppeteer = loadPuppeteer();
+  const chrome = process.env.CHROME_PATH || process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/local/bin/google-chrome";
+  const { server, port } = await startStaticServer(root);
+  const browser = await puppeteer.launch({
+    headless: true,
+    executablePath: chrome,
+    args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage", "--disable-gpu", "--autoplay-policy=no-user-gesture-required"],
+  });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+    await page.goto("http://127.0.0.1:" + port + "/index.html", { waitUntil: "networkidle0", timeout: 30000 });
+    await page.evaluate(() => {
+      document.getElementById("settings").open = true;
+      document.getElementById("settingsAdvanced").open = true;
+    });
+
+    const before = await page.evaluate(songState);
+    assert.strictEqual(before.disabled, true);
+    assert.strictEqual(before.checked, false);
+    assert.strictEqual(before.label, "原曲");
+    assert.strictEqual(before.fileName, "");
+    assert.strictEqual(before.activeName, "");
+    assert.strictEqual(before.homepageFiles, 0);
+    assert.strictEqual(before.editorFiles, 1);
+    assert.strictEqual(before.explainOnPage, false);
+    assert.strictEqual(before.explainInPopover, true);
+    await page.evaluate(() => document.getElementById("settingsOriginalUse").click());
+    const stillOff = await page.evaluate(songState);
+    assert.strictEqual(stillOff.disabled, true);
+    assert.strictEqual(stillOff.checked, false);
+
+    await page.click("#originalHintBtn");
+    const hintOpen = await page.evaluate(() => document.getElementById("originalHint").matches(":popover-open"));
+    assert.strictEqual(hintOpen, true);
+    await page.evaluate(() => document.getElementById("originalHint").hidePopover());
+
+    await page.click("#btnOpenEditor");
+    await page.waitForFunction(() => document.body.classList.contains("editor-mode"));
+    await page.click("#editorAdvancedBtn");
+    await page.waitForSelector("#editorAdvancedPanel:not([hidden])");
+    const input = await page.$("#editorOriginalSong");
+    await input.uploadFile(wavPath);
+    await page.waitForFunction(() => {
+      const api = window.BachiOriginal;
+      return api.getFile() && api.getFile().name === "bachi-original-stay.wav";
+    });
+    const picked = await page.evaluate(songState);
+    assert.strictEqual(picked.fileName, "bachi-original-stay.wav");
+    assert.strictEqual(picked.editorName, "bachi-original-stay.wav");
+    assert.strictEqual(picked.disabled, false);
+    assert.strictEqual(picked.checked, false);
+    assert.strictEqual(picked.activeName, "");
+    assert.strictEqual(picked.enabled, false);
+    assert.ok(picked.src.startsWith("blob:"));
+
+    await page.click("#btnBackPlayer");
+    await page.waitForFunction(() => !document.body.classList.contains("editor-mode"));
+    const homeReady = await page.evaluate(songState);
+    assert.strictEqual(homeReady.disabled, false);
+    assert.strictEqual(homeReady.checked, false);
+    assert.strictEqual(homeReady.fileName, "bachi-original-stay.wav");
+    await page.click("#settingsOriginalUse");
+    const armed = await page.evaluate(songState);
+    assert.strictEqual(armed.checked, true);
+    assert.strictEqual(armed.enabled, true);
+    assert.strictEqual(armed.activeName, "bachi-original-stay.wav");
+    assert.strictEqual(armed.play, true);
+    assert.strictEqual(armed.currentTime, 1.3);
+    assert.notStrictEqual(armed.currentTime, 1.3 - (-2));
+    const src = armed.src;
+
+    await page.click("#btnOpenEditor");
+    await page.waitForFunction(() => document.body.classList.contains("editor-mode"));
+    const inEditor = await page.evaluate(songState);
+    assert.strictEqual(inEditor.checked, true);
+    assert.strictEqual(inEditor.disabled, false);
+    assert.strictEqual(inEditor.enabled, true);
+    assert.strictEqual(inEditor.fileName, "bachi-original-stay.wav");
+    assert.strictEqual(inEditor.activeName, "bachi-original-stay.wav");
+    assert.strictEqual(inEditor.editorName, "bachi-original-stay.wav");
+    assert.strictEqual(inEditor.src, src);
+    assert.strictEqual(inEditor.play, true);
+    assert.strictEqual(inEditor.currentTime, 1.3);
+
+    await page.click("#btnBackPlayer");
+    await page.waitForFunction(() => !document.body.classList.contains("editor-mode"));
+    const returned = await page.evaluate(songState);
+    assert.strictEqual(returned.checked, true);
+    assert.strictEqual(returned.disabled, false);
+    assert.strictEqual(returned.enabled, true);
+    assert.strictEqual(returned.fileName, "bachi-original-stay.wav");
+    assert.strictEqual(returned.activeName, "bachi-original-stay.wav");
+    assert.strictEqual(returned.src, src);
+    assert.strictEqual(returned.play, true);
+    assert.strictEqual(returned.label, "原曲");
+
+    await page.evaluate(() => {
+      document.getElementById("settings").open = true;
+      document.getElementById("settingsAdvanced").open = true;
+    });
+    await page.click("#batchAddCurrent");
+    await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 1);
+    const queuedOn = await page.evaluate(songState);
+    assert.deepStrictEqual(queuedOn.queueSongs, ["bachi-original-stay.wav"]);
+
+    await page.click("#settingsOriginalUse");
+    const silenced = await page.evaluate(songState);
+    assert.strictEqual(silenced.checked, false);
+    assert.strictEqual(silenced.enabled, false);
+    assert.strictEqual(silenced.activeName, "");
+    assert.strictEqual(silenced.fileName, "bachi-original-stay.wav");
+    assert.strictEqual(silenced.play, false);
+    assert.strictEqual(silenced.src, src);
+    await page.click("#batchAddCurrent");
+    await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 2);
+    const queuedOff = await page.evaluate(songState);
+    assert.deepStrictEqual(queuedOff.queueSongs, ["bachi-original-stay.wav", "无原曲"]);
+
+    await page.click("#settingsOriginalUse");
+    const again = await page.evaluate(songState);
+    assert.strictEqual(again.checked, true);
+    assert.strictEqual(again.activeName, "bachi-original-stay.wav");
+    assert.strictEqual(again.src, src);
+    await page.click("#batchAddCurrent");
+    await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 3);
+    const queuedAgain = await page.evaluate(songState);
+    assert.deepStrictEqual(queuedAgain.queueSongs, ["bachi-original-stay.wav", "无原曲", "bachi-original-stay.wav"]);
+
+    passed += 1;
+    console.log("  ✓ homepage and editor keep 原曲 across a round trip");
+  } finally {
+    await browser.close();
+    await new Promise((resolve) => server.close(resolve));
+    fs.rmSync(wavPath, { force: true });
+  }
+  console.log("original-song tests: " + passed);
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

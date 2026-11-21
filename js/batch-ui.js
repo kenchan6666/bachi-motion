@@ -165,8 +165,12 @@
     }
 
     function sharedOriginalFile() {
-      if (typeof window === "undefined" || !window.BachiOriginal || typeof window.BachiOriginal.getFile !== "function") return null;
-      return window.BachiOriginal.getFile() || null;
+      const api = typeof window !== "undefined" ? window.BachiOriginal : null;
+      if (!api) return null;
+      // Homepage 「原曲」 off, or no file yet → this row has no original.
+      if (typeof api.activeFile === "function") return api.activeFile() || null;
+      if (typeof api.getFile === "function") return api.getFile() || null;
+      return null;
     }
 
     function pushRow(row) {
@@ -218,8 +222,8 @@
         pushRow({
           name: "当前谱面.tja",
           tjaText: text,
-          // Snapshot of the shared 「高级」 song. A row that later picks its own
-          // file keeps that file; changing 「高级」 does not rewrite the queue.
+          // Snapshot of the shared song only while 「原曲」 is on.
+          // A row that later picks its own file keeps that file.
           songFile: sharedOriginalFile(),
           sectionStart: section && section.sectionStart,
           sectionEnd: section && section.sectionEnd,

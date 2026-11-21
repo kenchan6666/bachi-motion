@@ -723,7 +723,12 @@
     gap: 6px;
     font-size: 13px;
   }
+  .check:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
   input[type="checkbox"] { accent-color: var(--ink-deep); }
+  input[type="checkbox"]:disabled { cursor: not-allowed; }
   #error {
     margin: 0;
     padding: 6px 10px;
@@ -1243,13 +1248,14 @@ LEVEL:6
                 <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
                 <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
               </div>
-              <div class="chips">
-                <label class="file-btn">打开原曲<input id="settingsOriginalSong" data-original-song type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
+              <div class="route-head">
+                <label class="check"><input id="settingsOriginalUse" data-original-use type="checkbox" disabled>原曲</label>
+                <button type="button" class="route-hint-btn" id="originalHintBtn" popovertarget="originalHint" aria-expanded="false" aria-controls="originalHint" aria-label="原曲说明">!</button>
               </div>
-              <p class="hint" id="settingsOriginalHint" data-original-hint>未选择原曲：预览和出片都不含原曲。</p>
-              <div class="original-song-chosen" id="settingsOriginalChosen" data-original-chosen hidden>
-                <span class="original-song-name" id="settingsOriginalName" data-original-name></span>
-                <button type="button" class="file-btn" id="settingsOriginalClear" data-original-clear>不要原曲</button>
+              <div id="originalHint" class="route-hint route-hint-wide" popover="auto">
+                <button type="button" class="route-hint-close" popovertarget="originalHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                <p>原曲文件在手顺编辑器的「高级」里选。这个开关只决定预览和出片用不用已经选好的那一首。还没选原曲时，开关不能点。</p>
+                <p>打开并且已经选好，预览和「生成 / 播放」会一起放这首，从第一个音 − 0.7 秒对齐。没选，或开关关着，就不播原曲。从主页切到编辑谱面再回来，开关和这首都还在，不用重新选，也不用重新打开。</p>
               </div>
             </div>
           </details>
@@ -1360,7 +1366,6 @@ LEVEL:6
             <button type="button" class="file-btn" id="editorExportJson">导出 JSON</button>
             <label class="file-btn">打开 TJA<input id="editorTjaFile" type="file" accept=".tja,text/plain"></label>
             <label class="file-btn">打开原曲<input id="editorOriginalSong" data-original-song type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
-            <p class="hint" id="editorOriginalHint" data-original-hint>未选择原曲：预览和出片都不含原曲。</p>
             <div class="original-song-chosen" id="editorOriginalChosen" data-original-chosen hidden>
               <span class="original-song-name" id="editorOriginalName" data-original-name></span>
               <button type="button" class="file-btn" id="editorOriginalClear" data-original-clear>不要原曲</button>

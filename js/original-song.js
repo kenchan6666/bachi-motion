@@ -1,14 +1,18 @@
 "use strict";
 
 /**
- * One original-song file for both 「高级」 entries (settings block and editor menu).
- * Preview, generate, and 「把当前谱面加入队列」 read this file.
- * A queue row that already has its own file keeps that file.
+ * One original-song file, chosen only in the hand-order editor's 「高级」.
+ * The homepage 「高级」 switch is named 「原曲」. It does not pick a file.
+ * It only decides whether preview and export use the file already chosen.
+ * No file → the switch is disabled. Off, or no file → preview and export
+ * stay silent here. On, and a file is chosen → preview and 「生成 / 播放」
+ * play that file. Opening the editor and coming back does not clear the
+ * file, the switch, or the loaded audio.
  *
  * Chart time is already an audio time (OFFSET subtracted once at parse).
  * Playback lines the file up at state.now + timeShift, which is chartStart
- * when the picture starts. Do not subtract OFFSET again.
- * No file → nothing is played here. Don/ka hits are a separate export mix.
+ * when the picture starts (first note − 0.7). Do not subtract OFFSET again.
+ * Don/ka hits are a separate mix and are not touched here.
  */
 (function (factory) {
   const api = factory();
@@ -23,11 +27,16 @@
     }
   }
 })(function () {
-  const EMPTY_HINT = "未选择原曲：预览和出片都不含原曲。";
+  const SWITCH_LABEL = "原曲";
+  const EXPLAIN = [
+    "原曲文件在手顺编辑器的「高级」里选。这个开关只决定预览和出片用不用已经选好的那一首。还没选原曲时，开关不能点。",
+    "打开并且已经选好，预览和「生成 / 播放」会一起放这首，从第一个音 − 0.7 秒对齐。没选，或开关关着，就不播原曲。从主页切到编辑谱面再回来，开关和这首都还在，不用重新选，也不用重新打开。",
+  ];
   const ACCEPT = "audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4";
   const DRIFT_SEC = 0.08;
 
   let currentFile = null;
+  let useOriginal = false;
   let objectUrl = null;
   let attachedUrl = null;
   let audioEl = null;
@@ -37,8 +46,39 @@
   let lastSeekTarget = null;
 
   function selectionView(file) {
-    if (!file) return { hint: EMPTY_HINT, name: "", clear: false };
-    return { hint: "", name: String(file.name || ""), clear: true };
+    if (!file) return { name: "", clear: false };
+    return { name: String(file.name || ""), clear: true };
+  }
+
+  /** Homepage 「原曲」 switch. Disabled until a file is chosen. */
+  function controlView(file, enabled) {
+    const selected = !!file;
+    return {
+      label: SWITCH_LABEL,
+      disabled: !selected,
+      checked: !!(selected && enabled),
+    };
+  }
+
+  /**
+   * The file preview and export should hear.
+   * Off, or no file → null. Callers must not invent a song.
+   */
+  function activeFile() {
+    return useOriginal && currentFile ? currentFile : null;
+  }
+
+  function isEnabled() {
+    return !!(useOriginal && currentFile);
+  }
+
+  /**
+   * Preview clock for this file, or null when the switch is off / no file.
+   * Alignment stays previewClock: chart time, not a second OFFSET.
+   */
+  function playbackTarget(file, enabled, clock) {
+    if (!enabled || !file) return null;
+    return previewClock(file, clock);
   }
 
   /**
@@ -99,8 +139,10 @@
   function renderViews() {
     if (typeof document === "undefined") return;
     const view = selectionView(currentFile);
-    document.querySelectorAll("[data-original-hint]").forEach(function (el) {
-      el.hidden = !view.hint;
+    const control = controlView(currentFile, useOriginal);
+    document.querySelectorAll("[data-original-use]").forEach(function (el) {
+      el.disabled = control.disabled;
+      el.checked = control.checked;
     });
     document.querySelectorAll("[data-original-name]").forEach(function (el) {
       el.textContent = view.name;
@@ -125,12 +167,13 @@
 
   function syncPlayback(clock) {
     if (exporting()) return;
-    if (!currentFile || !audioEl) {
+    const file = activeFile();
+    if (!file || !audioEl) {
       holdLeadIn = false;
       if (audioEl && !audioEl.paused) audioEl.pause();
       return;
     }
-    const target = previewClock(currentFile, clock);
+    const target = playbackTarget(file, true, clock);
     if (!target) return;
     if (target.play) audioEl.muted = false;
     const nowMs = Date.now();
@@ -165,7 +208,7 @@
       const hold = function () {
         if (!audioEl || !currentFile) return;
         const live = clockFromAnim() || clock;
-        const again = previewClock(currentFile, live);
+        const again = playbackTarget(currentFile, useOriginal, live);
         if (!again || !again.play) audioEl.pause();
         audioEl.muted = false;
       };
@@ -205,9 +248,17 @@
     setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
   }
 
+  function setEnabled(on) {
+    useOriginal = !!on && !!currentFile;
+    renderViews();
+    publishFromAnim();
+    return useOriginal;
+  }
+
   function setFile(file) {
     const next = file || null;
     currentFile = next;
+    if (!currentFile) useOriginal = false;
     holdLeadIn = false;
     lastSeekMs = 0;
     lastSeekTarget = null;
@@ -250,17 +301,28 @@
     document.querySelectorAll("[data-original-clear]").forEach(function (btn) {
       btn.addEventListener("click", function () { setFile(null); });
     });
+    document.querySelectorAll("[data-original-use]").forEach(function (input) {
+      input.addEventListener("change", function () {
+        setEnabled(input.checked);
+      });
+    });
     renderViews();
   }
 
   return {
-    EMPTY_HINT: EMPTY_HINT,
+    SWITCH_LABEL: SWITCH_LABEL,
+    EXPLAIN: EXPLAIN,
     ACCEPT: ACCEPT,
     selectionView: selectionView,
+    controlView: controlView,
+    playbackTarget: playbackTarget,
     previewClock: previewClock,
     applyPreview: applyPreview,
     mount: mount,
     setFile: setFile,
+    setEnabled: setEnabled,
+    isEnabled: isEnabled,
+    activeFile: activeFile,
     getFile: function () { return currentFile; },
     syncPlayback: syncPlayback,
     player: function () { return audioEl; },

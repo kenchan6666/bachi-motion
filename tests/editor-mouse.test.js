@@ -10,6 +10,7 @@
  * 分开小节 is off by default (one strip) and on restores separate measure cards.
  * 全部谱面 is off by default. On, the chart wraps so every measure is in the
  * card width, and the arrows and 小节总览 hide. Off, the strip and both return.
+ * A click in 全部谱面 does not change scrollTop or scrollLeft.
  * Clicking a collapsed string still opens the zoom card.
  *
  *   node tests/editor-mouse.test.js
@@ -140,6 +141,7 @@ function overlaps(a, b) {
           pairs: resolved ? resolved.rollPairs.map((p) => p.join("-")) : [],
           selection: st.selection,
           scrollLeft: scroll.scrollLeft,
+          scrollTop: scroll.scrollTop,
           playing: !!anim.playing,
           now: anim.now,
           loopStart: anim.loopStart,
@@ -607,11 +609,12 @@ function overlaps(a, b) {
       const r = el.getBoundingClientRect();
       return { x: r.left + r.width / 2, y: r.top + r.height / 2, hand: window.BachiEditor.getResolved().hands[1] };
     });
-    const scrollBeforeWrapNote = (await read()).scrollLeft;
+    const scrollBeforeWrapNote = await read();
     await page.mouse.click(wrappedNote.x, wrappedNote.y);
     const afterWrapNote = await read();
     if (afterWrapNote.hands[1] === wrappedNote.hand) fail("全部谱面 note click did not swap L/R");
-    if (Math.abs(afterWrapNote.scrollLeft - scrollBeforeWrapNote) > 2) fail("全部谱面 note click panned the chart");
+    if (Math.abs(afterWrapNote.scrollLeft - scrollBeforeWrapNote.scrollLeft) > 2) fail("全部谱面 note click panned the chart");
+    if (Math.abs(afterWrapNote.scrollTop - scrollBeforeWrapNote.scrollTop) > 2) fail("全部谱面 note click changed scrollTop");
     if (!afterWrapNote.swapHidden) fail("全部谱面 note click showed the swap popup");
 
     const wrappedPair = await page.evaluate(() => {
@@ -642,6 +645,63 @@ function overlaps(a, b) {
       if (m.left < wrappedCards.port.left - 2 || m.right > wrappedCards.port.right + 2) {
         fail("card " + m.index + " is outside the chart width");
       }
+    });
+
+    const parked = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll");
+      const max = Math.max(0, scroll.scrollHeight - scroll.clientHeight);
+      scroll.scrollTop = Math.min(max, Math.max(80, max * 0.45));
+      scroll.scrollLeft = 0;
+      return { top: scroll.scrollTop, max: max };
+    });
+    if (parked.max < 40) fail("全部谱面 + 分开小节 cannot scroll (" + parked.max.toFixed(0) + "px)");
+    const emptyLane = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const lanes = [...document.querySelectorAll("#editorMeasures .editor-lane")];
+      for (const laneEl of lanes) {
+        const r = laneEl.getBoundingClientRect();
+        const y = r.top + r.height / 2;
+        if (y < scroll.top + 8 || y > scroll.bottom - 8) continue;
+        for (let x = r.left + 18; x < r.right - 12; x += 16) {
+          const hit = document.elementFromPoint(x, y);
+          if (hit && hit.closest(".editor-lane") && !hit.closest(".editor-note, .editor-string, button")) return { x: x, y: y };
+        }
+      }
+      return null;
+    });
+    if (!emptyLane) fail("no empty lane while 全部谱面 is scrolled");
+    else {
+      const beforeEmpty = await read();
+      await page.mouse.click(emptyLane.x, emptyLane.y);
+      const afterEmpty = await read();
+      if (Math.abs(afterEmpty.scrollTop - beforeEmpty.scrollTop) > 2) fail("全部谱面 empty-lane click changed scrollTop");
+      if (Math.abs(afterEmpty.scrollLeft - beforeEmpty.scrollLeft) > 2) fail("全部谱面 empty-lane click changed scrollLeft");
+    }
+    const barClick = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const bars = [...document.querySelectorAll("#editorMeasures .editor-barnum")];
+      for (const el of bars) {
+        const r = el.getBoundingClientRect();
+        const x = r.left + 12;
+        const y = r.top + r.height / 2;
+        if (y < scroll.top + 2 || y > scroll.bottom - 2) continue;
+        const hit = document.elementFromPoint(x, y);
+        if (hit && hit.closest(".editor-barnum")) return { x: x, y: y };
+      }
+      return null;
+    });
+    if (!barClick) fail("no measure number while 全部谱面 is scrolled");
+    else {
+      const beforeBar = await read();
+      await page.mouse.click(barClick.x, barClick.y);
+      const afterBar = await read();
+      if (Math.abs(afterBar.scrollTop - beforeBar.scrollTop) > 2) fail("全部谱面 measure-number click changed scrollTop");
+      if (Math.abs(afterBar.scrollLeft - beforeBar.scrollLeft) > 2) fail("全部谱面 measure-number click changed scrollLeft");
+    }
+    await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll");
+      scroll.scrollTop = 0;
+      scroll.scrollLeft = 0;
     });
 
     await page.click("#editorFullChart");

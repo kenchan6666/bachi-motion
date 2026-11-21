@@ -2,6 +2,7 @@
  * Editor panning: measure overview, hidden scrollbar, empty-track drag,
  * wheel pan, measure jump, and zoomed-string pan. Explanation copy lives
  * in the ! popover.
+ * In 全部谱面, a click must not scroll; only a hold-drag or the wheel may.
  *
  *   node tests/editor-pan.test.js
  */
@@ -53,6 +54,26 @@ function startStaticServer(root) {
     });
     server.listen(0, "127.0.0.1", () => resolve({ server, port: server.address().port }));
   });
+}
+
+function buildLongTja() {
+  const bars = [];
+  for (let i = 1; i <= 48; i++) {
+    if (i === 20) bars.push("1111000000000000,");
+    else bars.push("1000100010001000,");
+  }
+  return [
+    "TITLE:换行平移",
+    "BPM:120",
+    "OFFSET:0",
+    "COURSE:Oni",
+    "LEVEL:1",
+    "",
+    "#START",
+    bars.join("\n"),
+    "#END",
+    "",
+  ].join("\n");
 }
 
 function buildTja() {
@@ -585,6 +606,293 @@ function assertNear(fails, id, pop, btn) {
     if (!hinted.text.includes("小节") || !hinted.text.includes("滚轮")) fail("overview hint missing explanation");
     if (hinted.text.includes("咕")) fail("overview hint uses 咕");
     assertNear(fails, "overviewHint", hinted.pop, hinted.btn);
+
+    // 全部谱面: a click must not move the wrapped view. Hold-drag and the
+    // wheel still scroll vertically. The chart is long enough to scroll.
+    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+    await page.evaluate((tja) => {
+      window.BachiApp.setTja(tja);
+      window.BachiApp.setMode("zhuren");
+      window.BachiApp.generate(false);
+    }, buildLongTja());
+    await page.waitForFunction(() => document.querySelectorAll("#editorMeasures .editor-measure").length >= 48, { timeout: 10000 });
+    const wrapChecks = await page.evaluate(() => ({
+      full: document.getElementById("editorFullChart").checked,
+      split: document.getElementById("editorSplitMeasures").checked,
+    }));
+    if (!wrapChecks.full) await page.click("#editorFullChart");
+    if (!wrapChecks.split) await page.click("#editorSplitMeasures");
+    await page.waitForFunction(() => {
+      const root = document.getElementById("editor");
+      return root.classList.contains("is-full-chart") && !root.classList.contains("is-continuous");
+    }, { timeout: 5000 });
+
+    async function wrapScroll() {
+      return page.evaluate(() => {
+        const scroll = document.getElementById("editorScroll");
+        const anim = window.taikoAnim.state;
+        return {
+          top: scroll.scrollTop,
+          left: scroll.scrollLeft,
+          max: Math.max(0, scroll.scrollHeight - scroll.clientHeight),
+          now: anim.now,
+          end: anim.end,
+          playing: !!anim.playing,
+        };
+      });
+    }
+
+    const wrapRoom = await wrapScroll();
+    if (wrapRoom.max < 500) fail("全部谱面 fixture only scrolls " + wrapRoom.max.toFixed(0) + "px");
+
+    async function park(top) {
+      await page.evaluate((y) => {
+        const scroll = document.getElementById("editorScroll");
+        scroll.scrollTop = y;
+        scroll.scrollLeft = 0;
+      }, top);
+    }
+
+    function sameView(before, after, label) {
+      if (Math.abs(after.top - before.top) > 2) {
+        fail(label + " changed scrollTop " + before.top.toFixed(1) + " → " + after.top.toFixed(1));
+      }
+      if (Math.abs(after.left - before.left) > 2) {
+        fail(label + " changed scrollLeft " + before.left.toFixed(1) + " → " + after.left.toFixed(1));
+      }
+      if (after.playing) fail(label + " started playback");
+    }
+
+    async function stayed(after, label) {
+      await new Promise((resolve) => setTimeout(resolve, 450));
+      const later = await wrapScroll();
+      sameView(after, later, label + " kept scrolling");
+    }
+
+    await park(720);
+    const lanePt = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const lanes = [...document.querySelectorAll("#editorMeasures .editor-lane")];
+      for (const laneEl of lanes) {
+        const r = laneEl.getBoundingClientRect();
+        if (r.top < scroll.top + 30 || r.bottom > scroll.bottom - 8) continue;
+        const y = r.top + r.height / 2;
+        const x = r.left + 3;
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !hit.closest(".editor-lane") || hit.closest(".editor-note, .editor-string, .editor-barnum, button")) continue;
+        const measure = hit.closest(".editor-measure");
+        return { x: x, y: y, index: measure ? +measure.dataset.index : 0 };
+      }
+      return null;
+    });
+    if (!lanePt) fail("no empty left-edge lane in 全部谱面");
+    else {
+      const before = await wrapScroll();
+      await page.mouse.click(lanePt.x, lanePt.y);
+      const after = await wrapScroll();
+      sameView(before, after, "全部谱面 empty-lane click");
+      const measureT = await page.evaluate((index) => {
+        const measures = window.BachiEditor.getState().measures || [];
+        const m = measures.find((it) => it.index === index);
+        return m ? { t: m.t, dur: m.duration || 0 } : null;
+      }, lanePt.index);
+      if (measureT && (after.now < measureT.t - 0.05 || after.now > measureT.t + measureT.dur + 0.05)) {
+        fail("全部谱面 empty-lane click seeked outside measure " + lanePt.index + " (" + after.now.toFixed(2) + ")");
+      }
+      if (after.now > after.end - 1) fail("全部谱面 empty-lane click seeked to the end");
+      await stayed(after, "全部谱面 empty-lane click");
+    }
+
+    await park(720);
+    const handsPt = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const hands = [...document.querySelectorAll("#editorMeasures .editor-hands")];
+      for (const el of hands) {
+        const r = el.getBoundingClientRect();
+        if (r.top < scroll.top + 8 || r.bottom > scroll.bottom - 4) continue;
+        const y = r.top + r.height / 2;
+        for (let x = r.left + 8; x < r.right - 8; x += 16) {
+          const hit = document.elementFromPoint(x, y);
+          if (!hit || !hit.closest(".editor-hands") || hit.closest(".editor-string, .editor-note, button")) continue;
+          return { x: x, y: y };
+        }
+      }
+      return null;
+    });
+    if (!handsPt) fail("no empty hands point in 全部谱面");
+    else {
+      const before = await wrapScroll();
+      await page.mouse.click(handsPt.x, handsPt.y);
+      const after = await wrapScroll();
+      sameView(before, after, "全部谱面 empty-track click");
+      await stayed(after, "全部谱面 empty-track click");
+    }
+
+    await park(720);
+    const barPt = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const bars = [...document.querySelectorAll("#editorMeasures .editor-barnum")];
+      for (const el of bars) {
+        const r = el.getBoundingClientRect();
+        const x = r.left + 14;
+        const y = r.top + r.height / 2;
+        if (y < scroll.top + 4 || y > scroll.bottom - 4 || x < scroll.left || x > scroll.right) continue;
+        const hit = document.elementFromPoint(x, y);
+        if (hit && hit.closest(".editor-barnum")) return { x: x, y: y };
+      }
+      return null;
+    });
+    if (!barPt) fail("no measure number in 全部谱面");
+    else {
+      const before = await wrapScroll();
+      await page.mouse.click(barPt.x, barPt.y);
+      const after = await wrapScroll();
+      sameView(before, after, "全部谱面 measure-number click");
+      await stayed(after, "全部谱面 measure-number click");
+    }
+
+    await park(720);
+    const gutterPt = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll");
+      const port = scroll.getBoundingClientRect();
+      const x = port.right - 10;
+      for (let y = port.top + 40; y < port.bottom - 20; y += 18) {
+        const hit = document.elementFromPoint(x, y);
+        if (!hit || !scroll.contains(hit) || hit.closest(".editor-measure, .editor-note, button")) continue;
+        return { x: x, y: y };
+      }
+      return null;
+    });
+    if (!gutterPt) fail("no empty gutter in 全部谱面");
+    else {
+      const before = await wrapScroll();
+      await page.mouse.click(gutterPt.x, gutterPt.y);
+      const after = await wrapScroll();
+      sameView(before, after, "全部谱面 gutter click");
+      if (Math.abs(after.now - before.now) > 0.05) {
+        fail("全部谱面 gutter click yanked 播放位置 " + before.now.toFixed(2) + " → " + after.now.toFixed(2));
+      }
+      await stayed(after, "全部谱面 gutter click");
+    }
+
+    await park(0);
+    const dragPt = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const lanes = [...document.querySelectorAll("#editorMeasures .editor-lane")];
+      for (const laneEl of lanes) {
+        const r = laneEl.getBoundingClientRect();
+        if (r.top < scroll.top + 180 || r.bottom > scroll.bottom - 8) continue;
+        const y = r.top + 10;
+        const x = Math.min(r.right - 30, scroll.right - 30);
+        const hit = document.elementFromPoint(x, y);
+        if (hit && hit.closest(".editor-lane") && !hit.closest(".editor-note, .editor-string, button")) return { x: x, y: y };
+      }
+      return null;
+    });
+    if (!dragPt) fail("no empty lane to drag in 全部谱面");
+    else {
+      const before = await wrapScroll();
+      await drag(dragPt.x, dragPt.y, dragPt.x, dragPt.y - 150);
+      const after = await wrapScroll();
+      const moved = after.top - before.top;
+      if (moved < 110 || moved > 190) fail("全部谱面 hold-drag scrolled " + moved.toFixed(1) + "px, want about 150");
+      if (Math.abs(after.left) > 2) fail("全部谱面 hold-drag changed scrollLeft");
+    }
+
+    await park(0);
+    const wrapWheel = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const lanes = [...document.querySelectorAll("#editorMeasures .editor-lane")];
+      for (const laneEl of lanes) {
+        const r = laneEl.getBoundingClientRect();
+        const y = r.top + 8;
+        if (y < scroll.top + 8 || y > scroll.bottom - 8) continue;
+        const x = r.left + 40;
+        const hit = document.elementFromPoint(x, y);
+        if (hit && hit.closest(".editor-lane") && !hit.closest(".editor-note, .editor-zoom")) return { x: x, y: y };
+      }
+      return null;
+    });
+    if (!wrapWheel) fail("no lane under the wheel in 全部谱面");
+    else {
+      await page.mouse.move(wrapWheel.x, wrapWheel.y);
+      await page.mouse.wheel({ deltaY: 360 });
+      await page.waitForFunction(() => document.getElementById("editorScroll").scrollTop > 120, { timeout: 2000 }).catch(() => {});
+      const after = await wrapScroll();
+      if (after.top < 120) fail("全部谱面 wheel only moved " + after.top.toFixed(1) + "px");
+      if (Math.abs(after.left) > 2) fail("全部谱面 wheel changed scrollLeft");
+    }
+
+    await park(720);
+    const gapPt = await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const nodes = [...document.querySelectorAll("#editorMeasures .editor-measure")];
+      for (let i = 0; i < nodes.length; i++) {
+        const a = nodes[i].getBoundingClientRect();
+        for (let j = i + 1; j < nodes.length; j++) {
+          const b = nodes[j].getBoundingClientRect();
+          if (Math.abs(a.left - b.left) > 6) continue;
+          if (b.top < a.bottom + 6) continue;
+          const x = a.left + Math.min(40, a.width / 2);
+          const y = (a.bottom + b.top) / 2;
+          if (y < scroll.top + 6 || y > scroll.bottom - 6) continue;
+          const hit = document.elementFromPoint(x, y);
+          if (!hit || hit.closest(".editor-measure, .editor-note, button")) continue;
+          return { x: x, y: y };
+        }
+      }
+      return null;
+    });
+    if (!gapPt) fail("no gap between wrapped rows");
+    else {
+      const before = await wrapScroll();
+      await page.mouse.click(gapPt.x, gapPt.y);
+      const after = await wrapScroll();
+      sameView(before, after, "全部谱面 row-gap click");
+      if (after.now > after.end - 1 && before.now < after.end - 5) {
+        fail("全部谱面 row-gap click yanked 播放位置 to the end");
+      }
+      await stayed(after, "全部谱面 row-gap click");
+    }
+
+    await page.evaluate(() => {
+      const scroll = document.getElementById("editorScroll");
+      const el = document.querySelector('#editorMeasures .editor-measure[data-index="20"]');
+      if (!el) return;
+      scroll.scrollTop += el.getBoundingClientRect().top - scroll.getBoundingClientRect().top - 48;
+      scroll.scrollLeft = 0;
+    });
+    const notePt = await page.evaluate(() => {
+      const el = document.querySelector('#editorMeasures .editor-measure[data-index="20"] .editor-note');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      const scroll = document.getElementById("editorScroll").getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      if (y < scroll.top || y > scroll.bottom) return null;
+      return { x: x, y: y, index: +el.dataset.index, hand: window.BachiEditor.getResolved().hands[+el.dataset.index] };
+    });
+    if (!notePt) fail("全部谱面 note is off screen");
+    else {
+      const before = await wrapScroll();
+      await page.mouse.click(notePt.x, notePt.y);
+      const after = await wrapScroll();
+      const flipped = await page.evaluate((index) => {
+        const st = window.BachiEditor.getState();
+        return {
+          hand: window.BachiEditor.getResolved().hands[index],
+          selection: st.selection,
+          swap: !document.getElementById("editorSwapPop").hidden,
+        };
+      }, notePt.index);
+      sameView(before, after, "全部谱面 note click");
+      if (flipped.hand === notePt.hand) fail("全部谱面 note click did not swap L/R");
+      if (flipped.swap) fail("全部谱面 note click showed the swap popup");
+      if (!flipped.selection || flipped.selection.type !== "note" || flipped.selection.index !== notePt.index) {
+        fail("全部谱面 note click did not keep that note selected");
+      }
+      await stayed(after, "全部谱面 note click");
+    }
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

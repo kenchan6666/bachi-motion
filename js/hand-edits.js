@@ -5,7 +5,7 @@
  *   applyRoll(session, from, to)
  *   applyAlternate(session, from, to)
  *   applyRestore(session, from, to)
- *   applySwap(session, index, hand)
+ *   applySwap(session, index, hand)  // then re-detect 2-2 rolls in that phrase
  *   setOptions(session, opts)   // re-runs autoSticking, keeps patches
  *   undo(session) / redo(session)
  *   resolve(session) → { hands, rollPairs, warnings, source }
@@ -266,12 +266,53 @@
     return { hands: hands, rollPairs: pairs };
   }
 
+  function phraseBounds(notes, index) {
+    let a = index;
+    let b = index;
+    while (a > 0 && continuesFromPrev(notes, a)) a--;
+    while (b + 1 < notes.length && continuesFromPrev(notes, b + 1)) b++;
+    return { from: a, to: b };
+  }
+
+  function sameHandRun(hands, index) {
+    const h = hands[index];
+    let a = index;
+    let b = index;
+    while (a > 0 && hands[a - 1] === h) a--;
+    while (b + 1 < hands.length && hands[b + 1] === h) b++;
+    return { from: a, to: b, len: b - a + 1 };
+  }
+
+  // 手动改手之后，在这一句里按新手顺重认滚奏：同一只手正好两下是一对，
+  // 单下保持单击。三连同手或更长（LLL、RRR、LLLL）整段都不算滚奏，
+  // 所以 LLLL 不是 (LL)(LL)。左右交替保持单击。
+  function recognizeExactPairRolls(hands, from, to) {
+    const pairs = [];
+    let i = from;
+    while (i <= to) {
+      const run = sameHandRun(hands, i);
+      if (run.len === 2 && run.from >= from && run.to <= to) pairs.push([run.from, run.from + 1]);
+      i = Math.max(run.to, i) + 1;
+    }
+    return pairs;
+  }
+
+  function redetectRollsAfterSwap(notes, hands, rollPairs, index) {
+    const ph = phraseBounds(notes, index);
+    const kept = [];
+    for (let i = 0; i < rollPairs.length; i++) {
+      const p = rollPairs[i];
+      if (p[1] < ph.from || p[0] > ph.to) kept.push(p);
+    }
+    return addPairs(kept, recognizeExactPairRolls(hands, ph.from, ph.to));
+  }
+
   function applyPatch(state, patch, session) {
     const from = patch.from;
     const to = patch.to;
     if (patch.type === "swap") {
       state.hands[patch.index] = patch.hand === "L" ? "L" : "R";
-      state.rollPairs = dropOverlapping(state.rollPairs, patch.index, patch.index);
+      state.rollPairs = redetectRollsAfterSwap(session.notes, state.hands, state.rollPairs, patch.index);
       return;
     }
     if (patch.type === "alternate") {

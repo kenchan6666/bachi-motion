@@ -61,8 +61,41 @@
   }
 
   // 炒菜的散音不看 BPM：8 分或更慢（间隔 ≥ 半拍）永远断开，270 也不并进连音。
+  // 密串中间单独一格 16 分空不走这里，见 isSingle16thHole。
   function chaoLinked(delta) {
     return gt(delta, 0) && lt(delta, 0.5);
+  }
+
+  function is16thStep(delta) {
+    return delta != null && near(delta, 0.25);
+  }
+
+  function is16thRestGap(delta) {
+    return delta != null && near(delta, 0.5);
+  }
+
+  // 16 分密串中间只空一格：这一拍的入间隔正好半拍，前一拍是 16 分步进，
+  // 后一拍也是 16 分步进（或这颗就是串尾，后面没有音）。
+  // 串尾规矩：这格空拍不断开，后面的音不另起正手，也不改判成散音。
+  // 右侧紧接着是 8 分或更慢（下一间隔也 ≥ 半拍）则不是这格空，仍按散音断开。
+  function isSingle16thHole(notes, rightIndex) {
+    if (rightIndex < 2 || rightIndex >= notes.length) return false;
+    if (!is16thRestGap(inbound(notes, rightIndex))) return false;
+    if (!is16thStep(inbound(notes, rightIndex - 1))) return false;
+    if (rightIndex >= notes.length - 1) return true;
+    return is16thStep(inbound(notes, rightIndex + 1));
+  }
+
+  function segmentLinked(notes, index, globalBpm) {
+    var delta = inbound(notes, index);
+    var bpm = noteBpm(notes, index, globalBpm);
+    if (connected(delta, bpm)) return true;
+    return isSingle16thHole(notes, index);
+  }
+
+  function chaoSegmentLinked(notes, index) {
+    if (chaoLinked(inbound(notes, index))) return true;
+    return isSingle16thHole(notes, index);
   }
 
   function noteBpm(notes, i, globalBpm) {
@@ -127,9 +160,7 @@
     while (i <= end) {
       var j = i;
       while (j < end) {
-        var d = inbound(notes, j + 1);
-        var bpm = noteBpm(notes, j + 1, globalBpm);
-        if (!connected(d, bpm)) break;
+        if (!segmentLinked(notes, j + 1, globalBpm)) break;
         j++;
       }
       // j is the last note of this connected run; length 1 is 散音
@@ -138,14 +169,8 @@
         // absorb following isolated 散音, but do not swallow the first note of a later 连音
         while (j < end) {
           var nxt = j + 1;
-          if (nxt < end) {
-            var dN = inbound(notes, nxt + 1);
-            var bpmN = noteBpm(notes, nxt + 1, globalBpm);
-            if (connected(dN, bpmN)) break; // nxt starts a 连音
-          }
-          var d2 = inbound(notes, nxt);
-          var bpm2 = noteBpm(notes, nxt, globalBpm);
-          if (connected(d2, bpm2)) break;
+          if (nxt < end && segmentLinked(notes, nxt + 1, globalBpm)) break; // nxt starts a 连音
+          if (segmentLinked(notes, nxt, globalBpm)) break;
           j = nxt;
         }
       }
@@ -258,23 +283,23 @@
     return figs;
   }
 
-  // 炒菜 segments: 散音 is interval >= 0.5 at every BPM. A fast run is then
-  // cut into the figures above. Other 手法 keep segmentsInPhrase / connected().
+  // 炒菜 segments: 真 8 分或更慢（间隔 ≥ 半拍，且不是 16 分串里的一格空）才是散音。
+  // 16 分密串中间只空一格仍是同一串，后面不改判成散音。快的一段再切成下面的句型。
   function chaoSegments(notes, start, end) {
     var groups = [];
     var i = start;
     while (i <= end) {
       var j = i;
       while (j < end) {
-        if (!chaoLinked(inbound(notes, j + 1))) break;
+        if (!chaoSegmentLinked(notes, j + 1)) break;
         j++;
       }
       var kind = (j > i) ? "连音" : "散音";
       if (kind === "散音") {
         while (j < end) {
           var nxt = j + 1;
-          if (nxt < end && chaoLinked(inbound(notes, nxt + 1))) break;
-          if (chaoLinked(inbound(notes, nxt))) break;
+          if (nxt < end && chaoSegmentLinked(notes, nxt + 1)) break;
+          if (chaoSegmentLinked(notes, nxt)) break;
           j = nxt;
         }
         groups.push({ start: i, end: j, kind: "散音" });

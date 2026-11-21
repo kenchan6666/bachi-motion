@@ -359,6 +359,38 @@
   const ZOOM_VIEW_PAD = 12;
   const ZOOM_SIDE_SLOT = ZOOM_NOTE_W; // 左右各留约一颗音的空位
   const ZOOM_EDGE = 16;              // 放大框离编辑区可见边缘的最小间距
+  let zoomCenters = null;
+
+  // 放大卡按真实时间排，最密的一档仍用 ZOOM_NOTE_W + ZOOM_GUTTER，
+  // 更宽的间隔按比例拉开，8 分和 16 分不会挤成一样宽。
+  function zoomNoteLayout(times, opts) {
+    const pad = opts.pad;
+    const noteW = opts.noteW;
+    const gutter = opts.gutter;
+    const n = times ? times.length : 0;
+    const minStep = noteW + gutter;
+    const centers = new Array(n);
+    let usable = n > 0;
+    for (let i = 0; i < n; i++) {
+      if (times[i] == null || !isFinite(times[i])) usable = false;
+    }
+    let minDt = Infinity;
+    if (usable) {
+      for (let i = 1; i < n; i++) {
+        const dt = times[i] - times[i - 1];
+        if (dt > 1e-6 && dt < minDt) minDt = dt;
+      }
+    }
+    if (!usable || !isFinite(minDt)) {
+      for (let k = 0; k < n; k++) centers[k] = pad + k * minStep + noteW / 2;
+    } else {
+      const px = minStep / minDt;
+      const t0 = times[0];
+      for (let k = 0; k < n; k++) centers[k] = pad + noteW / 2 + (times[k] - t0) * px;
+    }
+    const innerW = n ? centers[n - 1] + noteW / 2 + pad : pad * 2;
+    return { centers: centers, innerW: innerW };
+  }
 
   function warnCaption(type) {
     if (type === "同拍重复") return "拿不准：同一拍有重复音符";
@@ -508,11 +540,8 @@
     renderZoomCard();
   }
 
-  function zoomInnerWidth(n) {
-    return ZOOM_PAD * 2 + n * ZOOM_NOTE_W + Math.max(0, n - 1) * ZOOM_GUTTER;
-  }
-
   function zoomNoteCenterX(k) {
+    if (zoomCenters && zoomCenters[k] != null) return zoomCenters[k];
     return ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER) + ZOOM_NOTE_W / 2;
   }
 
@@ -587,8 +616,11 @@
     }
     if (!notes.length) { collapseString(); return; }
 
-    const n = notes.length;
-    const innerW = zoomInnerWidth(n);
+    const layout = zoomNoteLayout(notes.map((i) => raw[i] && raw[i].t), {
+      pad: ZOOM_PAD, noteW: ZOOM_NOTE_W, gutter: ZOOM_GUTTER,
+    });
+    zoomCenters = layout.centers;
+    const innerW = layout.innerW;
     const first = raw[notes[0]];
     const mi = state.measures.findIndex((m) => m.index === first.measure);
 
@@ -605,7 +637,7 @@
       btn.type = "button";
       btn.className = "editor-note" + (isKa ? " is-ka" : "") + (isBig ? " is-big" : "");
       btn.dataset.index = String(i);
-      btn.style.left = (ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER) + ZOOM_NOTE_W / 2) + "px";
+      btn.style.left = layout.centers[k] + "px";
       btn.setAttribute("aria-label", (isBig ? "大" : "") + (isKa ? "咔" : "咚") + " 第 " + (i + 1) + " 音");
       lane.appendChild(btn);
     }
@@ -619,7 +651,7 @@
       cap.type = "button";
       cap.className = "editor-zoom-cap is-" + hand;
       cap.dataset.index = String(i);
-      cap.style.left = (ZOOM_PAD + k * (ZOOM_NOTE_W + ZOOM_GUTTER)) + "px";
+      cap.style.left = (layout.centers[k] - ZOOM_NOTE_W / 2) + "px";
       cap.style.width = ZOOM_NOTE_W + "px";
       cap.textContent = hand === "L" ? "左" : "右";
       cap.setAttribute("aria-label", "第 " + (i + 1) + " 音换手");
@@ -1590,6 +1622,11 @@
       setTimeout(() => openEditor(), 0);
     }
   }
+
+  if (typeof module === "object" && module.exports) {
+    module.exports = { zoomNoteLayout: zoomNoteLayout };
+  }
+  if (typeof window === "undefined" || typeof document === "undefined") return;
 
   window.BachiEditor = {
     open: openEditor,

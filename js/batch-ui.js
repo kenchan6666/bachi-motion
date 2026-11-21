@@ -188,6 +188,7 @@
         rate: settings.rate,
         sectionStart: row.sectionStart,
         sectionEnd: row.sectionEnd,
+        course: row.course || null,
       });
       renderList();
     }
@@ -219,6 +220,7 @@
         const section = window.taikoAnim && typeof window.taikoAnim.exportSection === "function"
           ? window.taikoAnim.exportSection()
           : null;
+        const courseName = app && app.selectedCourseName ? app.selectedCourseName() : "";
         pushRow({
           name: "当前谱面.tja",
           tjaText: text,
@@ -227,6 +229,7 @@
           songFile: sharedOriginalFile(),
           sectionStart: section && section.sectionStart,
           sectionEnd: section && section.sectionEnd,
+          course: courseName || null,
         });
         setStatus(section ? "已把当前谱面放进队列（按当前选段）" : "已把当前谱面放进队列");
       });

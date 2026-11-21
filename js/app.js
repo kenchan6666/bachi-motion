@@ -258,9 +258,203 @@
     if (seg) seg.classList.toggle("is-locked", !!locked);
   }
 
+  let courseList = [];
+  let courseSelection = null;
+  let courseSignature = null;
+  const handsByCourse = new Map();
+
+  function courseKeyOf(entry) {
+    if (!entry) return "";
+    const name = String(entry.name || "").trim().toLowerCase();
+    return name ? "n:" + name : "i:" + entry.index;
+  }
+
+  function forgetCourseHands() {
+    handsByCourse.clear();
+    courseSelection = null;
+    courseSignature = null;
+  }
+
+  function stashHands() {
+    if (!courseSelection) return;
+    handsByCourse.set(courseKeyOf(courseSelection), jsonInput.value);
+  }
+
+  function releaseEditorCustom() {
+    const ed = window.BachiEditor;
+    if (ed && typeof ed.releaseCustomIfEmpty === "function") ed.releaseCustomIfEmpty();
+  }
+
+  function applyHandsForCourse(entry) {
+    const key = courseKeyOf(entry);
+    const saved = handsByCourse.has(key) ? handsByCourse.get(key) : "";
+    setJsonValue(saved || "");
+    if (saved && String(saved).trim()) {
+      setMode("suyue");
+      enterEditorCustom();
+    } else {
+      setMode("zhuren");
+      releaseEditorCustom();
+    }
+  }
+
+  function readCourseModel() {
+    const text = tjaInput.value;
+    if (!text.trim() || !window.TaikoParser || typeof TaikoParser.parseTja !== "function") {
+      return { ok: false, parsed: null, list: [] };
+    }
+    try {
+      const parsed = TaikoParser.parseTja(text);
+      const list = TaikoParser.listCourses ? TaikoParser.listCourses(parsed) : [];
+      return { ok: true, parsed: parsed, list: list };
+    } catch (err) {
+      return { ok: false, parsed: null, list: [] };
+    }
+  }
+
+  function renderCoursePicker() {
+    const picker = $("coursePicker");
+    if (!picker) return;
+    picker.replaceChildren();
+    if (!courseList.length) {
+      picker.hidden = true;
+      return;
+    }
+    picker.hidden = false;
+    courseList.forEach((entry) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "chip";
+      btn.setAttribute("role", "radio");
+      btn.dataset.courseIndex = String(entry.index);
+      btn.dataset.course = entry.name;
+      btn.textContent = entry.label;
+      const on = !!(courseSelection && courseSelection.index === entry.index);
+      btn.classList.toggle("on", on);
+      btn.setAttribute("aria-checked", String(on));
+      btn.addEventListener("click", () => selectCourse(entry.index, { user: true }));
+      picker.appendChild(btn);
+    });
+  }
+
+  function syncCourseUrl(name) {
+    if (pageParams.get("export") === "1") return;
+    if (typeof history === "undefined" || !history.replaceState) return;
+    let url;
+    try { url = new URL(location.href); }
+    catch (err) { return; }
+    const raw = name == null ? "" : String(name);
+    if (raw) url.searchParams.set("course", raw);
+    else url.searchParams.delete("course");
+    const next = url.pathname + url.search + url.hash;
+    const now = location.pathname + location.search + location.hash;
+    if (next !== now) history.replaceState(null, "", next);
+    if (raw) pageParams.set("course", raw);
+    else pageParams.delete("course");
+  }
+
+  function pickListedCourse(model, opts) {
+    opts = opts || {};
+    const list = model.list;
+    if (!list.length) return null;
+    if (!opts.preferDefault && courseSelection) {
+      const same = list.find((c) => c.index === courseSelection.index && c.name === courseSelection.name)
+        || list.find((c) => c.name && c.name === courseSelection.name);
+      if (same) return same;
+    }
+    if (!opts.preferDefault) {
+      const query = pageParams.get("course");
+      if (query && String(query).trim()) {
+        try {
+          const hit = TaikoParser.pickCourse(model.parsed, query);
+          const idx = model.parsed.courses.indexOf(hit);
+          const found = list.find((c) => c.index === idx);
+          if (found) return found;
+        } catch (err) { /* unknown alias falls through to the default */ }
+      }
+    }
+    try {
+      const hit = TaikoParser.pickCourse(model.parsed, "");
+      const idx = model.parsed.courses.indexOf(hit);
+      return list.find((c) => c.index === idx) || list[0];
+    } catch (err) {
+      return list[0];
+    }
+  }
+
+  function refreshCourses(opts) {
+    opts = opts || {};
+    const model = readCourseModel();
+    if (!model.ok) {
+      if (opts.preferDefault || opts.forget) {
+        courseList = [];
+        courseSelection = null;
+        renderCoursePicker();
+      }
+      return;
+    }
+    const signature = model.list.map((c) => c.name).join("\0");
+    const shapeChanged = courseSignature != null && signature !== courseSignature;
+    if (opts.forget || (shapeChanged && opts.pruneHands)) {
+      handsByCourse.clear();
+      courseSelection = null;
+    }
+    if (opts.clearJson || (shapeChanged && opts.pruneHands)) {
+      setJsonValue("");
+      setMode("zhuren");
+      releaseEditorCustom();
+    }
+    courseSignature = signature;
+    courseList = model.list;
+    courseSelection = pickListedCourse(model, opts);
+    renderCoursePicker();
+    syncCourseUrl(courseSelection ? courseSelection.name : "");
+  }
+
+  function selectCourse(index, opts) {
+    opts = opts || {};
+    const entry = courseList.find((c) => c.index === index);
+    if (!entry) return;
+    const same = courseSelection
+      && courseSelection.index === entry.index
+      && courseSelection.name === entry.name;
+    if (same && !opts.force) return;
+    if (opts.user) stashHands();
+    courseSelection = entry;
+    renderCoursePicker();
+    syncCourseUrl(entry.name);
+    if (opts.user) {
+      applyHandsForCourse(entry);
+      showError("");
+      generate(false);
+    }
+  }
+
+  function selectedCourseName() {
+    return courseSelection && courseSelection.name ? courseSelection.name : "";
+  }
+
+  function loadChartText(text, opts) {
+    opts = opts || {};
+    if (opts.forget) {
+      forgetCourseHands();
+      blankLive = false;
+    }
+    tjaInput.value = String(text || "");
+    if (opts.clearJson) {
+      setJsonValue("");
+      setMode("zhuren");
+      releaseEditorCustom();
+    }
+    refreshCourses({ preferDefault: !!opts.preferDefault, forget: !!opts.forget, clearJson: !!opts.clearJson });
+  }
+
   function parseOpts() {
     const opts = {};
-    if (pageParams.get("course")) opts.course = pageParams.get("course");
+    if (courseSelection) {
+      opts.courseIndex = courseSelection.index;
+      if (courseSelection.name) opts.course = courseSelection.name;
+    } else if (pageParams.get("course")) opts.course = pageParams.get("course");
     if (pageParams.get("measures")) opts.measures = pageParams.get("measures");
     opts.bigNote = currentBigNote();
     opts.手法 = currentTechnique();
@@ -345,6 +539,7 @@
   modeZhuren.onclick = () => setMode("zhuren");
   modeSuyue.onclick = () => setMode("suyue");
   jsonInput.addEventListener("input", () => publishHandorder());
+  let courseInputTimer = 0;
   $("jsonFile").onchange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
@@ -367,12 +562,11 @@
     const decode = window.TjaEncoding && window.TjaEncoding.readFile;
     const pending = decode ? decode(file) : file.text();
     pending.then((text) => {
-      tjaInput.value = String(text || "");
-      blankLive = false;
-      setMode("zhuren");
+      loadChartText(String(text || ""), { forget: true, preferDefault: true, clearJson: true });
       syncChartPicker("custom");
       openSettings();
       showError("");
+      generate(false);
     }).catch(() => showError("读取 TJA 文件失败"));
   };
 
@@ -383,11 +577,12 @@
 
   const PREFILLED_SAMPLES = { suyue_demo2_8bun16bun: true, suyue_demo: true };
 
-  async function loadSampleChart(name) {
+  async function loadSampleChart(name, opts) {
     const sample = safeSampleName(name);
     if (!sample) return null;
     const tjaRes = await fetch("samples/" + sample + ".tja", { cache: "no-store" });
     if (!tjaRes.ok) throw new Error(tjaRes.status);
+    forgetCourseHands();
     tjaInput.value = await tjaRes.text();
     blankLive = false;
     let hasHands = false;
@@ -411,6 +606,9 @@
       if (ed && typeof ed.releaseCustomIfEmpty === "function") ed.releaseCustomIfEmpty();
     }
     syncChartPicker(CHARTS.some((c) => c.id === sample) ? sample : "custom");
+    if (!(opts && opts.deferPicker)) {
+      refreshCourses({ preferDefault: !(opts && opts.keepQuery) });
+    }
     return sample;
   }
 
@@ -679,12 +877,10 @@
       if (!ok) return false;
     }
     writingTja = true;
-    tjaInput.value = author.blankTja(opts);
+    loadChartText(author.blankTja(opts), { forget: true, preferDefault: true, clearJson: true });
     writingTja = false;
     blankLive = true;
     paintBlankMeta(opts, sourceSide || "settings");
-    setJsonValue("");
-    setMode("zhuren");
     syncChartPicker("custom");
     if (window.BachiOriginal && typeof window.BachiOriginal.setFile === "function") {
       window.BachiOriginal.setFile(null);
@@ -728,6 +924,8 @@
   tjaInput.addEventListener("input", () => {
     if (writingTja) return;
     blankLive = false;
+    clearTimeout(courseInputTimer);
+    courseInputTimer = setTimeout(() => refreshCourses({ pruneHands: true }), 200);
   });
 
   function regenerateKeepTime() {
@@ -799,7 +997,11 @@
     setTja: (v, opts) => {
       tjaInput.value = v || "";
       if (!(opts && opts.keepBlank)) blankLive = false;
+      refreshCourses();
     },
+    loadChartText,
+    selectedCourseName,
+    refreshCourses,
     getJson: () => jsonInput.value,
     setJson: (v) => setJsonValue(v),
     openBlankChart,
@@ -822,7 +1024,7 @@
     const sample = safeSampleName(pageParams.get("sample") || "");
     if (sample) {
       try {
-        await loadSampleChart(sample);
+        await loadSampleChart(sample, { deferPicker: true, keepQuery: true });
       } catch (err) {
         if (!PREFILLED_SAMPLES[sample]) {
           showError("无法加载示例谱 samples/" + sample + ".tja");
@@ -835,6 +1037,10 @@
     if (rawTja) {
       try { tjaInput.value = decodeURIComponent(rawTja); }
       catch (err) { showError("URL 里的 tja 参数无法解码"); }
+      forgetCourseHands();
+      setJsonValue("");
+      setMode("zhuren");
+      releaseEditorCustom();
       syncChartPicker("custom");
     }
 
@@ -845,7 +1051,10 @@
     // 「溯溯的练习谱2」into the title bar and download extra unicode-range
     // slices before the real song is loaded.
     const autoplay = pageParams.get("autoplay") === "1";
-    if (pageParams.get("export") !== "1") generate(autoplay);
+    if (pageParams.get("export") !== "1") {
+      refreshCourses({ preferDefault: !String(pageParams.get("course") || "").trim() });
+      generate(autoplay);
+    }
   }
 
   boot();

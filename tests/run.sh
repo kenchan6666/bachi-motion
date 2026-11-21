@@ -45,6 +45,10 @@ echo "== settings hint popovers anchor to their buttons =="
 node tests/hint-popover.test.js
 echo
 
+echo "== course picker (multi-COURSE difficulty) =="
+node tests/course-picker.test.js
+echo
+
 echo "== chart author (blank chart + 16th notes) =="
 node tests/chart-author.test.js
 echo

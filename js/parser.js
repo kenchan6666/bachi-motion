@@ -8,7 +8,9 @@
  *   Notes:   0 rest, 1 咚, 2 咔, 3 大咚, 4 大咔
  *            5/6/7 (黄条) and 8 (气球) occupy a time slot but emit no event.
  *   Multiple COURSE blocks are all parsed; pick one with opts.course
- *   (default: the first / only block).
+ *   (default: Oni if present, else Ura/Edit, else the first block).
+ *   Difficulty aliases are case-insensitive: Easy/0/易, Normal/1/普,
+ *   Hard/2/难, Oni/おに/3/鬼, Edit/Ura/裏/4/里.
  *
  * 手顺 (主人 mode):
  *   Start on R, then alternate R L R L…
@@ -329,17 +331,104 @@
     };
   }
 
+  // Canonical difficulty groups. Keys are already trimmed and lowercased.
+  // Official 里 is COURSE:Edit; Ura / 裏 / 4 / 里 are the same group.
+  const COURSE_CANON = {
+    "0": "easy",
+    "easy": "easy",
+    "易": "easy",
+    "かんたん": "easy",
+    "簡単": "easy",
+    "kantan": "easy",
+    "1": "normal",
+    "normal": "normal",
+    "普": "normal",
+    "普通": "normal",
+    "ふつう": "normal",
+    "futsuu": "normal",
+    "2": "hard",
+    "hard": "hard",
+    "难": "hard",
+    "難": "hard",
+    "困难": "hard",
+    "困難": "hard",
+    "むずかしい": "hard",
+    "muzukashii": "hard",
+    "3": "oni",
+    "oni": "oni",
+    "鬼": "oni",
+    "おに": "oni",
+    "4": "ura",
+    "edit": "ura",
+    "ura": "ura",
+    "裏": "ura",
+    "里": "ura",
+    "うら": "ura",
+  };
+
+  const COURSE_LABEL = {
+    easy: "易",
+    normal: "普",
+    hard: "难",
+    oni: "鬼",
+    ura: "里",
+  };
+
+  function courseCanon(name) {
+    const key = String(name == null ? "" : name).trim().toLowerCase();
+    return COURSE_CANON[key] || "";
+  }
+
+  function courseLabel(name) {
+    const canon = courseCanon(name);
+    if (canon && COURSE_LABEL[canon]) return COURSE_LABEL[canon];
+    const raw = String(name == null ? "" : name).trim();
+    return raw || "（未命名）";
+  }
+
+  function listCourses(parsed) {
+    return (parsed.courses || []).map((course, index) => ({
+      index: index,
+      name: course.headers && course.headers.course ? String(course.headers.course) : "",
+      label: courseLabel(course.headers && course.headers.course),
+    }));
+  }
+
   function pickCourse(parsed, name) {
     const courses = parsed.courses || [];
     if (!courses.length) throw new Error("谱面里没有任何 COURSE");
-    if (name == null || name === "") return courses[0];
-    const key = String(name).trim().toLowerCase();
-    const hit = courses.find((c) => String(c.headers.course || "").toLowerCase() === key);
-    if (!hit) {
-      const names = courses.map((c) => c.headers.course || "(未命名)").join("、");
-      throw new Error("找不到 COURSE «" + name + "». 谱面里有：" + names);
+    if (name == null || String(name).trim() === "") {
+      const oni = courses.find((c) => courseCanon(c.headers.course) === "oni");
+      if (oni) return oni;
+      const ura = courses.find((c) => courseCanon(c.headers.course) === "ura");
+      if (ura) return ura;
+      return courses[0];
     }
-    return hit;
+    const key = String(name).trim().toLowerCase();
+    const exact = courses.find((c) => String(c.headers.course || "").trim().toLowerCase() === key);
+    if (exact) return exact;
+    const canon = courseCanon(name);
+    if (canon) {
+      const hit = courses.find((c) => courseCanon(c.headers.course) === canon);
+      if (hit) return hit;
+    }
+    const names = courses.map((c) => c.headers.course || "(未命名)").join("、");
+    throw new Error("找不到 COURSE «" + name + "». 谱面里有：" + names);
+  }
+
+  /**
+   * opts.courseIndex picks that block directly (the open-chart control).
+   * Otherwise opts.course is a name or alias; empty uses the Oni / Ura / first default.
+   */
+  function resolveCourse(parsed, opts) {
+    const courses = parsed.courses || [];
+    if (opts && opts.courseIndex != null && opts.courseIndex !== "") {
+      const i = opts.courseIndex | 0;
+      if (i >= 0 && i < courses.length && String(opts.courseIndex).trim() === String(i)) {
+        return courses[i];
+      }
+    }
+    return pickCourse(parsed, opts && opts.course);
   }
 
   function parseMeasuresOpt(s) {
@@ -728,7 +817,7 @@
    */
   function eventsFromTja(text, opts) {
     const parsed = parseTja(text);
-    const picked = pickCourse(parsed, opts && opts.course);
+    const picked = resolveCourse(parsed, opts);
     const sliced = sliceCourse(picked, parseMeasuresOpt(opts && opts.measures));
     const auto = eventsFromAutoSticking(sliced, opts);
     return coursePayload(sliced, Object.assign({
@@ -1214,6 +1303,22 @@
     if (restSuyueSmall !== "R,L")
       failures.push("溯月+当小音符：手仍跟 JSON 的左手，只把大画成小\n    got  " + restSuyueSmall);
 
+    const multi = ["TITLE:synth", "BPM:120", "OFFSET:0", "COURSE:Edit", "#START", "1,", "#END", "COURSE:Oni", "#START", "11,", "#END", ""].join("\n");
+    const multiDefault = eventsFromTja(multi);
+    if (multiDefault.course !== "Oni" || multiDefault.events.length !== 2) {
+      failures.push("multi COURSE default should be Oni, got " + multiDefault.course + " x" + multiDefault.events.length);
+    }
+    const asUra = eventsFromTja(multi, { course: "4" });
+    if (asUra.course !== "Edit" || asUra.events.length !== 1) {
+      failures.push("course alias 4 should pick Edit, got " + asUra.course + " x" + asUra.events.length);
+    }
+    const noOni = ["TITLE:synth", "BPM:120", "OFFSET:0", "COURSE:Easy", "#START", "2,", "#END", "COURSE:Ura", "#START", "1,", "#END", ""].join("\n");
+    if (eventsFromTja(noOni).course !== "Ura") {
+      failures.push("no Oni defaults to Ura/Edit, got " + eventsFromTja(noOni).course);
+    }
+    const neither = ["TITLE:synth", "BPM:120", "OFFSET:0", "COURSE:Dan", "#START", "1,", "#END", "COURSE:Tower", "#START", "11,", "#END", ""].join("\n");
+    if (eventsFromTja(neither).course !== "Dan") failures.push("no Oni/Ura defaults to first course");
+
     if (failures.length) {
       throw new Error("parser self-check failed:\n- " + failures.join("\n- "));
     }
@@ -1234,6 +1339,7 @@
         "hand:both expands; 溯月 switch only changes drawn size",
         "主人超过一拍后大音符从右手起；溯月手跟 JSON 不重置",
         "sticking without parentheses produces no rolls",
+        "multi COURSE default Oni, else Ura/Edit, else first; alias 4 → Edit",
       ],
     }
   }
@@ -1247,6 +1353,10 @@
   return {
     parseTja,
     pickCourse,
+    resolveCourse,
+    listCourses,
+    courseLabel,
+    courseCanon,
     sliceCourse,
     parseMeasuresOpt,
     assignHands,

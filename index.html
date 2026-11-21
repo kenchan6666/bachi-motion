@@ -924,9 +924,14 @@
     .shell { display: flex; flex-direction: column; }
     .rail { display: contents; }
     .charts { order: 1; padding: 10px 16px 4px; }
-    .stage-well { order: 2; padding: 0 8px; }
+    /* Room for the fixed-to-page title, which hangs above the highway.
+       104px clears the tallest narrow title (≈840px wide) so it sits in
+       this gap instead of on the chart picker. Horizontal 8px is what
+       titlebar-layout.test.js uses to check centering. */
+    .stage-well { order: 2; padding: 104px 8px 8px; }
     .stage-frame { height: auto; }
     svg#stage { width: 100%; height: auto; max-height: none; }
+    body:not(.export) #titlebar { position: absolute; }
     .transport { order: 3; padding: 8px 16px 4px; }
     .legend { order: 4; padding: 4px 16px; }
     .settings {

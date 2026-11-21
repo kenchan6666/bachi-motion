@@ -1064,3 +1064,156 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
 .editor:not(.is-readonly) .editor-lane { cursor: grab; }
 
 .editor-tja-btn { display: none; } /* placeholder if needed */
+
+/* Phones and other narrow windows. 800px stays on the desktop row so the
+   existing editor tests (default 800px viewport) keep their side-by-side
+   stage. 1280 / 1920 are untouched. */
+@media (max-width: 760px) {
+  body.editor-mode {
+    overflow-x: clip;
+  }
+  body.editor-mode .page {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+  body.editor-mode .top {
+    height: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    padding: 10px 12px 8px;
+  }
+  body.editor-mode .top .brand {
+    justify-self: stretch;
+    min-width: 0;
+  }
+  body.editor-mode .titles { flex-wrap: wrap; }
+  body.editor-mode .editor-page-title {
+    text-align: start;
+    font-size: 15px;
+  }
+  body.editor-mode .top .song {
+    justify-self: stretch;
+    width: auto;
+    max-width: 100%;
+    min-width: 0;
+  }
+  body.editor-mode .btn-back-player { margin-left: 0; }
+
+  .editor-toolbar {
+    padding: 10px 12px 8px;
+    gap: 10px 12px;
+  }
+  .editor-toolbar-left,
+  .editor-toolbar-right {
+    width: 100%;
+    min-width: 0;
+  }
+  .editor-toolbar-right {
+    margin-left: 0;
+    margin-top: 0;
+    flex-wrap: wrap;
+  }
+  .editor .seg.editor-mode-seg,
+  .editor-tech-block {
+    margin-top: 0;
+  }
+  .editor .seg.editor-mode-seg,
+  .editor-hand-block .seg,
+  .editor-roll-block .seg {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    height: auto;
+    min-height: 36px;
+  }
+  .editor .seg.editor-mode-seg button,
+  .editor-hand-block .seg button,
+  .editor-roll-block .seg button {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: 6px 6px;
+    white-space: normal;
+    line-height: 1.25;
+  }
+  .editor-auto-settings {
+    width: 100%;
+    border-left: 0;
+    padding-left: 0;
+    gap: 10px 12px;
+  }
+  .editor-field { width: 100%; max-width: 100%; }
+  .editor-field-row { flex-wrap: wrap; }
+  .editor-field-hint { max-width: 100%; }
+  .editor-tech { flex: 1 1 140px; min-width: 0; max-width: 100%; }
+  .editor-tech-btn { width: 100%; }
+  .editor-tech-menu {
+    left: auto;
+    right: 0;
+    width: min(328px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+  }
+  .editor-status { max-width: 100%; }
+  .editor-toolbar-right { justify-content: flex-end; }
+  .editor-advanced {
+    position: static;
+    flex: 1 1 100%;
+    width: 100%;
+    max-width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+  }
+  .editor-advanced-panel {
+    position: static;
+    align-self: stretch;
+    right: auto;
+    top: auto;
+    width: 100%;
+    max-width: 100%;
+    margin-top: 8px;
+    box-sizing: border-box;
+  }
+
+  .editor-body {
+    flex-direction: column;
+    gap: 12px;
+    padding: 10px 12px 20px;
+  }
+  .editor-chart-card {
+    flex: none;
+    width: 100%;
+    min-height: 0;
+  }
+  .editor-chart-head { padding: 10px 12px 6px; }
+  .editor-chart-head p {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .editor-scroll {
+    flex: none;
+    height: 260px;
+    min-height: 220px;
+  }
+  .editor-overview { padding: 6px 12px 2px; }
+  .editor-chart-legend {
+    flex-wrap: wrap;
+    padding: 8px 12px 10px;
+  }
+  .editor-preview {
+    flex: none;
+    width: 100%;
+    max-width: 100%;
+    overflow: visible;
+  }
+  .editor-stage-host {
+    width: min(280px, calc(100% - 8px));
+    height: min(280px, calc(100vw - 48px));
+  }
+  .editor-popover {
+    width: min(276px, calc(100vw - 48px));
+  }
+  .editor-popover.is-swap { width: min(168px, calc(100vw - 48px)); }
+}

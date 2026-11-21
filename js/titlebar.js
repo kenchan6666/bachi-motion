@@ -4,9 +4,12 @@
  * painted left edge (lane x=30, 3px stroke centered). Gap is 16px, or 20px
  * when the viewport is at least 1920 wide. If the title plus that gap would
  * clip the viewport, the stage moves down — the gap is not reduced. If that
- * left edge would cover the header brand (monogram plus the “bachi-motion”
- * wordmark), the bar shifts to 12px right of that wordmark (汐月's 8–12px
- * clearance; 12px is the value used).
+ * placement would cover the header cluster (monogram, “bachi-motion”
+ * wordmark, subtitle such as 「溯溯的鼓棒」, and the 「手顺编辑」 button), the
+ * bar shifts to 12px right of the cluster (汐月's 8–12px clearance; 12px is
+ * the value used). The bar may narrow, down to 200px, to stay in the stage
+ * well. When that minimum does not fit, the stage drops so the title sits
+ * below the cluster instead of covering it.
  * Export (body.export): left beige letterbox, top-aligned with the chart
  * track when there is room beside the stage. Positioning formulas unchanged.
  * Fields: title, BPM, playback rate, technique (手法).
@@ -19,6 +22,8 @@
   const LANE_X = 30, LANE_STROKE = 3;
   const TITLE_GAP = 16, TITLE_GAP_WIDE = 20, WIDE_AT = 1920;
   const LOGO_CLEAR = 12;
+  const MIN_SLIDE_W = 200;
+  const HEADER_DROP_GAP = 4;
 
   function $(id) { return document.getElementById(id); }
 
@@ -123,9 +128,9 @@
     return Math.min(stageW * 0.62, Math.max(200, stageW - 24));
   }
 
-  function applyTitleMetrics(bar, titleEl, metaEl, stageW, stageH) {
+  function applyTitleMetrics(bar, titleEl, metaEl, stageW, stageH, widthOverride) {
     const s = stageH / VIEW_H;
-    const width = titleWidthFor(stageW);
+    const width = widthOverride > 0 ? widthOverride : titleWidthFor(stageW);
     const padY = Math.max(8, 11 * s);
     const padX = Math.max(10, 14 * s);
     bar.style.width = width + "px";
@@ -186,10 +191,12 @@
     };
   }
 
-  // Place the stage so the highway can sit `barH + gap` below the viewport top.
+  // Place the stage so the highway can sit `barH + gap` below `ceiling`
+  // (the viewport top, or the bottom of header controls the title must clear).
   // Translate when the frame has spare room underneath; otherwise shrink, keeping
   // the aspect ratio, and pin the stage to the bottom of the frame.
-  function solvePlacement(natural, barH, gap, narrow) {
+  function solvePlacement(natural, barH, gap, narrow, ceiling) {
+    const floor = ceiling > 0 ? ceiling : 0;
     const k = (TRACK_Y - LANE_STROKE / 2) / VIEW_H;
     const laneTop = natural.top + k * natural.height;
     const titleTop = laneTop - gap - barH;
@@ -202,8 +209,8 @@
       maxH: 0,
       margin: 0,
     };
-    if (titleTop >= -0.25) return same;
-    const deficit = -titleTop;
+    if (titleTop >= floor - 0.25) return same;
+    const deficit = floor - titleTop;
     if (narrow) {
       return {
         left: natural.left,
@@ -227,7 +234,7 @@
         margin: 0,
       };
     }
-    let H = (natural.frameBottom - gap - barH) / (1 - k);
+    let H = (natural.frameBottom - floor - gap - barH) / (1 - k);
     const maxByWidth = natural.frameWidth * (VIEW_H / VIEW_W);
     if (H > natural.height) H = natural.height;
     if (H > maxByWidth) H = maxByWidth;
@@ -274,45 +281,98 @@
       && Math.abs(a.top - b.top) < 0.3;
   }
 
-  // Header brand mark: the circular monogram and the “bachi-motion” wordmark.
-  // Clearance is to the right of that whole mark, not the monogram alone.
-  function brandMarkBox() {
-    const nodes = [document.querySelector(".brand .mon"), document.getElementById("title")];
-    const rects = [];
+  function visibleBox(el) {
+    if (!el) return null;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return null;
+    const r = el.getBoundingClientRect();
+    if (r.width <= 1 || r.height <= 1) return null;
+    return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+  }
+
+  // Header cluster the playback title must not cover: monogram, wordmark,
+  // the subtitle (「溯溯的鼓棒」), and the 「手顺编辑」 button above the stage.
+  function headerGuardBoxes() {
+    const nodes = [
+      document.querySelector(".brand .mon"),
+      document.getElementById("title"),
+      document.querySelector(".subtitle"),
+      document.getElementById("btnOpenEditor"),
+    ];
+    const out = [];
     for (let i = 0; i < nodes.length; i++) {
-      const el = nodes[i];
-      if (!el) continue;
-      const r = el.getBoundingClientRect();
-      if (r.width > 1 && r.height > 1) rects.push(r);
+      const box = visibleBox(nodes[i]);
+      if (box) out.push(box);
     }
-    if (!rects.length) return null;
-    let left = rects[0].left, right = rects[0].right, top = rects[0].top, bottom = rects[0].bottom;
-    for (let i = 1; i < rects.length; i++) {
-      const r = rects[i];
-      if (r.left < left) left = r.left;
-      if (r.right > right) right = r.right;
-      if (r.top < top) top = r.top;
-      if (r.bottom > bottom) bottom = r.bottom;
-    }
-    return { left: left, right: right, top: top, bottom: bottom };
+    return out;
   }
 
-  function boxesOverlap(a, b) {
-    return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+  function contentRightLimit(titleTop, titleBottom) {
+    const inset = webpageNarrow() ? 8 : 6;
+    let limit = window.innerWidth - inset;
+    const well = document.querySelector(".stage-well");
+    if (well) {
+      const wr = well.getBoundingClientRect();
+      if (wr.width > 1) limit = wr.right - inset;
+    }
+    const song = visibleBox(document.getElementById("song"));
+    if (song && titleTop < song.bottom && titleBottom > song.top) {
+      limit = Math.min(limit, song.left - LOGO_CLEAR);
+    }
+    return limit;
   }
 
-  function layoutWebpageTitle(bar, svg, titleEl, metaEl) {
+  // Slide the title to 12px right of the header cluster when the highway-aligned
+  // bar would cover it. Returns {drop} when even a 200px bar would leave the
+  // stage well; the caller then lowers the stage so the title sits underneath.
+  function slidePastHeader(laneLeft, naturalWidth, top, height) {
+    const bottom = top + height;
+    const guards = headerGuardBoxes();
+    const band = [];
+    for (let i = 0; i < guards.length; i++) {
+      const g = guards[i];
+      if (top < g.bottom && bottom > g.top) band.push(g);
+    }
+    if (!band.length) return null;
+    const naturalRight = laneLeft + naturalWidth;
+    let hit = false;
+    let clusterRight = band[0].right;
+    for (let i = 0; i < band.length; i++) {
+      const g = band[i];
+      if (g.right > clusterRight) clusterRight = g.right;
+      if (laneLeft < g.right && naturalRight > g.left) hit = true;
+    }
+    if (!hit) return null;
+    const clearLeft = clusterRight + LOGO_CLEAR;
+    const limit = contentRightLimit(top, bottom);
+    let slideW = naturalWidth;
+    if (clearLeft + slideW > limit) slideW = limit - clearLeft;
+    const minW = Math.min(MIN_SLIDE_W, naturalWidth);
+    if (!(slideW >= minW - 0.5)) {
+      let guardBottom = 0;
+      for (let i = 0; i < band.length; i++) {
+        if (band[i].bottom > guardBottom) guardBottom = band[i].bottom;
+      }
+      return { drop: guardBottom + HEADER_DROP_GAP };
+    }
+    return { left: clearLeft, width: slideW };
+  }
+
+  // Returns a positive ceiling when the stage must drop below the header.
+  // Otherwise positions the bar and returns 0.
+  function layoutWebpageTitlePass(bar, svg, titleEl, metaEl, ceiling) {
     const frame = svg.parentElement;
-    if (!frame) return;
+    if (!frame) return 0;
     const narrow = webpageNarrow();
     const gap = titleClearance();
+    const floor = ceiling > 0 ? ceiling : 0;
     let placed = null;
     for (let i = 0; i < 5; i++) {
       const natural = narrow ? mobileNatural(svg) : desktopNatural(frame);
-      if (natural.width < 8 || natural.height < 8) return;
+      if (natural.width < 8 || natural.height < 8) return 0;
       const basis = placed || natural;
       const metrics = applyTitleMetrics(bar, titleEl, metaEl, basis.width, basis.height);
-      const next = solvePlacement(natural, metrics.height, gap, narrow);
+      const next = solvePlacement(natural, metrics.height, gap, narrow, floor);
       const stable = placementsClose(placed, next);
       placed = next;
       applyPlacement(svg, placed, narrow);
@@ -320,14 +380,14 @@
     }
 
     // Position from the stage that was actually laid out. If the title would
-    // still clip, nudge once more; if that would run the stage out of the
-    // frame, shrink it instead of eating the gap.
+    // still clip the ceiling, nudge once more; if that would run the stage out
+    // of the frame, shrink it instead of eating the gap.
     let r = svg.getBoundingClientRect();
     let metrics = applyTitleMetrics(bar, titleEl, metaEl, r.width, r.height);
     let lane = laneEdges(r);
     let top = lane.top - gap - metrics.height;
-    if (top < -0.25) {
-      const extra = -top;
+    if (top < floor - 0.25) {
+      const extra = floor - top;
       if (narrow) {
         const m = (parseFloat(svg.style.marginTop) || 0) + extra;
         svg.style.marginTop = px(m) + "px";
@@ -341,7 +401,7 @@
           svg.dataset.titleShift = String(px(shift));
         } else {
           const k = (TRACK_Y - LANE_STROKE / 2) / VIEW_H;
-          let H = (fr.bottom - gap - metrics.height) / (1 - k);
+          let H = (fr.bottom - floor - gap - metrics.height) / (1 - k);
           if (!(H > 40)) H = 40;
           if (H > r.height) H = r.height;
           svg.style.maxHeight = px(H) + "px";
@@ -362,23 +422,63 @@
     }
 
     let left = lane.left;
-    const brand = brandMarkBox();
-    if (brand) {
-      const candidate = {
-        left: left,
-        top: top,
-        right: left + metrics.width,
-        bottom: top + metrics.height,
-      };
-      if (boxesOverlap(candidate, brand)) left = brand.right + LOGO_CLEAR;
+    let width = metrics.width;
+    let height = metrics.height;
+    const naturalWidth = titleWidthFor(r.width);
+
+    function applyChoice(choice) {
+      if (!choice || choice.drop) return choice;
+      left = choice.left;
+      if (Math.abs(choice.width - width) <= 0.5) {
+        width = choice.width;
+        return null;
+      }
+      const fitted = applyTitleMetrics(bar, titleEl, metaEl, r.width, r.height, choice.width);
+      width = fitted.width;
+      height = fitted.height;
+      top = lane.top - gap - height;
+      return null;
     }
+
+    const choice = slidePastHeader(lane.left, naturalWidth, top, height);
+    if (choice && choice.drop && !(floor > 0)) return choice.drop;
+    applyChoice(choice);
+    // Narrowing can shorten the bar and move it down. Re-decide from that box
+    // so the clearance matches the title the page actually shows.
+    if (choice && !choice.drop) {
+      const again = slidePastHeader(lane.left, naturalWidth, top, height);
+      if (again && again.drop && !(floor > 0)) return again.drop;
+      if (!again) {
+        const restored = applyTitleMetrics(bar, titleEl, metaEl, r.width, r.height);
+        width = restored.width;
+        height = restored.height;
+        top = lane.top - gap - height;
+        left = lane.left;
+        const third = slidePastHeader(lane.left, naturalWidth, top, height);
+        if (third && third.drop && !(floor > 0)) return third.drop;
+        applyChoice(third);
+      } else {
+        applyChoice(again);
+      }
+    }
+
     // Narrow pages scroll, and the bar is position:absolute so it travels
     // with the stage. top/left above are viewport coordinates.
     const scrollX = narrow ? (window.scrollX || window.pageXOffset || 0) : 0;
     const scrollY = narrow ? (window.scrollY || window.pageYOffset || 0) : 0;
     bar.style.left = px(left + scrollX) + "px";
     bar.style.top = px(top + scrollY) + "px";
-    bar.style.width = px(metrics.width) + "px";
+    bar.style.width = px(width) + "px";
+    return 0;
+  }
+
+  function layoutWebpageTitle(bar, svg, titleEl, metaEl) {
+    let ceiling = 0;
+    for (let pass = 0; pass < 2; pass++) {
+      const drop = layoutWebpageTitlePass(bar, svg, titleEl, metaEl, ceiling);
+      if (!(drop > ceiling + 0.5)) return;
+      ceiling = drop;
+    }
   }
 
   function layoutTitleBar() {

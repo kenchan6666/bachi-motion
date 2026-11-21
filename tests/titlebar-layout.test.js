@@ -2,9 +2,14 @@
  * Webpage title bar stays above the note highway:
  *   left edge on the highway's painted left edge,
  *   16px gap (20px when the viewport is at least 1920 wide),
- *   stage pushed down when that gap would clip the title,
- *   12px right of the header brand (monogram + “bachi-motion” wordmark)
- *   when the two would overlap.
+ *   stage pushed down when that gap would clip the title.
+ *   If that placement would cover the header cluster — the monogram,
+ *   the “bachi-motion” wordmark, the subtitle (「溯溯的鼓棒」), or the
+ *   「手顺编辑」 button — the bar shifts to 12px right of the cluster.
+ *   It may narrow (down to 200px, or the highway-aligned width when that
+ *   is already smaller) to stay inside the stage well and clear of the
+ *   song heading. When even that minimum does not fit, the stage drops
+ *   so the title sits below the cluster instead of covering it.
  * body.export keeps the left-of-track plate when the beige margin is wide.
  *
  *   node tests/titlebar-layout.test.js
@@ -20,6 +25,8 @@ const VIEW_W = 800, VIEW_H = 860, TRACK_Y = 28;
 const LANE_X = 30, LANE_STROKE = 3;
 const TITLE_GAP = 16, TITLE_GAP_WIDE = 20, WIDE_AT = 1920;
 const LOGO_CLEAR = 12;
+const MIN_SLIDE_W = 200;
+const HEADER_DROP_GAP = 4;
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -158,16 +165,27 @@ function assertBox(box, expected, label) {
         const frame = document.querySelector(".stage-frame").getBoundingClientRect();
         const monEl = document.querySelector(".brand .mon");
         const wordEl = document.getElementById("title");
-        const brandNodes = [monEl, wordEl];
-        const brandRects = brandNodes.map((el) => el && el.getBoundingClientRect()).filter((r) => r && r.width > 1 && r.height > 1);
+        const subEl = document.querySelector(".subtitle");
+        const editEl = document.getElementById("btnOpenEditor");
+        const songEl = document.getElementById("song");
+        const chartsEl = document.querySelector(".charts");
+        function boxOf(el) {
+          if (!el) return null;
+          const r = el.getBoundingClientRect();
+          const s = getComputedStyle(el);
+          if (s.display === "none" || s.visibility === "hidden") return null;
+          if (r.width <= 1 || r.height <= 1) return null;
+          return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height };
+        }
+        const mon = boxOf(monEl);
+        const word = boxOf(wordEl);
+        const brandRects = [mon, word].filter(Boolean);
         const logo = brandRects.length ? {
           left: Math.min.apply(null, brandRects.map((r) => r.left)),
           right: Math.max.apply(null, brandRects.map((r) => r.right)),
           top: Math.min.apply(null, brandRects.map((r) => r.top)),
           bottom: Math.max.apply(null, brandRects.map((r) => r.bottom)),
         } : null;
-        const mon = monEl ? monEl.getBoundingClientRect() : null;
-        const word = wordEl ? wordEl.getBoundingClientRect() : null;
         const pad = getComputedStyle(document.getElementById("titlebar")).padding;
         return {
           exporting: document.body.classList.contains("export"),
@@ -184,6 +202,14 @@ function assertBox(box, expected, label) {
             width: logo.right - logo.left,
             height: logo.bottom - logo.top,
           } : null,
+          mon: mon,
+          word: word,
+          subtitle: boxOf(subEl),
+          editorBtn: boxOf(editEl),
+          song: boxOf(songEl),
+          charts: boxOf(chartsEl),
+          subtitleText: subEl ? (subEl.textContent || "") : "",
+          editorText: editEl ? (editEl.textContent || "") : "",
           monRight: mon ? mon.right : 0,
           wordRight: word ? word.right : 0,
           padding: pad,
@@ -194,8 +220,10 @@ function assertBox(box, expected, label) {
     }
 
     // 1280x900 and 1080x860 are desktop sizes where the highway-aligned title
-    // would cover the “bachi-motion” wordmark, so the 12px brand clearance applies.
-    const webSizes = [[1920, 1080], [1600, 900], [1440, 900], [1280, 900], [1280, 800], [1080, 860], [840, 900], [400, 800]];
+    // would cover the “bachi-motion” wordmark. 960x700 is narrow enough that
+    // sliding past 「手顺编辑」 no longer fits in the stage well, so the title
+    // has to drop below the header cluster instead.
+    const webSizes = [[1920, 1080], [1600, 900], [1440, 900], [1280, 900], [1280, 800], [1080, 860], [960, 700], [840, 900], [400, 800]];
     let sawPush = false;
     let sawLogoShift = false;
     let saw1280Wordmark = false;
@@ -219,27 +247,54 @@ function assertBox(box, expected, label) {
       if (m.bar.bottom > lane.top - gapNeed + 0.75) {
         throw new Error("webpage " + w + "x" + h + " title overlaps the highway");
       }
-      near(m.bar.width, titleWidthFor(m.stage.width), 1.25, "webpage " + w + "x" + h + " width");
-      const aligned = {
-        left: lane.left,
-        top: m.bar.top,
-        right: lane.left + m.bar.width,
-        bottom: m.bar.bottom,
-      };
-      const logoHit = m.logo && overlaps(aligned, m.logo);
-      if (logoHit) {
+      if (!m.subtitle || m.subtitleText.indexOf("溯溯的鼓棒") < 0) {
+        throw new Error("webpage " + w + "x" + h + " missing 溯溯的鼓棒");
+      }
+      if (!m.editorBtn || m.editorText.indexOf("手顺编辑") < 0) {
+        throw new Error("webpage " + w + "x" + h + " missing 手顺编辑");
+      }
+      function covers(name, box) {
+        if (box && overlaps(m.bar, box)) {
+          throw new Error("webpage " + w + "x" + h + " title covers " + name);
+        }
+      }
+      covers("溯溯的鼓棒", m.subtitle);
+      covers("手顺编辑", m.editorBtn);
+      covers("the brand wordmark", m.logo);
+      covers("the song heading", m.song);
+      covers("the chart picker", m.charts);
+      const naturalWidth = titleWidthFor(m.stage.width);
+      const guards = [m.mon, m.word, m.subtitle, m.editorBtn].filter(Boolean);
+      const band = guards.filter((g) => g.top < m.bar.bottom && g.bottom > m.bar.top);
+      const naturalRight = lane.left + naturalWidth;
+      const blocked = band.some((g) => g.left < naturalRight && g.right > lane.left);
+      const inset = w <= 840 ? 8 : 6;
+      let limit = m.well.right - inset;
+      if (m.song && m.song.top < m.bar.bottom && m.song.bottom > m.bar.top) {
+        limit = Math.min(limit, m.song.left - LOGO_CLEAR);
+      }
+      if (blocked) {
         if (!(m.wordRight > m.monRight + 8)) {
           throw new Error("webpage " + w + "x" + h + " brand box is only the monogram");
         }
-        near(m.logo.right, m.wordRight, 0.6, "webpage " + w + "x" + h + " clearance edge is the wordmark");
-        near(m.bar.left, m.logo.right + LOGO_CLEAR, 1.25, "webpage " + w + "x" + h + " wordmark clearance");
-        if (overlaps(m.bar, m.logo)) {
-          throw new Error("webpage " + w + "x" + h + " title still overlaps the brand wordmark");
+        const clusterRight = band.reduce((max, g) => Math.max(max, g.right), 0);
+        const clearLeft = clusterRight + LOGO_CLEAR;
+        const minW = Math.min(MIN_SLIDE_W, naturalWidth);
+        const room = limit - clearLeft;
+        if (!(room >= minW - 0.5)) {
+          throw new Error("webpage " + w + "x" + h + " title still covers the header; sliding past it does not fit, so the stage should drop");
+        }
+        const expectW = Math.min(naturalWidth, room);
+        near(m.bar.left, clearLeft, 1.25, "webpage " + w + "x" + h + " header clearance");
+        near(m.bar.width, expectW, 1.5, "webpage " + w + "x" + h + " width");
+        if (m.bar.right > limit + 1.25) {
+          throw new Error("webpage " + w + "x" + h + " title leaves the stage well");
         }
         sawLogoShift = true;
         if (w === 1280 && h === 900) saw1280Wordmark = true;
       } else {
         near(m.bar.left, lane.left, 1.25, "webpage " + w + "x" + h + " left edge");
+        near(m.bar.width, naturalWidth, 1.25, "webpage " + w + "x" + h + " width");
       }
       if (m.stage.left >= 180) {
         const legacy = exportLeftOfTrack(m.stage);
@@ -248,6 +303,7 @@ function assertBox(box, expected, label) {
         }
       }
       const naturalNeed = m.bar.height + gapNeed;
+      const stageMoved = Math.abs(m.stage.top - m.natural.top) > 1.5 || Math.abs(m.stage.height - m.natural.height) > 1.5;
       if (naturalLane.top < naturalNeed - 0.5) {
         if (m.stage.top <= m.natural.top + 0.5 && m.stage.height >= m.natural.height - 0.5) {
           throw new Error("webpage " + w + "x" + h + " did not push the stage down");
@@ -257,8 +313,18 @@ function assertBox(box, expected, label) {
           throw new Error("webpage " + w + "x" + h + " stage clips the frame (bottom " + m.stage.bottom.toFixed(2) + " limit " + limit.toFixed(2) + ")");
         }
         sawPush = true;
-      } else if (Math.abs(m.stage.top - m.natural.top) > 1.5 || Math.abs(m.stage.height - m.natural.height) > 1.5) {
-        throw new Error("webpage " + w + "x" + h + " moved the stage without needing to");
+      } else if (stageMoved) {
+        // Sliding past 「手顺编辑」 does not fit, so the stage drops just enough
+        // for the title to sit under the header cluster.
+        const clusterBottom = Math.max(m.mon.bottom, m.word.bottom, m.subtitle.bottom, m.editorBtn.bottom);
+        const underHeader = m.bar.top >= clusterBottom - 0.75 && m.bar.top <= clusterBottom + HEADER_DROP_GAP + 2;
+        if (!underHeader) {
+          throw new Error("webpage " + w + "x" + h + " moved the stage without needing to (title top " + m.bar.top.toFixed(2) + ", header bottom " + clusterBottom.toFixed(2) + ")");
+        }
+        const limit = Math.min(m.frame.bottom, m.innerHeight);
+        if (m.stage.bottom > limit + 1.5) {
+          throw new Error("webpage " + w + "x" + h + " stage clips the frame (bottom " + m.stage.bottom.toFixed(2) + " limit " + limit.toFixed(2) + ")");
+        }
       }
       const contentLeft = m.well.left + (w <= 840 ? 8 : 18);
       const contentRight = m.well.right - (w <= 840 ? 8 : 6);

@@ -413,33 +413,84 @@ body.editor-mode .editor {
   position: relative;
   cursor: grab;
   user-select: none;
+  scrollbar-width: none;
+}
+.editor-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 .editor-scroll.is-panning,
 .editor-scroll.is-panning * { cursor: grabbing; }
-/* Classic bar, not the overlay sliver. scrollbar-width would cancel this height. */
-.editor-scroll::-webkit-scrollbar {
-  -webkit-appearance: none;
-  height: 18px;
-  width: 12px;
+.editor-overview {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 18px 2px;
 }
-.editor-scroll::-webkit-scrollbar-track {
+.editor-overview[hidden] { display: none !important; }
+.editor-overview-label {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink-deep);
+  white-space: nowrap;
+}
+.editor-overview-track {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 44px;
+  border-radius: 10px;
   background: #E6D7C6;
-  border-radius: 999px;
+  box-shadow: 0 0 0 1.5px #3E3228;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
 }
-.editor-scroll::-webkit-scrollbar-track:horizontal { margin: 0 10px 4px; }
-.editor-scroll::-webkit-scrollbar-thumb {
-  background: #6B5344;
-  border-radius: 999px;
-  border: 3px solid #E6D7C6;
-  min-width: 48px;
-  min-height: 18px;
+.editor-overview-track.is-panning { cursor: grabbing; }
+.editor-overview-measures {
+  position: absolute;
+  inset: 0;
+  display: flex;
 }
-.editor-scroll::-webkit-scrollbar-thumb:hover { background: #3E3228; }
-@supports not selector(::-webkit-scrollbar) {
-  .editor-scroll {
-    scrollbar-width: auto;
-    scrollbar-color: #6B5344 #E6D7C6;
-  }
+.editor-overview-cell {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  height: 100%;
+  box-sizing: border-box;
+  border-right: 1px solid rgba(62, 50, 40, 0.28);
+  background: #F3E6D4;
+}
+.editor-overview-cell:nth-child(even) { background: #E4D0B8; }
+.editor-overview-cell:last-child { border-right: 0; }
+.editor-overview-cell span {
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  color: #6B5344;
+  pointer-events: none;
+}
+.editor-overview-cell span[hidden] { display: none !important; }
+.editor-overview-window {
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  left: 0;
+  box-sizing: border-box;
+  border-radius: 7px;
+  border: 3px solid #3E3228;
+  background: rgba(255, 249, 241, 0.72);
+  box-shadow: inset 0 0 0 1px rgba(255, 249, 241, 0.9);
+  pointer-events: none;
 }
 .editor-measures {
   position: relative;
@@ -457,12 +508,24 @@ body.editor-mode .editor {
 }
 .editor-barnum {
   position: absolute;
-  left: 8px;
-  top: -2px;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 22px;
+  margin: 0;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  font: inherit;
   font-size: 13px;
   font-weight: 700;
+  line-height: 22px;
   color: var(--ink-soft);
+  text-align: left;
+  cursor: pointer;
+  z-index: 3;
 }
+.editor-barnum:hover { color: var(--ink-deep); }
 
 .editor-lane {
   position: relative;

@@ -53,6 +53,10 @@ echo "== chart author UI (高级空谱面 / 加入音符) =="
 node tests/chart-author-ui.test.js
 echo
 
+echo "== editor pan (measure overview, hidden scrollbar, zoom pan) =="
+node tests/editor-pan.test.js
+echo
+
 echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo

@@ -258,6 +258,107 @@ extra("eventsFromStickingResult matches eventsFromAutoSticking on a 16th bar", f
   assert.strictEqual(compact(fromResolved.events), compact(fromAuto.events));
 });
 
+function sessionSeed(hands, pairs) {
+  const notes = hands.map((_, i) => ({ beat: i * 0.25, colour: "don", big: false, bpm: 120 }));
+  return edits.createSession(notes, { bpm: 120, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" }, {
+    hands: hands.slice(),
+    rollPairs: (pairs || []).map((p) => p.slice()),
+    warnings: [],
+  });
+}
+
+function setHands(session, target) {
+  for (let i = 0; i < target.length; i++) {
+    const cur = edits.resolve(session).hands[i];
+    if (cur !== target[i]) edits.applySwap(session, i, target[i]);
+  }
+}
+
+function pairSig(resolved) {
+  return (resolved.rollPairs || []).map((p) => p[0] + "-" + p[1]).join(",");
+}
+
+extra("manual sticking LLRRL is (LL)(RR) plus a single L", function () {
+  const session = sessionSeed(["R", "R", "R", "R", "R"]);
+  setHands(session, ["L", "L", "R", "R", "L"]);
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.hands, ["L", "L", "R", "R", "L"]);
+  assert.deepStrictEqual(got.rollPairs, [[0, 1], [2, 3]]);
+  assert.strictEqual(tag(got), "rLrLrRrRsL");
+});
+
+extra("manual sticking LLRR is two roll pairs", function () {
+  const session = sessionSeed(["R", "R", "R", "R"]);
+  setHands(session, ["L", "L", "R", "R"]);
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.rollPairs, [[0, 1], [2, 3]]);
+  assert.strictEqual(tag(got), "rLrLrRrR");
+});
+
+extra("LLL, RRR and LLLL are not rolls; LRLR stays singles", function () {
+  [["L", "L", "L"], ["R", "R", "R"], ["L", "L", "L", "L"], ["L", "R", "L", "R"]].forEach(function (hands) {
+    const session = sessionSeed(hands.map(() => "R"));
+    setHands(session, hands);
+    const got = edits.resolve(session);
+    assert.deepStrictEqual(got.hands, hands);
+    assert.deepStrictEqual(got.rollPairs, [], hands.join("") + " " + pairSig(got));
+  });
+});
+
+extra("a manual hand change that makes 2-2 re-marks roll grips; three-in-a-row does not", function () {
+  const tja = ["TITLE:t", "BPM:120", "OFFSET:0", "COURSE:Oni", "#START", "11111,", "#END", ""].join("\n");
+  const parsed = parser.sliceCourse(parser.pickCourse(parser.parseTja(tja)), null);
+  const input = parser.notesToStickingInput(parsed.notes, parsed.measures, false);
+  const opts = { bpm: 120, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" };
+  const session = edits.createSession(input, opts, {
+    hands: input.map(() => "R"),
+    rollPairs: [],
+    warnings: [],
+  });
+  setHands(session, ["L", "L", "R", "R", "L"]);
+  const got = edits.resolve(session);
+  const ev = parser.eventsFromStickingResult(parsed, got, opts);
+  assert.deepStrictEqual(ev.events.map((e) => e.grip), ["roll", "roll", "roll", "roll", "single"]);
+  assert.deepStrictEqual(ev.events.map((e) => e.hand), ["L", "L", "R", "R", "L"]);
+  assert.ok(ev.events.every((e) => e.face === "don"));
+
+  const triple = sessionSeed(["L", "L", "R", "R"], [[0, 1], [2, 3]]);
+  edits.applySwap(triple, 2, "L");
+  const after = edits.resolve(triple);
+  assert.deepStrictEqual(after.hands, ["L", "L", "L", "R"]);
+  assert.deepStrictEqual(after.rollPairs, [], "LLL R is not a roll");
+});
+
+extra("loading a custom hand order does not re-detect rolls until a hand is edited", function () {
+  const session = edits.createSessionFromResolved(
+    [{ beat: 0, colour: "don", big: false }, { beat: 0.25, colour: "don", big: false },
+      { beat: 0.5, colour: "ka", big: false }, { beat: 0.75, colour: "ka", big: false }],
+    { bpm: 120, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" },
+    { hands: ["L", "L", "R", "R"], rollPairs: [], warnings: [] }
+  );
+  assert.deepStrictEqual(edits.resolve(session).rollPairs, []);
+  edits.applySwap(session, 0, "L");
+  assert.deepStrictEqual(edits.resolve(session).rollPairs, [[0, 1], [2, 3]]);
+});
+
+extra("a hand edit in another phrase does not re-mark an untouched pair", function () {
+  const notes = [
+    { beat: 0, colour: "don", big: false },
+    { beat: 0.25, colour: "don", big: false },
+    { beat: 3, colour: "ka", big: false },
+    { beat: 3.25, colour: "ka", big: false },
+  ];
+  const session = edits.createSession(notes, { bpm: 120, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" }, {
+    hands: ["L", "L", "R", "R"],
+    rollPairs: [],
+    warnings: [],
+  });
+  edits.applySwap(session, 3, "L");
+  const got = edits.resolve(session);
+  assert.deepStrictEqual(got.hands, ["L", "L", "R", "L"]);
+  assert.deepStrictEqual(got.rollPairs, [], "the earlier LL stays a single until that phrase is edited");
+});
+
 extra("resolvedFromEvents round-trips auto 2-2 roll events", function () {
   const tja = ["TITLE:t", "BPM:300", "OFFSET:0", "COURSE:Oni", "#START", "1111111111111111,", "#END", ""].join("\n");
   const data = parser.eventsFromTja(tja, { 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });

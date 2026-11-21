@@ -73,6 +73,10 @@ echo "== hand-order editor edits (roll / alternate / restore / swap / undo) =="
 node tests/hand-edits.test.js
 echo
 
+echo "== zoom card uses real note timing =="
+node tests/zoom-layout.test.js
+echo
+
 echo "== roll-dot cache (cached 720-sample pos must match uncached) =="
 node tests/roll-dot-cache.test.js
 echo

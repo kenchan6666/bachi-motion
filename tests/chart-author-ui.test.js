@@ -160,10 +160,13 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
       check(box.bpm.r <= box.measures.l - 4, name + " bpm and measures are cramped");
       check(Math.abs(box.title.h - box.bpm.h) <= 1 && Math.abs(box.bpm.h - box.measures.h) <= 1, name + " input heights differ");
     }
-    assertFields("desktop settings", await fieldLayout("settings"));
-    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
-    assertFields("narrow settings", await fieldLayout("settings"));
-    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+    const beforeOpen = await page.evaluate(() => ({
+      settings: document.getElementById("settingsBlankFields").hidden,
+      editor: document.getElementById("editorBlankFields").hidden,
+      courses: document.querySelectorAll("#coursePicker button").length,
+    }));
+    check(beforeOpen.settings && beforeOpen.editor, "blank fields visible before a blank chart is opened");
+    check(beforeOpen.courses === 0, "difficulty buttons visible before a TJA is opened");
 
     const titles = await page.evaluate(() => {
       return ["settingsBlankTitle", "editorBlankTitle"].map((id) => {
@@ -219,6 +222,15 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
     check(blank.slots, "blank measures are not 16 rests");
     check(blank.song.includes("未命名"), "heading " + blank.song);
     check(blank.file == null, "blank chart kept an original song");
+    const blankChrome = await page.evaluate(() => ({
+      fields: !document.getElementById("settingsBlankFields").hidden,
+      courses: document.querySelectorAll("#coursePicker button").length,
+    }));
+    check(blankChrome.fields && blankChrome.courses === 0, "blank chart shows fields and hides difficulty");
+    assertFields("desktop settings", await fieldLayout("settings"));
+    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+    assertFields("narrow settings", await fieldLayout("settings"));
+    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
 
     const quiet = dialogs.length;
     dialogMode = "fail";

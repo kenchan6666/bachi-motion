@@ -33,6 +33,14 @@ function nearly(a, b, eps) {
   assert.ok(Math.abs(a - b) <= (eps == null ? 1e-6 : eps), "expected " + a + " ≈ " + b);
 }
 
+/** Playhead has reached the note. Allows 1µs of float; does not treat a fixed 1.5 as the bar. */
+function reached(now, noteT) {
+  assert.ok(
+    Number.isFinite(+now) && +now + 1e-6 >= noteT,
+    "playhead " + now + " had not reached note " + noteT
+  );
+}
+
 (async function main() {
   await check("big-note boost matches export", () => {
     assert.strictEqual(preview.BIG_BOOST, audio.BIG_BOOST);
@@ -156,6 +164,24 @@ function nearly(a, b, eps) {
       "3.98:don:" + preview.BIG_BOOST,
       "2.02:ka:1",
     ]);
+  });
+
+  await check("a note waits until the playhead reaches event.t", () => {
+    const noteT = 1.5;
+    const events = [{ t: noteT, face: "ka", big: true }];
+    // A frame can stop this close and still look "not yet" on screen
+    // (now - t < 0). The old +1e-9 slack scheduled the hit anyway.
+    const justUnder = noteT - 1e-10;
+    assert.ok(justUnder < noteT);
+    assert.ok(noteT <= justUnder + 1e-9);
+    const step = { playing: true, maxStep: 0.1 };
+    assert.deepStrictEqual(preview.hitsForPlaybackStep(events, 1.45, justUnder, step), []);
+    const hit = preview.hitsForPlaybackStep(events, justUnder, noteT, step);
+    assert.strictEqual(hit.length, 1);
+    assert.strictEqual(hit[0].t, noteT);
+    assert.strictEqual(hit[0].face, "ka");
+    assert.strictEqual(hit[0].big, true);
+    assert.strictEqual(hit[0].gain, preview.BIG_BOOST);
   });
 
   await check("slow-mo is a shorter chart step, and the hit stays on event.t", () => {
@@ -324,9 +350,10 @@ async function runPage() {
         window.taikoAnim.setPlaying(true);
       });
       await page.waitForFunction(() => {
-        const hit = (window.__hitLog || []).find((item) => item.face === "don" && item.t === 1);
+        const hit = (window.__hitLog || []).find((item) => item.face === "don" && item.t === 1 && item.now + 1e-6 >= item.t);
         if (!hit) return false;
         window.__firstHit = hit;
+        window.__firstLive = window.taikoAnim.state.now;
         window.taikoAnim.setPlaying(false);
         return true;
       }, { timeout: 2000 });
@@ -335,14 +362,14 @@ async function runPage() {
         dons: window.__hitLog.filter((item) => item.t === 1 && item.face === "don"),
         kas: window.__hitLog.filter((item) => item.face === "ka"),
         plays: window.PreviewHits.player.playCount(),
-        now: window.taikoAnim.state.now,
+        now: window.__firstLive,
         playing: window.taikoAnim.state.playing,
       }));
       assert.strictEqual(first.dons.length, 1);
       assert.strictEqual(first.hit.gain, 1);
       assert.strictEqual(first.hit.big, false);
-      assert.ok(first.hit.now >= 1, "playhead " + first.hit.now + " had not reached the note");
-      assert.ok(first.now >= 1);
+      reached(first.hit.now, first.hit.t);
+      reached(first.now, first.hit.t);
       assert.deepStrictEqual(first.kas, []);
       assert.strictEqual(first.playing, false);
       assert.ok(first.plays === playsBefore + 1, "expected one BufferSource, got " + first.plays + " from " + playsBefore);
@@ -372,24 +399,31 @@ async function runPage() {
         window.taikoAnim.setPlaying(true);
         return beforePlays;
       });
-      await page.waitForFunction(() => {
-        const hit = (window.__hitLog || []).find((item) => item.face === "ka" && item.t === 1.5);
+      await page.waitForFunction((boost) => {
+        const hit = (window.__hitLog || []).find((item) => {
+          return item.face === "ka" && item.t === 1.5 && item.big === true && item.gain === boost && item.now + 1e-6 >= item.t;
+        });
         if (!hit) return false;
         window.__bigHit = hit;
+        window.__bigLive = window.taikoAnim.state.now;
         window.taikoAnim.setPlaying(false);
         return true;
-      }, { timeout: 2000 });
+      }, { timeout: 2000 }, preview.BIG_BOOST);
       const bigHit = await page.evaluate((beforePlays) => ({
         hit: window.__bigHit,
+        live: window.__bigLive,
         count: window.__hitLog.filter((item) => item.t === 1.5).length,
         plays: window.PreviewHits.player.playCount(),
         beforePlays: beforePlays,
+        boost: window.PreviewHits.BIG_BOOST,
       }), big);
       assert.strictEqual(bigHit.count, 1);
       assert.strictEqual(bigHit.hit.t, 1.5);
       assert.strictEqual(bigHit.hit.big, true);
-      assert.strictEqual(bigHit.hit.gain, 1.25);
-      assert.ok(bigHit.hit.now >= 1.5);
+      assert.strictEqual(bigHit.hit.gain, preview.BIG_BOOST);
+      assert.strictEqual(bigHit.boost, preview.BIG_BOOST);
+      reached(bigHit.hit.now, bigHit.hit.t);
+      reached(bigHit.live, bigHit.hit.t);
       assert.strictEqual(bigHit.plays, bigHit.beforePlays + 1);
 
       const muted = await page.evaluate(() => {
@@ -445,7 +479,7 @@ async function runPage() {
       assert.strictEqual(slow.batchOn, true);
       assert.strictEqual(slow.rate, 0.25);
       await page.waitForFunction(() => {
-        const hit = (window.__hitLog || []).find((item) => item.t === 4);
+        const hit = (window.__hitLog || []).find((item) => item.t === 4 && item.now + 1e-6 >= item.t);
         if (!hit) return false;
         window.__slowHit = hit;
         window.taikoAnim.setPlaying(false);
@@ -455,8 +489,8 @@ async function runPage() {
       assert.strictEqual(slowHit.t, 4);
       assert.strictEqual(slowHit.face, "don");
       assert.strictEqual(slowHit.gain, 1);
-      assert.ok(slowHit.now >= 4);
-      assert.ok(slowHit.now < 4.2, "slow-mo jumped too far: " + slowHit.now);
+      reached(slowHit.now, slowHit.t);
+      assert.ok(slowHit.now < slowHit.t + 0.25, "slow-mo jumped too far: " + slowHit.now);
       await page.close();
     });
 

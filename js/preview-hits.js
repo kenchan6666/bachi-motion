@@ -37,7 +37,11 @@
 
   /**
    * Notes in the chart-time window. `inclusiveFrom` selects [from, to]
-   * instead of (from, to]. Shared `seen` collapses same-time same-face hits.
+   * instead of (from, to]. The end is inclusive only once the playhead
+   * has reached the note (t <= to), matching the on-screen hit
+   * (now - event.t >= 0). Do not add slack past `to`: a frame that lands
+   * a fraction early must wait, or the sample plays before the picture.
+   * Shared `seen` collapses same-time same-face hits.
    */
   function collect(events, from, to, inclusiveFrom, bigBoost, seen, out) {
     var boost = bigBoost == null ? BIG_BOOST : +bigBoost;
@@ -47,8 +51,8 @@
       if (!event) continue;
       var t = +event.t;
       if (!isFinite(t)) continue;
-      var after = inclusiveFrom ? t >= from - 1e-9 : t > from;
-      if (!after || !(t <= to + 1e-9)) continue;
+      var after = inclusiveFrom ? t + 1e-9 >= from : t > from;
+      if (!after || t > to) continue;
       var key = t.toFixed(6) + ":" + faceOf(event);
       if (seen[key]) continue;
       seen[key] = true;

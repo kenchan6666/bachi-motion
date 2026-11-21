@@ -1,12 +1,18 @@
 /**
  * Chart-lane scroll.
  *
- * 流速 is a multiplier on pixels per second (1.1, 1.2, …).
- * 变速, when on, makes that speed follow the chart BPM: a quarter note
- * keeps the same pixel width as at the opening tempo, so a faster section
- * moves faster. When off, pixels per second stay constant (the old lane).
- * A chart with one BPM looks the same either way, because the reference
- * tempo is the first timeline piece.
+ * 流速 is a multiplier on pixels per second (1.1, 1.2, …). It applies
+ * whether or not 变速 is on.
+ *
+ * 变速 on follows the chart #SCROLL. Each note keeps the scroll in effect
+ * at its own hit time and travels at basePxPerSec × that scroll × 流速.
+ * BPM does not change pixels per second: #BPMCHANGE only decides when the
+ * note is hit. A later note with a higher #SCROLL moves faster, so the gap
+ * to the note ahead shrinks and notes with different scrolls can pass.
+ *
+ * 变速 off is 等速 practice. #SCROLL is ignored and pixels per second stay
+ * constant. Hit timing still follows BPM. A chart whose #SCROLL stays 1
+ * looks the same either way.
  *
  * Browser: window.ScrollTempo. Node: module.exports.
  */
@@ -54,46 +60,24 @@
     }).sort(function (a, b) { return a.t - b.t; });
   }
 
+  /** Opening timeline BPM. Lane X does not use it; #BPMCHANGE only sets hit times. */
   function referenceBpm(timeline) {
     var pieces = piecesOf(timeline);
     return pieces.length ? pieces[0].bpm : 120;
   }
 
   /**
-   * Visual seconds from `now` to `tNote`.
-   * Off: wall-clock delta. On: each BPM piece is scaled by bpm/reference,
-   * and time outside the timeline stays at the opening tempo (scale 1).
+   * Seconds from `now` to `tNote`, times the note's own #SCROLL when 变速 is on.
+   * Off: wall-clock delta (等速). On: that delta × the note's chart scroll.
+   * Missing scroll is 1. BPM is not part of this scale.
    */
-  function visualDelta(now, tNote, timeline, showTempo) {
-    var sign = tNote >= now ? 1 : -1;
-    var a = Math.min(+now, +tNote);
-    var b = Math.max(+now, +tNote);
-    if (!(b > a)) return 0;
-    if (!showTempo) return (b - a) * sign;
-    var pieces = piecesOf(timeline);
-    var ref = referenceBpm(timeline);
-    var acc = 0;
-    var cursor = a;
-    for (var i = 0; i < pieces.length; i++) {
-      var p = pieces[i];
-      var ps = p.t;
-      var pe = p.t + p.duration;
-      if (pe <= cursor + 1e-12) continue;
-      if (ps >= b - 1e-12) break;
-      if (ps > cursor) {
-        var gapEnd = Math.min(ps, b);
-        acc += gapEnd - cursor;
-        cursor = gapEnd;
-      }
-      if (cursor >= b) break;
-      var segEnd = Math.min(pe, b);
-      if (segEnd > cursor) {
-        acc += (segEnd - cursor) * (p.bpm / ref);
-        cursor = segEnd;
-      }
-    }
-    if (cursor < b) acc += b - cursor;
-    return acc * sign;
+  function visualDelta(now, tNote, chartScroll, showTempo) {
+    var delta = +tNote - +now;
+    if (!isFinite(delta)) return 0;
+    if (!showTempo) return delta;
+    var s = +chartScroll;
+    if (!isFinite(s)) s = 1;
+    return delta * s;
   }
 
   function noteX(opts) {
@@ -101,7 +85,7 @@
     var scroll = isFinite(+opts.scroll) ? +opts.scroll : 1;
     var judgeX = isFinite(+opts.judgeX) ? +opts.judgeX : 0;
     var base = isFinite(+opts.basePxPerSec) ? +opts.basePxPerSec : 600;
-    var delta = visualDelta(+opts.now, +opts.tNote, opts.timeline, !!opts.showTempo);
+    var delta = visualDelta(+opts.now, +opts.tNote, opts.chartScroll, !!opts.showTempo);
     return judgeX + delta * base * scroll;
   }
 

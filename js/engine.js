@@ -1799,6 +1799,17 @@ function composePose(hand, base, lift, bend, wobble, grip, follow, rollState, si
 }
 
 function noteX(tNote, now, scroll) {
+  if (typeof ScrollTempo !== "undefined" && ScrollTempo.noteX) {
+    return ScrollTempo.noteX({
+      tNote: tNote,
+      now: now,
+      scroll: scroll,
+      showTempo: !!(state && state.showTempo),
+      timeline: state && state.bpmTimeline,
+      judgeX: GEOM.lane.judgeX,
+      basePxPerSec: CONFIG.BASE_PX_PER_SEC,
+    });
+  }
   return GEOM.lane.judgeX + (tNote - now) * CONFIG.BASE_PX_PER_SEC * scroll;
 }
 
@@ -2703,6 +2714,8 @@ const state = {
   hands: ["none", "vector"].includes(params.get("hands")) ? params.get("hands") : "img",   // img=画师手图（默认）；vector=代码画的手；none=不画手
   rate: pickNum(params.get("rate"), 1, 0.05, 4),
   scroll: pickNum(params.get("scroll"), 1, 0.5, 8),
+  // 变速：谱面流速跟着 BPM 走。?tempo=0 关掉，像素/秒保持不变。
+  showTempo: !/^(0|off|false|no)$/i.test(params.get("tempo") == null ? "" : String(params.get("tempo"))),
   route: ["inner", "outer", "straight"].includes(params.get("route")) ? params.get("route") : "data",
   labels: params.get("labels") === "1",                 // R/L 调试标签：?labels=1 打开
   technique: params.get("technique") || "全换",          // 标题栏：全换 / 半换 A / 半换 B / 炒菜；有 JSON 且未指定时可为空
@@ -2867,7 +2880,7 @@ function tick(ts) {
  * Deterministic frame render: the picture is a pure function of chart time t
  * (same units as event.t, seconds). Does not read the wall clock or rAF.
  * Pauses realtime playback so a later rAF tick cannot advance mid-export.
- * Same t + same settings (scroll / rate / route) → the same frame.
+ * Same t + same settings (scroll / rate / route / 变速) → the same frame.
  */
 function renderAt(t) {
   const n = +t;
@@ -3178,14 +3191,29 @@ function bindControls() {
   bindLoopCap($("loopCapStart"), "start");
   bindLoopCap($("loopCapEnd"), "end");
   bindScrubSeek();
-  $("scroll").oninput = (e) => { state.scroll = +e.target.value; $("scrollVal").textContent = state.scroll + "×"; };
+  const tempoBox = $("showTempo");
+  if (tempoBox) {
+    tempoBox.checked = !!state.showTempo;
+    tempoBox.onchange = () => { state.showTempo = tempoBox.checked; };
+  }
+  $("scroll").oninput = (e) => {
+    state.scroll = (typeof ScrollTempo !== "undefined" && ScrollTempo.scrollFromControl)
+      ? ScrollTempo.scrollFromControl(e.target.value, state.scroll)
+      : +e.target.value;
+    $("scrollVal").textContent = (typeof ScrollTempo !== "undefined" && ScrollTempo.formatScroll)
+      ? ScrollTempo.formatScroll(state.scroll)
+      : state.scroll + "×";
+  };
   $("route").onchange = (e) => { state.route = e.target.value; clearPoseStepCache(); state.tracks = buildHandTracks(state.events, state.route); };
   $("scrub").oninput = (e) => seek(state.start + (+e.target.value) * (state.end - state.start));
   setRate(state.rate); setPlaying(state.playing);
   $("btnLoop").classList.toggle("on", state.loop);
   $("btnLoop").setAttribute("aria-pressed", String(state.loop));
   $("btnLoop").setAttribute("aria-label", state.loop ? "循环（开）" : "循环（关）");
-  $("scroll").value = state.scroll; $("scrollVal").textContent = state.scroll + "×";
+  $("scroll").value = state.scroll;
+  $("scrollVal").textContent = (typeof ScrollTempo !== "undefined" && ScrollTempo.formatScroll)
+    ? ScrollTempo.formatScroll(state.scroll)
+    : state.scroll + "×";
   $("route").value = state.route;
   $("labels").checked = state.labels;
   $("labels").onchange = (e) => { state.labels = e.target.checked; };

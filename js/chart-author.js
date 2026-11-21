@@ -1,10 +1,12 @@
 /**
  * Blank charts and 16th-grid note edits. Pure functions, no DOM.
  *
- * A blank chart is rests only: TITLE 未命名, BPM 120, 8 measures of 16ths,
- * no original-song header. Placing or deleting a note rewrites that
- * measure's slots. Handmade / imported 手顺 is shifted onto the surviving
- * notes and is not regenerated here.
+ * A blank chart is rests only: TITLE from the 歌名 field (default 未命名),
+ * BPM from the field (default 120), 8 measures of 16ths, no original-song
+ * header. After it is open, TITLE and BPM can be rewritten without touching
+ * the measures. Placing or deleting a note rewrites that measure's slots.
+ * Handmade / imported 手顺 is shifted onto the surviving notes and is not
+ * regenerated here.
  *
  * Browser: window.BachiChartAuthor. Node: module.exports.
  */
@@ -25,6 +27,12 @@
   const PLAY = { "1": true, "2": true, "3": true, "4": true };
   const BEAT_EPS = 1e-9;
 
+  function cleanTitle(title) {
+    if (title == null) return DEFAULTS.title;
+    const s = String(title).replace(/[\r\n]+/g, " ").trim();
+    return s ? s : DEFAULTS.title;
+  }
+
   function normalizeBlankOptions(opts) {
     opts = opts || {};
     let bpm = opts.bpm == null || opts.bpm === "" ? DEFAULTS.bpm : +opts.bpm;
@@ -33,13 +41,37 @@
     let measures = opts.measures == null || opts.measures === "" ? DEFAULTS.measures : Math.round(+opts.measures);
     if (!isFinite(measures) || measures < 1) measures = DEFAULTS.measures;
     if (measures > 512) measures = 512;
-    const title = opts.title == null || String(opts.title).trim() === "" ? DEFAULTS.title : String(opts.title).trim();
+    const title = cleanTitle(opts.title);
     return { bpm: bpm, measures: measures, title: title };
   }
 
   function formatBpm(bpm) {
     if (Math.abs(bpm - Math.round(bpm)) < 1e-9) return String(Math.round(bpm));
     return String(bpm);
+  }
+
+  function upsertHeader(text, key, value) {
+    const re = new RegExp("^" + key + "\\s*:.*$", "im");
+    const line = key + ":" + value;
+    if (re.test(text)) return text.replace(re, function () { return line; });
+    const at = text.search(/^#START\b/im);
+    if (at >= 0) return text.slice(0, at) + line + "\n" + text.slice(at);
+    if (!text) return line + "\n";
+    return line + "\n" + text;
+  }
+
+  // Rewrite TITLE and/or BPM on an existing chart. Measures and notes stay.
+  function applyChartMeta(tja, patch) {
+    patch = patch || {};
+    let text = String(tja == null ? "" : tja);
+    if (Object.prototype.hasOwnProperty.call(patch, "title")) {
+      text = upsertHeader(text, "TITLE", cleanTitle(patch.title));
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "bpm")) {
+      const bpm = normalizeBlankOptions({ bpm: patch.bpm }).bpm;
+      text = upsertHeader(text, "BPM", formatBpm(bpm));
+    }
+    return text;
   }
 
   function blankTja(opts) {
@@ -418,6 +450,7 @@
     DEFAULTS: DEFAULTS,
     normalizeBlankOptions: normalizeBlankOptions,
     blankTja: blankTja,
+    applyChartMeta: applyChartMeta,
     chartHasNotes: chartHasNotes,
     noteChar: noteChar,
     placeNote: placeNote,

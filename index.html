@@ -828,11 +828,13 @@
   }
   .file-btn[hidden] { display: none; }
   .blank-chart-fields {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
     gap: 8px;
+    align-items: end;
   }
   .blank-chart-field {
-    flex: 1;
+    min-width: 0;
     display: flex;
     flex-direction: column;
     gap: 4px;
@@ -840,14 +842,20 @@
     font-weight: 700;
     color: var(--ink-deep);
   }
+  .blank-chart-field-title { grid-column: 1 / -1; }
   .blank-chart-field input {
     width: 100%;
+    min-width: 0;
     height: 32px;
     border: 1.5px solid var(--line-strong);
     border-radius: 8px;
     background: var(--btn);
     padding: 0 8px;
     color: var(--ink-deep);
+  }
+  .blank-chart-field input::placeholder {
+    color: var(--ink-soft);
+    opacity: 1;
   }
   .blank-chart-open {
     display: flex;
@@ -1209,6 +1217,9 @@ LEVEL:6
             <div id="error" hidden></div>
 
             <div class="blank-chart-fields">
+              <label class="blank-chart-field blank-chart-field-title">歌名
+                <input id="settingsBlankTitle" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="未命名">
+              </label>
               <label class="blank-chart-field">BPM
                 <input id="settingsBlankBpm" type="number" min="1" max="999" step="1" value="120" inputmode="numeric">
               </label>
@@ -1222,7 +1233,7 @@ LEVEL:6
             </div>
             <div id="settingsBlankHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
             </div>
           </div>
         </details>
@@ -1414,6 +1425,9 @@ LEVEL:6
           <button type="button" class="editor-advanced-btn" id="editorAdvancedBtn" aria-expanded="false">高级 <span class="chevron" aria-hidden="true"></span></button>
           <div class="editor-advanced-panel" id="editorAdvancedPanel" hidden>
             <div class="blank-chart-fields">
+              <label class="blank-chart-field blank-chart-field-title">歌名
+                <input id="editorBlankTitle" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="未命名">
+              </label>
               <label class="blank-chart-field">BPM
                 <input id="editorBlankBpm" type="number" min="1" max="999" step="1" value="120" inputmode="numeric">
               </label>
@@ -1427,7 +1441,7 @@ LEVEL:6
             </div>
             <div id="editorBlankHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="editorBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
             </div>
             <label class="file-btn">导入 JSON<input id="editorJsonFile" type="file" accept=".json,application/json"></label>
             <button type="button" class="file-btn" id="editorExportJson">导出 JSON</button>

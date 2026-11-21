@@ -560,6 +560,43 @@
   setupRouteHint("routeHintBtn", "routeHint");
   setupRouteHint("chartHintBtn", "chartHint");
   setupRouteHint("batchHintBtn", "batchHint");
+  setupRouteHint("settingsBlankHintBtn", "settingsBlankHint");
+  setupRouteHint("editorBlankHintBtn", "editorBlankHint");
+  setupRouteHint("editorAddNoteHintBtn", "editorAddNoteHint");
+
+  function openBlankChart(bpm, measures) {
+    const author = window.BachiChartAuthor;
+    if (!author) return false;
+    const opts = author.normalizeBlankOptions({ bpm: bpm, measures: measures });
+    if (author.chartHasNotes(tjaInput.value)) {
+      const ok = window.confirm("当前谱面已有音符。打开空谱面会替换它，是否继续？");
+      if (!ok) return false;
+    }
+    tjaInput.value = author.blankTja(opts);
+    setJsonValue("");
+    setMode("zhuren");
+    syncChartPicker("custom");
+    if (window.BachiOriginal && typeof window.BachiOriginal.setFile === "function") {
+      window.BachiOriginal.setFile(null);
+    }
+    const ed = window.BachiEditor;
+    if (ed && typeof ed.noteChartReplaced === "function") ed.noteChartReplaced();
+    generate(false);
+    showError("");
+    return opts;
+  }
+
+  function bindBlankChart(btnId, bpmId, measuresId) {
+    const btn = $(btnId);
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const bpmEl = $(bpmId);
+      const measuresEl = $(measuresId);
+      openBlankChart(bpmEl ? bpmEl.value : "", measuresEl ? measuresEl.value : "");
+    });
+  }
+  bindBlankChart("settingsOpenBlank", "settingsBlankBpm", "settingsBlankMeasures");
+  bindBlankChart("editorOpenBlank", "editorBlankBpm", "editorBlankMeasures");
 
   function regenerateKeepTime() {
     const anim = window.taikoAnim;
@@ -630,6 +667,7 @@
     setTja: (v) => { tjaInput.value = v || ""; },
     getJson: () => jsonInput.value,
     setJson: (v) => setJsonValue(v),
+    openBlankChart,
     ROLL_HINTS,
   };
   window.fitSongHeading = fitSongHeading;

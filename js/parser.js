@@ -1006,7 +1006,7 @@
 
   /**
    * Hand JSON replaces the sticking, but each note still keeps the chart
-   * #SCROLL that was in effect at its src slot.
+   * #SCROLL and BPM that were in effect at its src slot.
    */
   function stampChartScroll(sourceEvents, events) {
     const bySrc = Object.create(null);
@@ -1017,8 +1017,11 @@
     }
     return (events || []).map((e) => {
       const src = e && bySrc[e.src];
-      if (!src || !isFinite(+src.scroll) || isFinite(+e.scroll)) return e;
-      return Object.assign({}, e, { scroll: +src.scroll });
+      if (!src) return e;
+      const patch = {};
+      if (!isFinite(+e.scroll) && isFinite(+src.scroll)) patch.scroll = +src.scroll;
+      if (!(isFinite(+e.bpm) && +e.bpm > 0) && isFinite(+src.bpm) && +src.bpm > 0) patch.bpm = +src.bpm;
+      return Object.keys(patch).length ? Object.assign({}, e, patch) : e;
     });
   }
 

@@ -4,15 +4,22 @@
  * 流速 is a multiplier on pixels per second (1.1, 1.2, …). It applies
  * whether or not 变速 is on.
  *
- * 变速 on follows the chart #SCROLL. Each note keeps the scroll in effect
- * at its own hit time and travels at basePxPerSec × that scroll × 流速.
- * BPM does not change pixels per second: #BPMCHANGE only decides when the
- * note is hit. A later note with a higher #SCROLL moves faster, so the gap
- * to the note ahead shrinks and notes with different scrolls can pass.
+ * 变速 on matches official Taiko (本家, normal / #NMSCROLL). Each note keeps
+ * the BPM and #SCROLL in effect at its own hit and travels at constant speed:
  *
- * 变速 off is 等速 practice. #SCROLL is ignored and pixels per second stay
- * constant. Hit timing still follows BPM. A chart whose #SCROLL stays 1
- * looks the same either way.
+ *   px/s = basePxPerSec × (noteBpm / referenceBpm) × #SCROLL × 流速
+ *
+ * referenceBpm is the opening timeline BPM. A #SCROLL 1 note at that tempo
+ * matches 变速 off, so the slider stays a multiplier on top of a familiar
+ * base. Equal BPM × #SCROLL products then move at the same speed (150×2,
+ * 75×4 and 300×1 match; 150×1 is half of 300×1). #MEASURE only sets how
+ * many quarter beats a bar lasts; it does not change pixels per second.
+ * A later note with a higher product is faster and can pass the one ahead.
+ * Speed stays the note's own product even while playback is still in an
+ * earlier BPM.
+ *
+ * 变速 off is 等速 practice. #SCROLL is ignored and BPM does not change
+ * pixels per second. Hit timing still follows BPM.
  *
  * Browser: window.ScrollTempo. Node: module.exports.
  */
@@ -60,24 +67,54 @@
     }).sort(function (a, b) { return a.t - b.t; });
   }
 
-  /** Opening timeline BPM. Lane X does not use it; #BPMCHANGE only sets hit times. */
+  /** Opening timeline BPM. #SCROLL 1 at this tempo matches basePxPerSec. */
   function referenceBpm(timeline) {
     var pieces = piecesOf(timeline);
     return pieces.length ? pieces[0].bpm : 120;
   }
 
+  /** BPM of the timeline piece that contains `tNote` (the piece that starts at a boundary wins). */
+  function bpmAt(timeline, tNote) {
+    var pieces = piecesOf(timeline);
+    if (!pieces.length) return 0;
+    var t = +tNote;
+    if (!isFinite(t)) return pieces[0].bpm;
+    var i;
+    for (i = 0; i < pieces.length; i++) {
+      var p = pieces[i];
+      if (t >= p.t - 1e-6 && t < p.t + p.duration - 1e-9) return p.bpm;
+    }
+    var prev = null;
+    for (i = 0; i < pieces.length; i++) {
+      if (pieces[i].t <= t + 1e-6) prev = pieces[i];
+    }
+    return prev ? prev.bpm : pieces[0].bpm;
+  }
+
+  function noteBpm(bpm, timeline, tNote, ref) {
+    var b = +bpm;
+    if (isFinite(b) && b > 0) return b;
+    var looked = bpmAt(timeline, tNote);
+    if (isFinite(looked) && looked > 0) return looked;
+    return ref;
+  }
+
   /**
-   * Seconds from `now` to `tNote`, times the note's own #SCROLL when 变速 is on.
-   * Off: wall-clock delta (等速). On: that delta × the note's chart scroll.
-   * Missing scroll is 1. BPM is not part of this scale.
+   * Seconds from `now` to `tNote`, scaled like 本家 when 变速 is on.
+   * Off: wall-clock delta (等速). On: delta × #SCROLL × (noteBpm / referenceBpm).
+   * Missing scroll is 1. A non-positive BPM falls back to the reference.
    */
-  function visualDelta(now, tNote, chartScroll, showTempo) {
+  function visualDelta(now, tNote, chartScroll, showTempo, bpm, refBpm) {
     var delta = +tNote - +now;
     if (!isFinite(delta)) return 0;
     if (!showTempo) return delta;
     var s = +chartScroll;
     if (!isFinite(s)) s = 1;
-    return delta * s;
+    var ref = +refBpm;
+    if (!isFinite(ref) || ref <= 0) ref = 120;
+    var b = +bpm;
+    if (!isFinite(b) || b <= 0) b = ref;
+    return delta * s * (b / ref);
   }
 
   function noteX(opts) {
@@ -85,7 +122,11 @@
     var scroll = isFinite(+opts.scroll) ? +opts.scroll : 1;
     var judgeX = isFinite(+opts.judgeX) ? +opts.judgeX : 0;
     var base = isFinite(+opts.basePxPerSec) ? +opts.basePxPerSec : 600;
-    var delta = visualDelta(+opts.now, +opts.tNote, opts.chartScroll, !!opts.showTempo);
+    var ref = (opts.referenceBpm != null && isFinite(+opts.referenceBpm) && +opts.referenceBpm > 0)
+      ? +opts.referenceBpm
+      : referenceBpm(opts.timeline);
+    var bpm = noteBpm(opts.bpm, opts.timeline, opts.tNote, ref);
+    var delta = visualDelta(+opts.now, +opts.tNote, opts.chartScroll, !!opts.showTempo, bpm, ref);
     return judgeX + delta * base * scroll;
   }
 

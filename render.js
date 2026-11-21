@@ -475,6 +475,7 @@ function singleJobFromArgs(args) {
     song: args.song ? path.resolve(args.song) : null,
     out: path.resolve(args.out),
     course: args.course,
+    branch: args.branch,
     measures: args.measures,
     rate: args.rate,
     sticking: args.sticking ? path.resolve(args.sticking) : null,

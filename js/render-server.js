@@ -100,6 +100,7 @@ function materializeJobs(specJobs, dir) {
       label: label,
       audio: !!job.hits,
       course: job.course || null,
+      branch: job.branch || null,
       measures: job.measures || null,
       rate: job.rate == null ? 1 : Number(job.rate),
       technique: job.technique,

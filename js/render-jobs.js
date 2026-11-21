@@ -27,6 +27,8 @@ Flags:
                        firstNoteTime - 0.7. Note times already include OFFSET; it is not
                        subtracted again. Omit this to export with no original music.
   --course <name>      COURSE/difficulty if the TJA has several (default: Oni, else Ura/Edit, else first). Aliases: 0–4, Oni/おに, Edit/Ura/裏.
+  --branch <path>      谱面分歧 when the course has #BRANCHSTART: N/普通, E/玄人, M/达人.
+                       Default 达人. A course with no branch ignores this.
   --measures <A-B>     Inclusive 1-based measure range (default: whole chart)
   --rate <n>           Slow-motion factor applied to the video timeline (default 1).
                        0.5 → video is 2× longer. renderAt still receives real chart time.
@@ -67,6 +69,7 @@ function parseArgs(argv) {
     tja: null,
     song: null,
     course: null,
+    branch: null,
     measures: null,
     rate: 1,
     sticking: null,
@@ -97,6 +100,7 @@ function parseArgs(argv) {
       case "--tja": args.tja = need(); break;
       case "--song": args.song = need(); break;
       case "--course": args.course = need(); break;
+      case "--branch": args.branch = need(); break;
       case "--measures": args.measures = need(); break;
       case "--rate": args.rate = Number(need()); break;
       case "--sticking": args.sticking = need(); break;
@@ -141,6 +145,7 @@ function buildPayload(args) {
     : tjaEncoding.decodeTjaBytes(fs.readFileSync(path.resolve(args.tja)));
   const opts = {
     course: args.course,
+    branch: args.branch,
     measures: args.measures,
     bigNote: args.bignote,
     手法: args.technique,
@@ -219,6 +224,7 @@ function loadBatchFile(file) {
       out: out,
       label: job.label || path.basename(tja),
       course: job.course != null ? job.course : (spec.course != null ? spec.course : null),
+      branch: job.branch != null ? job.branch : (spec.branch != null ? spec.branch : null),
       measures: job.measures != null ? job.measures : (spec.measures != null ? spec.measures : null),
       rate: job.rate != null ? Number(job.rate) : (spec.rate != null ? Number(spec.rate) : 1),
       technique: job.technique != null ? job.technique : spec.technique,

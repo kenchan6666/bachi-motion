@@ -127,14 +127,19 @@ function assertSourceGuards() {
     throw new Error("TJA file input accept changed");
   }
   if (!html.includes(".file-btn input { display: none; }")) throw new Error("file input display:none changed");
-  if (!home.includes("叠打点声（合成 don/ka，不是原曲）")) throw new Error("batch hits label changed");
+  if (home.includes("批量出片") || home.includes("叠打点声（合成 don/ka，不是原曲）")) {
+    throw new Error("batch queue is still on the homepage");
+  }
+  if (!home.includes('id="renderStart"') || !home.includes("开始渲染")) {
+    throw new Error("single render button missing");
+  }
   if (home.includes("咕")) throw new Error("homepage copy uses 咕");
   if (!html.includes("#tjaInput { font-size: 16px; }")) throw new Error("narrow textarea 16px rule changed");
   const summaries = [...home.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map((m) => {
     const span = m[1].match(/<span>([^<]+)<\/span>/);
     return (span ? span[1] : m[1].split("<")[0]).replace(/\s+/g, "");
   });
-  assertEqual(summaries, ["打开谱面", "手顺", "演奏", "批量出片"], "four folds");
+  assertEqual(summaries, ["打开谱面", "手顺", "演奏"], "three folds");
   if (!home.includes("有鬼先用鬼")) throw new Error("course hint missing from the 谱面规则 popover");
   const standing = home.replace(/<div\b[^>]*\broute-hint\b[^>]*>[\s\S]*?<\/div>/g, "");
   if (standing.includes("有鬼先用鬼")) throw new Error("course explanation is standing on the page");
@@ -302,7 +307,7 @@ function pageUrl(port, params) {
     check(ui.inOpenFold && ui.sameRow && ui.nearFile && !ui.hidden, "picker sits with the file buttons");
     check(ui.blankFieldsHidden, "opened TJA hides 歌名/BPM/小节");
     check(!ui.standing.includes("有鬼先用鬼") && ui.hint.includes("有鬼先用鬼"), "hint stays in the ! popover");
-    check(ui.folds.join("|") === "打开谱面|手顺|演奏|批量出片", "folds " + ui.folds.join("|"));
+    check(ui.folds.join("|") === "打开谱面|手顺|演奏", "folds " + ui.folds.join("|"));
     check(!ui.overflow && !ui.pageOverflow, "desktop overflow");
 
     await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });

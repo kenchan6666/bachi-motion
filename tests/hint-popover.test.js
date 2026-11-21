@@ -83,7 +83,7 @@ function assertFoldStructure(fails) {
     fails.push("editor 高级 or standing roll hint changed");
   }
   const summaries = [...home.matchAll(/<summary>([\s\S]*?)<\/summary>/g)].map((m) => summaryTitle(m[1]));
-  const want = ["打开谱面", "手顺", "演奏", "批量出片"];
+  const want = ["打开谱面", "手顺", "演奏"];
   if (summaries.join("|") !== want.join("|")) fails.push("fold titles " + summaries.join("|"));
   const stackAt = home.indexOf('class="settings-stack"');
   const stack = stackAt >= 0 ? home.slice(stackAt) : "";
@@ -93,8 +93,8 @@ function assertFoldStructure(fails) {
     depth += token[0].startsWith("</") ? -1 : 1;
     if (depth > maxDepth) maxDepth = depth;
   }
-  if ((stack.match(/<details\b/g) || []).length !== 4 || maxDepth !== 1) {
-    fails.push("expected 4 sibling folds, depth " + maxDepth);
+  if ((stack.match(/<details\b/g) || []).length !== 3 || maxDepth !== 1) {
+    fails.push("expected 3 sibling folds, depth " + maxDepth);
   }
   const standing = stripPopovers(home);
   const moved = [
@@ -107,8 +107,10 @@ function assertFoldStructure(fails) {
     if (!home.includes(line)) fails.push("missing hint copy: " + line);
     if (standing.includes(line)) fails.push("hint still standing: " + line);
   }
-  const batchLabel = "叠打点声（合成 don/ka，不是原曲）";
-  if (!standing.includes(batchLabel)) fails.push("batch label moved into a ! or dropped");
+  if (home.includes("批量出片") || home.includes("加入谱面") || home.includes("把当前谱面加入队列")) {
+    fails.push("batch queue still on the homepage");
+  }
+  if (!home.includes("开始渲染") || !home.includes('id="renderStart"')) fails.push("single render button missing");
   if (home.includes("咕") || editor.includes("咕")) fails.push("typo 咕");
   if (!home.includes("2 咔")) fails.push("chart rules dropped 咔");
 }
@@ -152,7 +154,7 @@ function assertNear(fails, id, phase, pop, btn) {
       timeout: 30000,
     });
     const hints = [
-      "routeHint", "chartHint", "batchHint", "previewHitsHint", "originalHint",
+      "routeHint", "chartHint", "renderHint", "previewHitsHint", "originalHint",
       "modeHint", "rollHint", "bigNoteHint", "settingsBlankHint", "jsonHint",
     ];
     for (const id of hints) {
@@ -235,7 +237,7 @@ function assertNear(fails, id, phase, pop, btn) {
         };
       });
     });
-    const desktopWant = ["打开谱面", "手顺", "演奏", "批量出片"];
+    const desktopWant = ["打开谱面", "手顺", "演奏"];
     if (desktopTitles.map((row) => row.title).join("|") !== desktopWant.join("|")) {
       fails.push("1280 titles " + desktopTitles.map((row) => row.title).join("|"));
     }
@@ -251,7 +253,7 @@ function assertNear(fails, id, phase, pop, btn) {
         const label = el.querySelector("span");
         return (label ? label.textContent : el.childNodes[0].textContent).replace(/\s+/g, "");
       });
-      const last = document.getElementById("settingsBatch");
+      const last = document.getElementById("settingsPlay");
       const before = document.documentElement.scrollTop;
       last.scrollIntoView({ block: "end" });
       const r = last.getBoundingClientRect();
@@ -264,7 +266,7 @@ function assertNear(fails, id, phase, pop, btn) {
     });
     if (mobile.titles.join("|") !== desktopWant.join("|")) fails.push("390 titles " + mobile.titles.join("|"));
     if (!mobile.pageScrolls) fails.push("390 homepage does not scroll");
-    if (!mobile.inView) fails.push("390 cannot reach 批量出片 " + JSON.stringify(mobile));
+    if (!mobile.inView) fails.push("390 cannot reach 演奏 " + JSON.stringify(mobile));
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

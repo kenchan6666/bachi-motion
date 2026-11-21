@@ -1,6 +1,6 @@
 {
   "name": "bachi-motion",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "main": "desktop/main.js",
   "description": "\u6eaf\u6eaf\u7684\u9f13\u68d2 \u2014 TJA chart to first-person bachi animation and \u624b\u5143 mp4",

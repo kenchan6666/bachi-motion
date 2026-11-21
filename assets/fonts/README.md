@@ -14,7 +14,7 @@
 - CJK 标点与全角/半角形式（`punct`）
 - JIS X 0208 常用日文汉字 + GB2312 一级汉字，按码位切成约 50–150KB 一片（`han-01` …）
 
-没有收入韩文、CJK 扩展区、GB2312 二级和罕用汉字。子集里没有的简体、繁体和港字会回退到页面实际加载的 **Noto Serif SC** 与 **Noto Serif TC**（同一套衬线，覆盖简繁），再不行才是系统里的宋体 / 微软正黑 / 雅黑。只把这些家族写在 `font-family` 里并不会下载它们；标题和右上角歌名会 `document.fonts.load` 这两套，导出也会等它们就绪。
+没有收入韩文、CJK 扩展区、GB2312 二级和罕用汉字。子集里没有的简体、繁体和港字会回退到 **Noto Serif SC** 与 **Noto Serif TC**（同一套衬线，覆盖简繁），再不行才是系统里的宋体 / 微软正黑 / 雅黑。这两套和界面用的 Zen Maru Gothic、标题装饰用的 Noto Serif JP 都在 `ui.css` 里，字体文件在 `files/`，页面不访问 Google Fonts。标题和右上角歌名会 `document.fonts.load` 这两套，导出也会等它们就绪。
 
 码点清单在 `unicodes.txt`。各片的文件名、体积和 `unicode-range` 见 `subsets.json`。`bachi-serif-cjk.css` 里是同一 `font-family: "Bachi Serif CJK"` 的多条 `@font-face`（写法跟 Google Fonts 一样）。
 

@@ -56,8 +56,9 @@ Queue file (paths are relative to the JSON file). No song field → no original 
       { "tja": "b.tja", "out": "b.mp4" }
   ]}
 
-Requires: Node, ffmpeg on PATH, and a Chrome/Chromium that puppeteer-core can launch
+Requires: Node, ffmpeg on PATH (or FFMPEG_PATH), and a Chrome/Chromium that puppeteer-core can launch
 (set CHROME_PATH or PUPPETEER_EXECUTABLE_PATH if it is not found automatically).
+The Windows 0.1.0 desktop build is bachi-motion.exe: its own window, offline, with Chromium and ffmpeg inside the zip.
 Rendering runs on this computer. Do not commit official songs, charts, or videos.
 `;
 

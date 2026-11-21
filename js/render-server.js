@@ -320,4 +320,7 @@ function startRenderServer(opts) {
   });
 }
 
-module.exports = { startRenderServer: startRenderServer };
+module.exports = {
+  startRenderServer: startRenderServer,
+  materializeJobs: materializeJobs,
+};

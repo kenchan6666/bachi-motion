@@ -129,6 +129,12 @@
     };
   }
 
+  function desktopBridge() {
+    if (typeof window === "undefined" || !window.bachiDesktop) return null;
+    if (typeof window.bachiDesktop.startBatch !== "function") return null;
+    return window.bachiDesktop;
+  }
+
   function showDownloads(downloads, snap) {
     if (!downloads) return;
     downloads.replaceChildren();
@@ -140,6 +146,19 @@
         a.download = file.name || "bachi.mp4";
         a.textContent = "下载 " + (file.name || "mp4");
         downloads.appendChild(a);
+      } else if (file.ok && file.filePath && window.bachiDesktop && typeof window.bachiDesktop.openPath === "function") {
+        const saved = document.createElement("p");
+        saved.className = "hint";
+        saved.textContent = "已保存：" + file.filePath;
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "file-btn";
+        open.textContent = "在文件夹中显示 " + (file.name || "mp4");
+        open.addEventListener("click", function () {
+          window.bachiDesktop.openPath(file.filePath);
+        });
+        downloads.appendChild(saved);
+        downloads.appendChild(open);
       } else if (file.error) {
         const p = document.createElement("p");
         p.className = "hint";
@@ -150,6 +169,40 @@
   }
 
   const OFFLINE = "无法连接本机出片。请在项目目录运行 node render.js --serve。";
+
+  function applySnap(ui, progressEls, snap) {
+    applyProgress(progressEls, snap);
+    if (!snap.done) {
+      if (ui.onSnap) ui.onSnap(snap);
+      else ui.setStatus((snap.positionLabel || "") + " " + (snap.currentLabel || ""));
+      return;
+    }
+    ui.finished = true;
+    ui.busy = false;
+    if (ui.startBtn) ui.startBtn.disabled = false;
+    showDownloads(ui.downloads, snap);
+    ui.setStatus(snap.failed ? ("完成，" + snap.failed + " 条失败") : (ui.doneText || "整批完成"));
+  }
+
+  function runOnDesktop(desktop, payload, ui, progressEls) {
+    return desktop.startBatch({ jobs: payload }).then(function (body) {
+      if (!body || !body.id) throw new Error((body && body.error) || "无法开始渲染");
+      return new Promise(function (resolve, reject) {
+        let settled = false;
+        const stop = desktop.onBatchEvent(function (snap) {
+          if (!snap || snap.id !== body.id) return;
+          applySnap(ui, progressEls, snap);
+          if (!snap.done || settled) return;
+          settled = true;
+          if (typeof stop === "function") stop();
+          resolve();
+        });
+        if (typeof stop !== "function") {
+          reject(new Error("窗口没有接上出片进度"));
+        }
+      });
+    });
+  }
 
   function runRows(rows, ui) {
     if (ui.busy) return;
@@ -192,6 +245,8 @@
         });
       });
     })).then(function (payload) {
+      const desktop = desktopBridge();
+      if (desktop) return runOnDesktop(desktop, payload, ui, progressEls);
       return fetch("/api/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -205,32 +260,32 @@
           }
           return body;
         });
-      });
-    }).then(function (body) {
-      const source = new EventSource("/api/batch/" + body.id + "/events");
-      source.onmessage = function (ev) {
-        const snap = JSON.parse(ev.data);
-        applyProgress(progressEls, snap);
-        if (!snap.done) {
-          if (ui.onSnap) ui.onSnap(snap);
-          else ui.setStatus((snap.positionLabel || "") + " " + (snap.currentLabel || ""));
-        }
-        if (snap.done) {
-          ui.finished = true;
-          source.close();
+      }).then(function (body) {
+        const source = new EventSource("/api/batch/" + body.id + "/events");
+        source.onmessage = function (ev) {
+          const snap = JSON.parse(ev.data);
+          applyProgress(progressEls, snap);
+          if (!snap.done) {
+            if (ui.onSnap) ui.onSnap(snap);
+            else ui.setStatus((snap.positionLabel || "") + " " + (snap.currentLabel || ""));
+          }
+          if (snap.done) {
+            ui.finished = true;
+            source.close();
+            ui.busy = false;
+            if (ui.startBtn) ui.startBtn.disabled = false;
+            showDownloads(ui.downloads, snap);
+            ui.setStatus(snap.failed ? ("完成，" + snap.failed + " 条失败") : (ui.doneText || "整批完成"));
+          }
+        };
+        source.onerror = function () {
+          if (ui.finished) return;
+          ui.setStatus(ui.disconnectText || "和本机出片服务断开了。请确认 node render.js --serve 还在运行。");
           ui.busy = false;
           if (ui.startBtn) ui.startBtn.disabled = false;
-          showDownloads(ui.downloads, snap);
-          ui.setStatus(snap.failed ? ("完成，" + snap.failed + " 条失败") : (ui.doneText || "整批完成"));
-        }
-      };
-      source.onerror = function () {
-        if (ui.finished) return;
-        ui.setStatus(ui.disconnectText || "和本机出片服务断开了。请确认 node render.js --serve 还在运行。");
-        ui.busy = false;
-        if (ui.startBtn) ui.startBtn.disabled = false;
-        source.close();
-      };
+          source.close();
+        };
+      });
     }).catch(function (err) {
       ui.busy = false;
       if (ui.startBtn) ui.startBtn.disabled = false;

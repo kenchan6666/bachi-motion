@@ -252,6 +252,9 @@ function pageUrl(port, params) {
         pageOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
         hint: hint ? hint.textContent : "",
         standing: standing.innerText,
+        blankFieldsHidden: !!(document.getElementById("settingsBlankFields") && document.getElementById("settingsBlankFields").hidden)
+          && !!(document.getElementById("editorBlankFields") && document.getElementById("editorBlankFields").hidden),
+        blankFieldsShown: !!(document.getElementById("settingsBlankFields") && !document.getElementById("settingsBlankFields").hidden),
         folds: [...document.querySelectorAll(".settings-stack > details > summary")].map((el) => {
           const span = el.querySelector("span");
           return (span ? span.textContent : el.childNodes[0].textContent).replace(/\s+/g, "");
@@ -273,6 +276,7 @@ function pageUrl(port, params) {
   try {
     const page = await browser.newPage();
     page.on("pageerror", (err) => fails.push("pageerror: " + err.message));
+    page.on("dialog", (dialog) => dialog.accept());
     await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
 
     const multi = synth([
@@ -296,6 +300,7 @@ function pageUrl(port, params) {
     check(ui.query === "Oni", "url course " + ui.query);
     check(ui.courseIndex === 4, "Oni index " + ui.courseIndex);
     check(ui.inOpenFold && ui.sameRow && ui.nearFile && !ui.hidden, "picker sits with the file buttons");
+    check(ui.blankFieldsHidden, "opened TJA hides 歌名/BPM/小节");
     check(!ui.standing.includes("有鬼先用鬼") && ui.hint.includes("有鬼先用鬼"), "hint stays in the ! popover");
     check(ui.folds.join("|") === "打开谱面|手顺|演奏|批量出片", "folds " + ui.folds.join("|"));
     check(!ui.overflow && !ui.pageOverflow, "desktop overflow");
@@ -307,12 +312,19 @@ function pageUrl(port, params) {
 
     await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
     await page.goto(pageUrl(port, { settings: "1" }), { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction(() => document.getElementById("coursePicker").hidden && document.getElementById("settingsBlankFields").hidden, { timeout: 8000 });
+    ui = await readUi(page);
+    check(ui.hidden && ui.buttons.length === 0 && ui.blankFieldsHidden, "initial page hides difficulty and blank fields");
+
+    const single = synth([["Oni", "11"]]);
+    await page.goto(pageUrl(port, { settings: "1", tja: single }), { waitUntil: "networkidle0", timeout: 30000 });
     await page.waitForFunction(() => {
       const buttons = [...document.querySelectorAll("#coursePicker button")];
       return buttons.length === 1 && buttons[0].textContent === "鬼" && buttons[0].classList.contains("on");
     }, { timeout: 8000 });
     ui = await readUi(page);
     check(ui.buttons.length === 1 && ui.buttons[0].label === "鬼" && ui.buttons[0].on && !ui.hidden, "single course still shows 鬼");
+    check(ui.blankFieldsHidden, "single TJA hides blank fields");
     check(ui.course === "Oni" && ui.query === "Oni", "single course loaded " + ui.course + " ?" + ui.query);
 
     async function bootCourse(query) {
@@ -365,6 +377,7 @@ function pageUrl(port, params) {
     ui = await readUi(page);
     check(ui.buttons.map((b) => b.label).join(",") === "里,易,鬼", "opened file lists only its courses");
     check(ui.course === "Oni" && ui.query === "Oni", "opening a file defaults to Oni instead of the stale query");
+    check(ui.blankFieldsHidden, "opening a TJA file hides 歌名/BPM/小节");
 
     await upload(page, "#jsonFile", "oni-hands.json", oniJson);
     await page.waitForFunction((want) => document.getElementById("jsonInput").value === want && document.getElementById("modeSuyue").classList.contains("on"), { timeout: 8000 }, oniJson);
@@ -393,6 +406,31 @@ function pageUrl(port, params) {
     await page.waitForFunction((want) => document.getElementById("jsonInput").value === want && window.taikoAnim.raw.course === "Edit", { timeout: 8000 }, uraJson);
     ui = await readUi(page);
     check(ui.json === uraJson && ui.events.join(",") === "R:ka", "里 keeps the 手顺 imported for 里, got " + ui.json + " / " + ui.events.join(","));
+
+    await page.click("#settingsOpenBlank");
+    await page.waitForFunction(() => !document.getElementById("settingsBlankFields").hidden && document.getElementById("coursePicker").hidden, { timeout: 8000 });
+    ui = await readUi(page);
+    check(ui.blankFieldsShown && ui.buttons.length === 0, "blank chart shows 歌名/BPM/小节 and hides difficulty");
+    check(ui.query == null, "blank chart clears ?course, got " + ui.query);
+    const renamed = await page.evaluate(() => {
+      const el = document.getElementById("settingsBlankTitle");
+      el.value = "自定名";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      return {
+        locked: !!(el.disabled || el.readOnly),
+        title: window.TaikoParser.parseTja(document.getElementById("tjaInput").value).headers.title,
+      };
+    });
+    check(!renamed.locked && renamed.title === "自定名", "blank title stays editable, got " + JSON.stringify(renamed));
+
+    await upload(page, "#tjaFile", "back-to-tja.tja", handsChart);
+    await page.waitForFunction(() => {
+      const on = document.querySelector("#coursePicker button.on");
+      return on && on.textContent === "鬼" && document.getElementById("settingsBlankFields").hidden;
+    }, { timeout: 8000 });
+    ui = await readUi(page);
+    check(ui.blankFieldsHidden && ui.buttons.filter((b) => b.on).map((b) => b.label).join(",") === "鬼", "TJA after a blank chart shows difficulty and hides fields");
   } catch (err) {
     fails.push(err && err.stack ? err.stack : String(err));
   } finally {

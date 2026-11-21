@@ -853,6 +853,7 @@
     gap: 8px;
     align-items: end;
   }
+  .blank-chart-fields[hidden] { display: none; }
   .blank-chart-field {
     min-width: 0;
     display: flex;
@@ -1204,7 +1205,7 @@
               <div id="chartHint" class="route-hint route-hint-wide" popover="auto">
                 <button type="button" class="route-hint-close" popovertarget="chartHint" popovertargetaction="hide" aria-label="关闭">×</button>
                 <p>谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
-                <p>同一份谱里有多段难度时，用旁边的按钮换。有鬼先用鬼，没有鬼再用里，否则用第一段。Oni、おに、3 是鬼，Edit、Ura、裏、4 是里；易、普、难也可以写成 0、1、2。大小写不拘。</p>
+                <p>打开一份 TJA 之后，旁边才会列出这份谱里有的难度。有鬼先用鬼，没有鬼再用里，否则用第一段。Oni、おに、3 是鬼，Edit、Ura、裏、4 是里；易、普、难也可以写成 0、1、2。大小写不拘。</p>
               </div>
             </div>
 
@@ -1238,7 +1239,7 @@ LEVEL:6
             <p class="hint" id="src"></p>
             <div id="error" hidden></div>
 
-            <div class="blank-chart-fields">
+            <div class="blank-chart-fields" id="settingsBlankFields" hidden>
               <label class="blank-chart-field blank-chart-field-title">歌名
                 <input id="settingsBlankTitle" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="未命名">
               </label>
@@ -1255,7 +1256,7 @@ LEVEL:6
             </div>
             <div id="settingsBlankHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。这三个框在打开空谱面之后才出现，打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
             </div>
           </div>
         </details>
@@ -1446,7 +1447,7 @@ LEVEL:6
         <div class="editor-advanced" id="editorAdvanced">
           <button type="button" class="editor-advanced-btn" id="editorAdvancedBtn" aria-expanded="false">高级 <span class="chevron" aria-hidden="true"></span></button>
           <div class="editor-advanced-panel" id="editorAdvancedPanel" hidden>
-            <div class="blank-chart-fields">
+            <div class="blank-chart-fields" id="editorBlankFields" hidden>
               <label class="blank-chart-field blank-chart-field-title">歌名
                 <input id="editorBlankTitle" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="未命名">
               </label>
@@ -1463,7 +1464,7 @@ LEVEL:6
             </div>
             <div id="editorBlankHint" class="route-hint" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="editorBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              <p>用填写的歌名、BPM 和小节数做一张空谱。不填就是「未命名」、BPM 120、8 小节。这三个框在打开空谱面之后才出现，打开之后仍可以改歌名和 BPM。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
             </div>
             <label class="file-btn">导入 JSON<input id="editorJsonFile" type="file" accept=".json,application/json"></label>
             <button type="button" class="file-btn" id="editorExportJson">导出 JSON</button>

@@ -1228,22 +1228,20 @@
     if (!ui.measuresEl || !state.measures.length) return null;
     if (state.fullChart) {
       const nodes = ui.measuresEl.querySelectorAll(".editor-measure");
-      let fallback = null;
+      const gap = measureGap() / 2;
       for (let i = 0; i < nodes.length; i++) {
         const box = nodes[i].getBoundingClientRect();
-        if (clientX < box.left - measureGap() / 2 || clientX > box.right + measureGap() / 2) continue;
+        if (clientX < box.left - gap || clientX > box.right + gap) continue;
+        // Same x is a whole column of rows. A miss must not fall through to
+        // the first row, or to the end of the chart.
+        if (clientY != null && (clientY < box.top - 6 || clientY > box.bottom + 6)) continue;
         const m = state.measures.find((mm) => mm.index === +nodes[i].dataset.index);
         if (!m) continue;
         const local = clientX - box.left - (LANE_MARGIN + LANE_PAD);
         const frac = Math.max(0, Math.min(1, local / INNER_W));
-        const t = m.t + frac * (m.duration || 0);
-        const withinY = clientY == null || (clientY >= box.top - 6 && clientY <= box.bottom + 6);
-        if (withinY) return t;
-        if (fallback == null) fallback = t;
+        return m.t + frac * (m.duration || 0);
       }
-      if (fallback != null) return fallback;
-      const last = state.measures[state.measures.length - 1];
-      return last.t + (last.duration || 0);
+      return null;
     }
     const rect = ui.measuresEl.getBoundingClientRect();
     const x = clientX - rect.left;
@@ -2170,23 +2168,18 @@
 
   function jumpToMeasure(measureIndex) {
     if (!ui.scroll || !ui.measuresEl || !Number.isFinite(+measureIndex)) return;
+    // The wrapped chart scrolls only when held and dragged, or with the wheel.
+    // A click must not snap a row to the top.
+    if (state.fullChart) return;
     const el = ui.measuresEl.querySelector('.editor-measure[data-index="' + measureIndex + '"]');
     if (!el) return;
-    if (state.fullChart) {
-      const delta = el.getBoundingClientRect().top - ui.scroll.getBoundingClientRect().top;
-      const maxTop = Math.max(0, ui.scroll.scrollHeight - ui.scroll.clientHeight);
-      ui.scroll.scrollTop = Math.max(0, Math.min(maxTop, ui.scroll.scrollTop + delta - 8));
-      ui.scroll.scrollLeft = 0;
-      syncOverview();
-      return;
-    }
     const max = Math.max(0, ui.scroll.scrollWidth - ui.scroll.clientWidth);
     const target = el.offsetLeft + (ui.measuresEl.offsetLeft || 0);
     ui.scroll.scrollLeft = Math.max(0, Math.min(max, target));
     syncOverview();
   }
 
-  function measureIndexFromPoint(target, clientX) {
+  function measureIndexFromPoint(target, clientX, clientY) {
     const direct = target && target.closest && target.closest(".editor-measure");
     if (direct && ui.scroll && ui.scroll.contains(direct)) {
       const idx = +direct.dataset.index;
@@ -2194,12 +2187,13 @@
     }
     if (!ui.measuresEl || clientX == null) return null;
     const nodes = ui.measuresEl.querySelectorAll(".editor-measure");
+    const gap = measureGap() / 2;
     for (let i = 0; i < nodes.length; i++) {
       const rect = nodes[i].getBoundingClientRect();
-      if (clientX >= rect.left - measureGap() / 2 && clientX <= rect.right + measureGap() / 2) {
-        const idx = +nodes[i].dataset.index;
-        if (Number.isFinite(idx)) return idx;
-      }
+      if (clientX < rect.left - gap || clientX > rect.right + gap) continue;
+      if (state.fullChart && clientY != null && (clientY < rect.top - 6 || clientY > rect.bottom + 6)) continue;
+      const idx = +nodes[i].dataset.index;
+      if (Number.isFinite(idx)) return idx;
     }
     return null;
   }
@@ -2261,22 +2255,16 @@
     const startLeft = ui.scroll.scrollLeft;
     const startTop = ui.scroll.scrollTop;
     let moved = false;
-    const move = (ev) => {
-      const dx = ev.clientX - startX;
-      const dy = ev.clientY - startY;
-      if (!moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
-      moved = true;
-      ui.scroll.classList.add("is-panning");
-      ui.scroll.scrollLeft = startLeft - dx;
-      ui.scroll.scrollTop = startTop - dy;
-      syncOverview();
-    };
-    const up = (ev) => {
+    let ended = false;
+    const finish = (ev) => {
+      if (ended) return;
+      ended = true;
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
+      window.removeEventListener("blur", onBlur);
       ui.scroll.classList.remove("is-panning");
-      if (moved) return;
-      const idx = measureIndexFromPoint(origin, ev.clientX);
+      if (moved || !ev) return;
+      const idx = measureIndexFromPoint(origin, ev.clientX, ev.clientY);
       if (idx != null) jumpToMeasure(idx);
       const t = timeAtClientX(ev.clientX, ev.clientY);
       if (t != null && origin && origin.closest && (origin.closest(".editor-lane") || origin.closest(".editor-hands"))) {
@@ -2285,8 +2273,30 @@
       clearSelection();
       if (state.expanded) collapseString();
     };
+    const move = (ev) => {
+      // mouseup can be lost after a click. Later moves with the button up
+      // must not keep scrolling the chart.
+      if (!ev.buttons) {
+        finish(moved ? null : ev);
+        return;
+      }
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
+      moved = true;
+      ui.scroll.classList.add("is-panning");
+      if (state.fullChart) ui.scroll.scrollTop = startTop - dy;
+      else {
+        ui.scroll.scrollLeft = startLeft - dx;
+        ui.scroll.scrollTop = startTop - dy;
+      }
+      syncOverview();
+    };
+    const up = (ev) => finish(ev);
+    const onBlur = () => finish(null);
     document.addEventListener("mousemove", move);
     document.addEventListener("mouseup", up);
+    window.addEventListener("blur", onBlur);
   }
 
   function wheelPixels(delta, mode) {
@@ -2361,7 +2371,7 @@
         document.removeEventListener("mousemove", move);
         document.removeEventListener("mouseup", up);
         if (moved) return;
-        const idx = measureIndexFromPoint(barnum, ev.clientX);
+        const idx = measureIndexFromPoint(barnum, ev.clientX, ev.clientY);
         if (idx != null) jumpToMeasure(idx);
       };
       document.addEventListener("mousemove", move);

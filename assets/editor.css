@@ -423,7 +423,9 @@ body.editor-mode .editor {
   border-color: var(--ink-deep);
 }
 .editor-scroll {
-  flex: 1;
+  /* Size to the chart. Growing here left a tall empty band, so the arrows
+     sat on 小节总览 instead of under the lanes. */
+  flex: 0 1 auto;
   min-height: 0;
   overflow: auto;
   overscroll-behavior: contain;
@@ -445,17 +447,20 @@ body.editor-mode .editor {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 8px 0;
+  padding: 4px 8px 14px;
 }
 .editor-nudge-btn {
   appearance: none;
-  width: 36px;
-  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 40px;
   border-radius: 999px;
   border: 1.5px solid var(--line-strong);
   background: var(--btn);
   color: var(--ink-deep);
-  font-size: 16px;
+  font-size: 22px;
   font-weight: 700;
   line-height: 1;
   cursor: pointer;
@@ -556,8 +561,7 @@ body.editor-mode .editor {
   display: flex;
   align-items: flex-start;
   gap: 22px;
-  min-height: 220px;
-  padding: 8px 8px 48px;
+  padding: 8px 8px 16px;
   width: max-content;
 }
 .editor.is-continuous .editor-measures { gap: 0; }
@@ -1340,8 +1344,8 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
   }
   .editor-scroll {
     flex: none;
-    height: 260px;
-    min-height: 220px;
+    height: auto;
+    min-height: 0;
   }
   .editor-overview { padding: 6px 12px 2px; }
   .editor-chart-legend {

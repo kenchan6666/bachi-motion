@@ -2706,6 +2706,8 @@ const state = {
   route: ["inner", "outer", "straight"].includes(params.get("route")) ? params.get("route") : "data",
   labels: params.get("labels") === "1",                 // R/L 调试标签：?labels=1 打开
   technique: params.get("technique") || "全换",          // 标题栏：全换 / 半换 A / 半换 B / 炒菜；有 JSON 且未指定时可为空
+  timeShift: 0,
+  offset: 0,
   lastTs: null,
 };
 // 捏点高度随手的模式变（图片手露到手腕，矢量手裁到指关节）
@@ -2838,6 +2840,7 @@ function tick(ts) {
     }
   }
   state.lastTs = ts;
+  syncOriginalSong();
   renderFrame(state.now);
   requestAnimationFrame(tick);
 }
@@ -2886,8 +2889,23 @@ window.renderAt = renderAt;
 Object.defineProperty(window, "chartDuration", { get() { return currentClip().end; }, configurable: true });
 Object.defineProperty(window, "chartStart", { get() { return currentClip().start; }, configurable: true });
 
+function syncOriginalSong() {
+  try {
+    const api = window.BachiOriginal;
+    if (!api || typeof api.syncPlayback !== "function") return;
+    api.syncPlayback({
+      now: state.now,
+      playing: state.playing,
+      rate: state.rate,
+      timeShift: state.timeShift,
+      offset: state.offset,
+    });
+  } catch (err) { /* original audio must not stop the picture */ }
+}
+
 function setPlaying(p) {
   state.playing = p;
+  syncOriginalSong();
   const btn = $("btnPlay");
   if (!btn) return;
   btn.setAttribute("aria-label", p ? "暂停" : "播放");
@@ -2905,6 +2923,7 @@ function setRate(r) {
   state.rate = r;
   document.querySelectorAll("[data-rate]").forEach((b) => b.classList.toggle("on", +b.dataset.rate === r));
   if (typeof window.updateTitleBar === "function") window.updateTitleBar();
+  syncOriginalSong();
 }
 function setTechnique(name) {
   let v = name == null ? "" : name;
@@ -2921,7 +2940,11 @@ function setTechnique(name) {
   state.technique = v;
   if (typeof window.updateTitleBar === "function") window.updateTitleBar();
 }
-function seek(t) { state.now = Math.max(state.start, Math.min(state.end, t)); renderFrame(state.now); }
+function seek(t) {
+  state.now = Math.max(state.start, Math.min(state.end, t));
+  syncOriginalSong();
+  renderFrame(state.now);
+}
 /** 换数据（调试/验收用）：传原始 JSON 对象 */
 function setData(data) {
   state.events = normalizeEvents(data);
@@ -2945,6 +2968,8 @@ function setData(data) {
   state.end = win.songEnd;
   state.measures = data && Array.isArray(data.measures) ? data.measures : [];
   state.bpmTimeline = data && Array.isArray(data.bpmTimeline) ? data.bpmTimeline : [];
+  state.timeShift = data && Number.isFinite(+data.timeShift) ? +data.timeShift : 0;
+  state.offset = data && Number.isFinite(+data.offset) ? +data.offset : 0;
   state.loopStart = win.loopStart;
   state.loopEnd = win.loopEnd;
   syncLoopUi(true);

@@ -323,6 +323,8 @@ body.editor-mode .editor {
   gap: 8px;
 }
 .editor-advanced-panel[hidden] { display: none !important; }
+.editor-advanced-panel .hint,
+.editor-advanced-panel .original-song-name { word-break: break-all; }
 
 .editor-body {
   flex: 1;

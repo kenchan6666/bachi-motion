@@ -620,6 +620,43 @@ extra("炒菜 sandwich cells start on the dominant hand at a new cluster", funct
   assertRoll("炒菜 L", sandwichNotes(["dkkd"], 0.25), "LRRL", "1-2", { 手法: "炒菜", 惯用手: "L" });
 });
 
+extra("alternating ox clusters pair 2-2 from the first note and keep 逆手外刷", function () {
+  const s16 = 0.25;
+  // oxoxoxo（7 音）正手起：(ox)(ox)(ox) 全是外刷，末颗单打留在串尾。
+  // 第二对落在逆手，保留。不能前移成 (o)(xo)(xo)(xo)，也不能把这一对拆回单打。
+  assertStick("oxoxoxo", "dkdkdkd", s16, "RRLLRRL", "0-1,2-3,4-5");
+  assertStick("oxoxox", "dkdkdk", s16, "RRLLRR", "0-1,2-3,4-5");
+  assertStick("oxox", "dkdk", s16, "RRLL", "0-1,2-3");
+  // 奇数余音在尾，不挪到开头。旧逻辑会变成 R + (xo)(xo)。
+  assertStick("oxoxo leftover", "dkdkd", s16, "RRLLR", "0-1,2-3");
+  // 惯用手为左时正手仍是左手，不改成右手来躲开逆手外刷。
+  assertStick("oxoxoxo L", "dkdkdkd", s16, "LLRRLLR", "0-1,2-3,4-5", { 惯用手: "L" });
+  assertStick("炒菜 oxoxoxo", "dkdkdkd", s16, "RRLLRRL", "0-1,2-3,4-5", { 手法: "炒菜", bpm: 200 });
+  // xoxo / xoxoxo 仍是 2-2 内刷，正手起。
+  assertStick("xoxo", "kdkd", s16, "RRLL", "0-1,2-3");
+  assertStick("xoxoxo", "kdkdkd", s16, "RRLLRR", "0-1,2-3,4-5");
+  assertStick("xoxo L", "kdkd", s16, "LLRR", "0-1,2-3", { 惯用手: "L" });
+  // 32 分在自动滚奏和 24 分滚奏里都是 2-2，逆手外刷同样保留。
+  assertStick("32 oxoxoxo", "dkdkdkd", 0.125, "RRLLRRL", "0-1,2-3,4-5");
+  assertStick("32 oxoxoxo 24mode", "dkdkdkd", 0.125, "RRLLRRL", "0-1,2-3,4-5", { 滚奏: "24分滚奏" });
+  assertStick("32 xoxo 24mode", "kdkd", 0.125, "RRLL", "0-1,2-3", { 滚奏: "24分滚奏" });
+  // 24 分滚奏的 24 分仍从段首 1-2，不改成 2-2，也不改夹心。
+  assertStick("24 oxoxoxo stays 1-2", "dkdkdkd", 1 / 6, "RLLRLRL", "1-2", { 滚奏: "24分滚奏" });
+});
+
+extra("two-note off-hand ox stays singles", function () {
+  // 散音之后的两音 16 分从逆手起。整对都是逆手外刷，没有更长的整串外刷，仍改单打。
+  const notes = [
+    { beat: 0, colour: "ka", big: false },
+    { beat: 0.75, colour: "don", big: false },
+    { beat: 1, colour: "ka", big: false },
+  ];
+  const out = sticking.autoSticking(notes, { bpm: 250, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.deepStrictEqual(out.hands, ["R", "L", "R"]);
+  assert.deepStrictEqual(out.rollPairs, []);
+  assert.deepStrictEqual(out.warnings, []);
+});
+
 extra("自动滚奏 keeps 16夹24 oxxo on continuous 2-2", function () {
   // 16 分 oxxo 的 2-2 在上面的四音型用例里。这里锁混合间隔，避免 24 分模式的 1-2-1 漏进自动滚奏。
   assertRoll("auto 16 oxxo", sandwichNotes(["dkkd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });

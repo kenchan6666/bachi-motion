@@ -572,6 +572,35 @@
     return c1 === "don" && c2 === "ka";
   }
 
+  // 整串咚咔交替（oxox… 或 xoxo…），中间没有同色，也没有大音符。
+  function isAlternatingDonKa(notes) {
+    if (!notes || notes.length < 2) return false;
+    for (var i = 0; i < notes.length; i++) {
+      var c = notes[i].colour;
+      if (notes[i].big) return false;
+      if (c !== "don" && c !== "ka") return false;
+      if (i > 0 && c === notes[i - 1].colour) return false;
+    }
+    return true;
+  }
+
+  function pairsEqual(a, b) {
+    if (!a || !b || a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i][0] !== b[i][0] || a[i][1] !== b[i][1]) return false;
+    }
+    return true;
+  }
+
+  // 交替串长度大于 2，且配对数正好是从第一颗起的 2-2。
+  // 这种外刷对落在逆手上也要留着；两音整对是逆手外刷时不走这里。
+  function keepAlternating22(runNotes, relPairs) {
+    if (!runNotes || runNotes.length <= 2) return false;
+    if (!isAlternatingDonKa(runNotes)) return false;
+    var canPair = function (i, j) { return !runNotes[i].big && !runNotes[j].big; };
+    return pairsEqual(relPairs, plan22(runNotes.length, canPair));
+  }
+
   function countNizyteWaishua(notes, start, pairs, startHand, dominant) {
     var pairOf = Object.create(null);
     for (var p = 0; p < pairs.length; p++) pairOf[pairs[p][0]] = pairs[p][1];
@@ -716,6 +745,14 @@
       pairs = plan12From(n, 0, canPair);
     } else if (cycle === "xxo") {
       pairs = plan21(n, canPair);
+    } else if (isAlternatingDonKa(runNotes)) {
+      // 交替咚咔从第一颗 2-2。ox 是外刷，xo 是内刷。
+      // 落在逆手上的外刷对保留：不前移一颗，也不拆回单打。
+      // 奇数长度的余音留在串尾。起手沿用这一串已经排好的手，不改成另一只来躲开逆手外刷。
+      // 仅两音、且整对都是逆手外刷时，仍改成单打（连音从逆手起，没有更长的整串外刷）。
+      pairs = plan22(n, canPair);
+      if (n === 2) return breakNizytePairs(runNotes, 0, pairs, startHand, dominant);
+      return pairs;
     } else {
       var p22 = plan22(n, canPair);
       var pSh = planShift1(n, canPair);
@@ -922,7 +959,11 @@
       var runNotes = sliceNotes(notes, start, end);
       var rel = [];
       for (var i = 0; i < raw.length; i++) rel.push([raw[i][0] - start, raw[i][1] - start]);
-      rel = breakNizytePairs(runNotes, 0, rel, startHand, dominant);
+      // 32 分交替串已经是从第一颗 2-2。逆手外刷留在对里。
+      // 24 分仍是 1-2，夹心仍是 1-2-1，这两种继续拆掉逆手外刷。
+      if (!keepAlternating22(runNotes, rel)) {
+        rel = breakNizytePairs(runNotes, 0, rel, startHand, dominant);
+      }
       return toAbsPairs(rel, start);
     }
 

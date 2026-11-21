@@ -873,14 +873,11 @@
     }
   }
 
-  // oxxo / ooox / xxxo，以及把咚和咔对调：xoox。中间两颗同色，1-2-1 不会配成外刷。
-  var SANDWICH_QUADS = { oxxo: 1, xoox: 1, ooox: 1, xxxo: 1 };
-
   function sandwichQuadAt(notes, i, end) {
     if (i + 3 > end) return false;
-    var mark = "";
-    for (var k = 0; k < 4; k++) mark += (notes[i + k].colour === "ka" ? "x" : "o");
-    if (!SANDWICH_QUADS[mark]) return false;
+    // 中间两颗 24 分必须是同一面（咚咚或咔咔），含同色夹心。
+    // 鱼蛋中间一咚一咔，不在这里，保持单打。
+    if (notes[i + 1].colour !== notes[i + 2].colour) return false;
     var left = classifyDelta(inbound(notes, i + 1));
     var mid = classifyDelta(inbound(notes, i + 2));
     var right = classifyDelta(inbound(notes, i + 3));
@@ -892,8 +889,10 @@
   function choose24ModePairs(notes, start, end) {
     // 纯 16 / 纯 12 不滚。每段纯 24 从该段第一颗 1-2（不对齐拍头）。
     // 每段纯 32 从该段第一颗 2-2。
-    // 16夹24、12夹24 的四音型整格 1-2-1，不按 16/12 和 24 切开：
-    // 两头单打同一只手，中间两颗 24 分在另一只手成对。
+    // 16夹24、12夹24 里，中间两颗 24 分是同一面的四音整格 1-2-1，
+    // 不按 16/12 和 24 切开。含咚咔咔咚这类，也含同色夹心
+    // （咚咚咚咚、咔咚咚咚、咚咔咔咔、咔咔咔咔）。
+    // 两头单打同一只手，中间两颗在另一只手成对。鱼蛋中间不同色不滚。
     // 起手沿用这一串已经排好的下一只手（正手起为右、左左、右；
     // 同一串里上一颗是右，则为左、右右、左）。这里不另行正手起。
     // 重复的四音型逐格 1-2-1。其他更长的混合型仍只把 24 分段按 1-2。

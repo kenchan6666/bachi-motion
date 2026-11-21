@@ -585,11 +585,30 @@ extra("24分滚奏 16夹24 and 12夹24 quads are 1-2-1", function () {
   assertRoll("12 new phrase", sandwichNotes(["dkkd", "dkkd"], 1 / 3, 1.5), "RLLRRLLR", "1-2,5-6");
   assertRoll("16 half beat carries", sandwichNotes(["dkkd", "dkkd"], 0.25, 0.5), "RLLRLRRL", "1-2,5-6");
 
-  // 不是四音型的夹心不另立规则：同色、鱼蛋仍按细分切开，24 分只剩单颗，所以不滚。
-  assertRoll("16 same colour stays singles", sandwichNotes(["dddd"], 0.25), "RLRL", "");
-  assertRoll("12 same colour stays singles", sandwichNotes(["dddd"], 1 / 3), "RLRL", "");
-  assertRoll("16 鱼蛋 stays singles", sandwichNotes(["kdkd"], 0.25), "RLRL", "");
-  assertRoll("12 鱼蛋 stays singles", sandwichNotes(["kdkd"], 1 / 3), "RLRL", "");
+  // 同色夹心：中间两颗 24 分是同一面，同样 1-2-1。不是四下单打。
+  const sameFace = [
+    ["dddd", "咚咚咚咚"],
+    ["kddd", "咔咚咚咚"],
+    ["dkkk", "咚咔咔咔"],
+    ["kkkk", "咔咔咔咔"],
+  ];
+  sameFace.forEach(function (row) {
+    const pat = row[0];
+    const label = row[1];
+    assertRoll("16 " + label, sandwichNotes([pat], 0.25), "RLLR", "1-2");
+    assertRoll("12 " + label, sandwichNotes([pat], 1 / 3), "RLLR", "1-2");
+    assertRoll("16 " + label + " L", sandwichNotes([pat], 0.25), "LRRL", "1-2", { 惯用手: "L" });
+  });
+  // 同色夹心接在右后面，仍是左、右右、左，不在密串中间再正手起。
+  assertRoll("16 咚咚咚咚 after R", leadThenSandwich("ddd", "dddd", 0.25), "RLRLRRL", "4-5");
+  assertRoll("12 咔咔咔咔 after R", leadThenSandwich("ddd", "kkkk", 1 / 3), "RLRLRRL", "4-5");
+  assertRoll("16 咚咚咚咚 two cells", sandwichNotes(["dddd", "dddd"], 0.25), "RLLRLRRL", "1-2,5-6");
+
+  // 鱼蛋中间一咚一咔，保持单打，不配成滚奏。
+  assertRoll("16 鱼蛋 咔咚咔咚 stays singles", sandwichNotes(["kdkd"], 0.25), "RLRL", "");
+  assertRoll("12 鱼蛋 咔咚咔咚 stays singles", sandwichNotes(["kdkd"], 1 / 3), "RLRL", "");
+  assertRoll("16 鱼蛋 咚咔咚咔 stays singles", sandwichNotes(["dkdk"], 0.25), "RLRL", "");
+  assertRoll("12 鱼蛋 咚咔咚咔 stays singles", sandwichNotes(["dkdk"], 1 / 3), "RLRL", "");
 });
 
 extra("炒菜 sandwich cells start on the dominant hand at a new cluster", function () {
@@ -609,6 +628,8 @@ extra("自动滚奏 keeps 16夹24 oxxo on continuous 2-2", function () {
   assertRoll("auto 16 咔咚咚咔", sandwichNotes(["kddk"], 0.25), "RLLR", "1-2", { 滚奏: "自动滚奏" });
   assertRoll("auto 16 ooox", sandwichNotes(["dddk"], 0.25), "RLLR", "1-2", { 滚奏: "自动滚奏" });
   assertRoll("auto 16 xxxo", sandwichNotes(["kkkd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
+  // 同色夹心的 1-2-1 只在 24 分滚奏。自动滚奏里咚咚咚咚仍是连续 2-2。
+  assertRoll("auto 16 咚咚咚咚", sandwichNotes(["dddd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
 });
 
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);

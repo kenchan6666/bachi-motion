@@ -99,7 +99,7 @@ function assertFoldStructure(fails) {
   const standing = stripPopovers(home);
   const moved = [
     "选『滚奏演示』会自动载入配套的手顺 JSON",
-    "12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2",
+    "12 分仍 1-2；16 分三连 2-1；四连 24 分 1-2-1；不是三连的密 16 分和更长的 24 分仍可 2-2",
     "单手：轮流打；双手：两棒一起落；当小音符：画小、单手打",
     "覆盖自动手顺，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json",
   ];

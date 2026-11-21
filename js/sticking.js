@@ -783,13 +783,17 @@
     var segments = [];
     var i = 0;
     while (i < n) {
-      if (preferCycleStart(runNotes, i)) {
+      // 纯滚里正好四颗 24 分也是 1-2-1，夹在 16 分中间同样。更长的 24 分仍走原来的 2-2。
+      if (quad24At(runNotes, i, n - 1)) {
+        segments.push({ start: i, end: i + 3, kind: "121" });
+        i += 4;
+      } else if (preferCycleStart(runNotes, i)) {
         var span = cycleSpan(runNotes, i);
         segments.push({ start: i, end: span.end, kind: "21" });
         i = span.end + 1;
       } else {
         var j = i + 1;
-        while (j < n && !preferCycleStart(runNotes, j)) j++;
+        while (j < n && !preferCycleStart(runNotes, j) && !quad24At(runNotes, j, n - 1)) j++;
         segments.push({ start: i, end: j - 1, kind: "legacy" });
         i = j;
       }
@@ -800,7 +804,11 @@
       var seg = segments[s];
       var slice = sliceNotes(runNotes, seg.start, seg.end);
       var rel;
-      if (seg.kind === "21") {
+      if (seg.kind === "121") {
+        rel = [];
+        if (!slice[1].big && !slice[2].big) rel.push([1, 2]);
+        rel = breakNizytePairs(slice, 0, rel, h, dominant);
+      } else if (seg.kind === "21") {
         var canPair = function (a, b) { return !slice[a].big && !slice[b].big; };
         rel = breakNizytePairs(slice, 0, plan21(slice.length, canPair), h, dominant);
       } else {
@@ -933,17 +941,42 @@
     }
   }
 
-  function sandwichQuadAt(notes, i, end) {
+  // 这一颗算不算 24 分。入间隔已经是 16/12/32 时，它是那一档，不是后面那颗 24 分。
+  // 串头或前面只是更慢的间隔时，用出间隔：纯四连的第一颗出间隔就是 24 分。
+  function is24Note(notes, i) {
+    var inn = classifyDelta(inbound(notes, i));
+    if (inn === 24) return true;
+    if (inn === 16 || inn === 12 || inn === 32) return false;
+    return classifyDelta(outbound(notes, i)) === 24;
+  }
+
+  function noteDivAt(notes, i) {
+    var inn = classifyDelta(inbound(notes, i));
+    if (inn) return inn;
+    return classifyDelta(outbound(notes, i)) || 0;
+  }
+
+  // 正好连续四颗 24 分，不能再往前后延伸。16 分接到第一颗 24 分上，不算进这四颗。
+  // 往前延伸只看这一颗自己的入间隔是不是 24 分：隔了半拍的上一组不算同一串。
+  function quad24At(notes, i, end) {
     if (i + 3 > end) return false;
-    // 中间两颗 24 分必须是同一面（咚咚或咔咔），含同色夹心。
-    // 鱼蛋中间一咚一咔，不在这里，保持单打。
-    if (notes[i + 1].colour !== notes[i + 2].colour) return false;
-    var left = classifyDelta(inbound(notes, i + 1));
-    var mid = classifyDelta(inbound(notes, i + 2));
-    var right = classifyDelta(inbound(notes, i + 3));
-    if (mid !== 24) return false;
-    // 16夹24：16、24、16。12夹24：12、24、12。其他混合型不在这里。
-    return (left === 16 && right === 16) || (left === 12 && right === 12);
+    if (i > 0 && classifyDelta(inbound(notes, i)) === 24 && is24Note(notes, i - 1)) return false;
+    for (var k = 0; k < 4; k++) if (!is24Note(notes, i + k)) return false;
+    if (i + 4 <= end && classifyDelta(inbound(notes, i + 4)) === 24) return false;
+    return true;
+  }
+
+  // 24 分滚奏里，四连只有没被同一串里的 16 或 12 夹住时才改 1-2-1。
+  // 前面紧挨着 16 分的交给鱼蛋 1-2，同一串里后面紧挨着 12 分的交给入间隔 1-2。
+  // 隔开的上一串不算夹，即使那一串本身是 16 分。
+  function leadingPureQuad(notes, i, end, segStart) {
+    if (!quad24At(notes, i, end)) return false;
+    if (i > segStart) {
+      var before = noteDivAt(notes, i - 1);
+      if (before === 16 || before === 12) return false;
+    }
+    if (i + 4 <= end && noteDivAt(notes, i + 4) === 12) return false;
+    return true;
   }
 
   // 16 夹 24 鱼蛋：一串时值是 24 分的音，从 16 分后面接出来。
@@ -969,22 +1002,20 @@
   }
 
   function choose24ModePairs(notes, start, end) {
-    // 纯 16 / 纯 12 不滚。不在鱼蛋里的 24 分按三连 2-1：满三颗是一对加一颗单打，
-    // 剩下的单打，不再整串从第一颗 1-2。每段纯 32 从该段第一颗 2-2。
-    // 16夹24、12夹24 里，中间两颗 24 分是同一面的四音整格 1-2-1，
-    // 不按 16/12 和 24 切开。含咚咔咔咚这类，也含同色夹心
-    // （咚咚咚咚、咔咚咚咚、咚咔咔咔、咔咔咔咔）。
-    // 两头单打同一只手，中间两颗在另一只手成对。四音鱼蛋中间一咚一咔不滚。
-    // 16 夹 24 鱼蛋里更长的那组 24（例如 ooo(xxx)ooo）走 1-2：
-    // 第一颗 24 跟旁边的 16 一起单打，后两颗成一对。不是 1-2-1，也不是三连 2-1。
-    // 12 夹 24 仍按入间隔把 24 分段走 1-2。
-    // 起手沿用这一串已经排好的下一只手（正手起为右、左左、右；
-    // 同一串里上一颗是右，则为左、右右、左）。这里不另行正手起。
-    // 重复的四音型逐格 1-2-1。
+    // 纯 16 / 纯 12 不滚。不在鱼蛋里、又不是正好四颗的 24 分按三连 2-1：
+    // 满三颗是一对加一颗单打，剩下的单打。每段纯 32 从该段第一颗 2-2。
+    // 正好连续四颗 24 分、而且没被 16 分或 12 分夹住的，整格 1-2-1：
+    // 两头同一只手单打，中间两颗在另一只手成对。更长的纯 24 仍是三连 2-1，
+    // 不按四颗再切。
+    // 16 夹 24 鱼蛋里的 24 走 1-2：第一颗 24 跟旁边的 16 一起单打，后两颗成对。
+    // 不是三连 2-1。12 夹 24 仍按入间隔把 24 分段走 1-2。
+    // 16-24-16、12-24-12 这种四音夹心不再单独 1-2-1，跟上面的 1-2 走；
+    // 中间只有一格 24 分，配不出对，就是单打交替。
+    // 起手沿用这一串已经排好的下一只手。这里不另行正手起。
     var pairs = [];
     var i = start;
     while (i <= end) {
-      if (sandwichQuadAt(notes, i, end)) {
+      if (leadingPureQuad(notes, i, end, start)) {
         if (!notes[i + 1].big && !notes[i + 2].big) pairs.push([i + 1, i + 2]);
         i += 4;
         continue;
@@ -1002,7 +1033,7 @@
         continue;
       }
       var j = i;
-      while (j <= end && !sandwichQuadAt(notes, j, end) && !sixteenFish24(notes, j, end)) j++;
+      while (j <= end && !leadingPureQuad(notes, j, end, start) && !sixteenFish24(notes, j, end)) j++;
       if (j > i) append24DivPairs(pairs, notes, i, j - 1);
       i = j;
     }
@@ -1020,7 +1051,7 @@
       var rel = [];
       for (var i = 0; i < raw.length; i++) rel.push([raw[i][0] - start, raw[i][1] - start]);
       // 32 分交替串已经是从第一颗 2-2。逆手外刷留在对里。
-      // 24 分三连是 2-1，16 夹 24 鱼蛋里的 24 仍是 1-2，夹心仍是 1-2-1。
+      // 四连 24 分是 1-2-1，更长的 24 分三连是 2-1，16 夹 24 鱼蛋里的 24 仍是 1-2。
       // 这几种继续拆掉逆手外刷。
       if (!keepAlternating22(runNotes, rel)) {
         rel = breakNizytePairs(runNotes, 0, rel, startHand, dominant);

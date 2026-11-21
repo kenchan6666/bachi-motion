@@ -287,6 +287,11 @@
     if (ed && typeof ed.releaseCustomIfEmpty === "function") ed.releaseCustomIfEmpty();
   }
 
+  function notifyChartReplaced(opts) {
+    const ed = window.BachiEditor;
+    if (ed && typeof ed.onChartReplaced === "function") ed.onChartReplaced(opts || {});
+  }
+
   function applyHandsForCourse(entry) {
     const key = courseKeyOf(entry);
     const saved = handsByCourse.has(key) ? handsByCourse.get(key) : "";
@@ -438,6 +443,7 @@
     if (opts.user) {
       applyHandsForCourse(entry);
       showError("");
+      notifyChartReplaced({ force: true });
       generate(false);
     }
   }
@@ -461,6 +467,7 @@
     }
     refreshCourses({ preferDefault: !!opts.preferDefault, forget: !!opts.forget, clearJson: !!opts.clearJson });
     syncTjaExport();
+    notifyChartReplaced({ force: true });
   }
 
   function syncTjaExport() {
@@ -629,6 +636,7 @@
     if (!(opts && opts.deferPicker)) {
       refreshCourses({ preferDefault: !(opts && opts.keepQuery) });
     }
+    notifyChartReplaced({ force: true });
     return sample;
   }
 
@@ -946,7 +954,10 @@
     blankLive = false;
     syncTjaExport();
     clearTimeout(courseInputTimer);
-    courseInputTimer = setTimeout(() => refreshCourses({ pruneHands: true }), 200);
+    courseInputTimer = setTimeout(() => {
+      refreshCourses({ pruneHands: true });
+      notifyChartReplaced();
+    }, 200);
   });
 
   function regenerateKeepTime() {

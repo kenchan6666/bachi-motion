@@ -42,6 +42,23 @@
     setStickingLocked(suyue);
   }
 
+  function publishHandorder() {
+    const ed = window.BachiEditor;
+    if (ed && typeof ed.onHandorderChange === "function") ed.onHandorderChange();
+  }
+
+  function setJsonValue(v) {
+    jsonInput.value = v || "";
+    publishHandorder();
+  }
+
+  function enterEditorCustom() {
+    const ed = window.BachiEditor;
+    if (!ed || typeof ed.setMode !== "function") return;
+    const open = typeof ed.isOpen === "function" && ed.isOpen();
+    ed.setMode("custom", { silent: !open });
+  }
+
   function currentMode() {
     return modeSuyue.classList.contains("on") ? "suyue" : "zhuren";
   }
@@ -168,8 +185,8 @@
 
   const ROLL_HINTS = {
     "不滚奏": "全部单打，按手法左右交替",
-    "自动滚奏": "12 分 1-2，16／24 分整串 2-2",
-    "24分滚奏": "只滚 24 分，每段 1-2；12／16 分照常单打",
+    "自动滚奏": "12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2",
+    "24分滚奏": "24 分滚奏里 32 分 2-2，24 分 1-2，16 分或以下不滚",
   };
 
   function currentTechnique() {
@@ -217,14 +234,12 @@
   function setStickingLocked(locked) {
     const tech = $("techniqueSelect");
     const seg = $("rollSeg");
-    const lockHint = $("autoStickingLock");
     if (tech) tech.disabled = !!locked;
     document.querySelectorAll("#handSeg [data-hand]").forEach((b) => { b.disabled = !!locked; });
     const handSeg = $("handSeg");
     if (handSeg) handSeg.classList.toggle("is-locked", !!locked);
     document.querySelectorAll("#rollSeg [data-roll]").forEach((b) => { b.disabled = !!locked; });
     if (seg) seg.classList.toggle("is-locked", !!locked);
-    if (lockHint) lockHint.hidden = !locked;
   }
 
   function parseOpts() {
@@ -308,16 +323,19 @@
   $("btnGenerate").onclick = () => generate(true);
   modeZhuren.onclick = () => setMode("zhuren");
   modeSuyue.onclick = () => setMode("suyue");
+  jsonInput.addEventListener("input", () => publishHandorder());
   $("jsonFile").onchange = (e) => {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     const reader = new FileReader();
     reader.onload = () => {
-      jsonInput.value = String(reader.result || "");
+      const text = String(reader.result || "");
+      setJsonValue(text);
       setMode("suyue");
       syncChartPicker("custom");
       openSettings();
       showError("");
+      if (text.trim()) enterEditorCustom();
     };
     reader.onerror = () => showError("读取 JSON 文件失败");
     reader.readAsText(file, "utf-8");
@@ -353,14 +371,21 @@
     try {
       const jsonRes = await fetch("samples/" + sample + ".handorder.json", { cache: "no-store" });
       if (jsonRes.ok) {
-        jsonInput.value = await jsonRes.text();
-        hasHands = true;
+        const text = await jsonRes.text();
+        if (text.trim()) {
+          setJsonValue(text);
+          hasHands = true;
+        }
       }
     } catch (err) { /* no companion 手顺 is fine */ }
-    if (hasHands) setMode("suyue");
-    else {
-      jsonInput.value = "";
+    if (hasHands) {
+      setMode("suyue");
+      enterEditorCustom();
+    } else {
+      setJsonValue("");
       setMode("zhuren");
+      const ed = window.BachiEditor;
+      if (ed && typeof ed.releaseCustomIfEmpty === "function") ed.releaseCustomIfEmpty();
     }
     syncChartPicker(CHARTS.some((c) => c.id === sample) ? sample : "custom");
     return sample;
@@ -397,32 +422,47 @@
     });
   }
 
-  function setupRouteHint() {
-    const btn = $("routeHintBtn");
-    const pop = $("routeHint");
+  const routeHintCtrls = [];
+
+  function setupRouteHint(btnId, popId) {
+    const btn = $(btnId);
+    const pop = $(popId);
     if (!btn || !pop) return;
     const supportsPopover = Object.hasOwn(HTMLElement.prototype, "popover");
     const closeBtn = pop.querySelector(".route-hint-close");
+    const preferredWidth = pop.classList.contains("route-hint-wide") ? 300 : 260;
 
     function place() {
       const anchor = btn.getBoundingClientRect();
       const margin = 8;
       const gap = 10;
-      const width = Math.min(260, window.innerWidth - margin * 2);
+      const width = Math.min(preferredWidth, Math.max(0, window.innerWidth - margin * 2));
+      // Drop the implicit popover anchor. With one, auto insets resolve to 0
+      // and a margin of 0 pins the hint to the viewport origin.
+      pop.style.setProperty("position-anchor", "none");
+      pop.style.setProperty("position-area", "none");
+      pop.style.position = "fixed";
+      pop.style.margin = "0";
       pop.style.width = width + "px";
-      const height = pop.offsetHeight;
+      // beforetoggle runs while the popover is still display:none.
+      const wasNone = getComputedStyle(pop).display === "none";
+      if (wasNone) pop.style.display = "block";
+      let height = 0;
+      try {
+        height = pop.offsetHeight;
+      } finally {
+        if (wasNone) pop.style.display = "";
+      }
       const spaceBelow = window.innerHeight - anchor.bottom - margin;
       const spaceAbove = anchor.top - margin;
-      const above = spaceBelow < height + gap && spaceAbove > spaceBelow;
+      const above = height > 0 && spaceBelow < height + gap && spaceAbove > spaceBelow;
       let top = above ? anchor.top - gap - height : anchor.bottom + gap;
       let left = anchor.left + anchor.width / 2 - 22;
       left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
       top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
-      pop.style.position = "fixed";
-      pop.style.inset = "auto";
-      pop.style.margin = "0";
-      pop.style.left = left + "px";
-      pop.style.top = top + "px";
+      // One shorthand write. `inset: auto` then top/left leaves the origin in
+      // place when the shorthand wins, which is the viewport corner here.
+      pop.style.inset = top + "px auto auto " + left + "px";
       const arrow = anchor.left + anchor.width / 2 - left;
       pop.style.setProperty("--arrow-x", Math.max(14, Math.min(width - 14, arrow)) + "px");
       pop.classList.toggle("is-above", above);
@@ -441,12 +481,23 @@
       btn.setAttribute("aria-expanded", "false");
     }
 
+    function hideOthers() {
+      for (const other of routeHintCtrls) {
+        if (other.pop !== pop && other.isOpen()) other.hide();
+      }
+    }
+
     if (supportsPopover) {
+      // `toggle` is queued for a later task. Until it runs, the UA inset
+      // (0) plus margin 0 paints the hint at the viewport origin. Place
+      // while it is still hidden, before that first paint.
       pop.addEventListener("beforetoggle", (e) => {
-        if (e.newState === "open") pop.style.visibility = "hidden";
+        if (e.newState === "closed") return;
+        pop.style.visibility = "hidden";
+        place();
       });
-      pop.addEventListener("toggle", (e) => {
-        const open = e.newState === "open";
+      pop.addEventListener("toggle", () => {
+        const open = pop.matches(":popover-open");
         btn.setAttribute("aria-expanded", String(open));
         if (!open) {
           pop.style.visibility = "";
@@ -459,6 +510,7 @@
     } else {
       btn.addEventListener("click", () => {
         const open = !pop.classList.contains("is-open");
+        if (open) hideOthers();
         pop.classList.toggle("is-open", open);
         btn.setAttribute("aria-expanded", String(open));
         if (!open) return;
@@ -501,9 +553,13 @@
         if (!settingsEl.open) hide();
       });
     }
+
+    routeHintCtrls.push({ pop, isOpen, hide });
   }
 
-  setupRouteHint();
+  setupRouteHint("routeHintBtn", "routeHint");
+  setupRouteHint("chartHintBtn", "chartHint");
+  setupRouteHint("batchHintBtn", "batchHint");
 
   function regenerateKeepTime() {
     const anim = window.taikoAnim;
@@ -573,7 +629,7 @@
     getTja: () => tjaInput.value,
     setTja: (v) => { tjaInput.value = v || ""; },
     getJson: () => jsonInput.value,
-    setJson: (v) => { jsonInput.value = v || ""; },
+    setJson: (v) => setJsonValue(v),
     ROLL_HINTS,
   };
   window.fitSongHeading = fitSongHeading;

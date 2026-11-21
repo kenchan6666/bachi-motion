@@ -33,8 +33,16 @@ echo "== title-bar BPM range =="
 node tests/titlebar-bpm.test.js
 echo
 
+echo "== title-bar placement (webpage above track, export left of track) =="
+node tests/titlebar-layout.test.js
+echo
+
 echo "== CJK title fit + TJA encoding =="
 node tests/cjk-title-encoding.test.js
+echo
+
+echo "== settings hint popovers anchor to their buttons =="
+node tests/hint-popover.test.js
 echo
 
 echo "== section loop + playback rate =="

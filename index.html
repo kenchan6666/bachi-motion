@@ -565,6 +565,9 @@
     box-shadow: 0 10px 28px rgba(62, 50, 40, 0.16);
     overflow: visible;
   }
+  .route-hint-wide {
+    width: min(300px, calc(100vw - 16px));
+  }
   .route-hint p {
     margin: 0;
     padding: 10px 22px 10px 12px;
@@ -572,6 +575,7 @@
     color: var(--ink-soft);
     line-height: 1.55;
   }
+  .route-hint p + p { padding-top: 0; }
   .route-hint-close {
     appearance: none;
     position: absolute;
@@ -702,7 +706,6 @@
     opacity: 0.45;
     pointer-events: none;
   }
-  #autoStickingLock { margin-top: 6px; }
   textarea {
     width: 100%;
     min-height: 110px;
@@ -743,6 +746,11 @@
     border-top: 1px solid var(--line);
   }
   .batch-fields > legend { padding: 0; }
+  .batch-fields > legend.route-head {
+    display: inline-flex;
+    width: auto;
+    max-width: 100%;
+  }
   .batch-actions, #batchDownloads {
     display: flex;
     flex-wrap: wrap;
@@ -842,7 +850,7 @@
     * { transition: none !important; }
   }
 
-  /* Persistent title bar: left beige letterbox, top-aligned with the chart track. */
+  /* Persistent title bar. Webpage: above the highway (layoutTitleBar). Export: left letterbox. */
   #titlebar {
     display: none;
     position: fixed;
@@ -1066,9 +1074,8 @@
                 <button type="button" class="on" data-roll="自动滚奏" role="radio" aria-checked="true">自动滚奏</button>
                 <button type="button" data-roll="24分滚奏" role="radio" aria-checked="false">24 分滚奏</button>
               </div>
-              <p class="hint" id="rollHint" style="margin-top:6px">12 分 1-2，16／24 分整串 2-2</p>
+              <p class="hint" id="rollHint" style="margin-top:6px">12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2</p>
             </div>
-            <p class="hint" id="autoStickingLock" hidden>已载入手顺 JSON，以上设置不生效</p>
             <button type="button" class="file-btn" id="btnOpenEditorSettings" style="margin-top:8px;align-self:flex-start">打开手顺编辑器</button>
           </div>
 
@@ -1100,9 +1107,19 @@
 
           <label class="check"><input id="labels" type="checkbox"> R/L 标签（调试）</label>
 
-          <div class="chips">
-            <label class="file-btn">打开 TJA<input id="tjaFile" type="file" accept=".tja,text/plain"></label>
-            <label class="file-btn">打开手顺 JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
+          <div>
+            <div class="route-head">
+              <p class="block-label">谱面规则</p>
+              <button type="button" class="route-hint-btn" id="chartHintBtn" popovertarget="chartHint" aria-expanded="false" aria-controls="chartHint" aria-label="谱面规则说明">!</button>
+            </div>
+            <div class="chips">
+              <label class="file-btn">打开 TJA<input id="tjaFile" type="file" accept=".tja,text/plain"></label>
+              <label class="file-btn">打开手顺 JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
+            </div>
+            <div id="chartHint" class="route-hint route-hint-wide" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="chartHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
+            </div>
           </div>
 
           <textarea id="tjaInput" spellcheck="false" aria-label="TJA 谱面">TITLE:溯溯的练习谱2
@@ -1124,14 +1141,17 @@ LEVEL:6
             <p class="hint">覆盖自动手顺，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json</p>
             <textarea id="jsonInput" spellcheck="false" aria-label="手顺 JSON" placeholder='{ "events": [ { "t": 0, "hand": "R", "face": "don", "grip": "roll" } ] }'></textarea>
           </div>
-          <p class="hint">谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
           <button type="button" class="primary-btn" id="btnGenerate">生成 / 播放</button>
           <p class="hint" id="src"></p>
           <div id="error" hidden></div>
 
           <fieldset class="batch-fields">
-            <legend class="block-label">批量出片</legend>
-            <p class="hint">在自己的电脑上排队渲染。选了原曲，成片从「第一个音的时间 − 0.7 秒」对齐这首音频（OFFSET 已经算进音符时间，不会再减一次）。只放 TJA 时不含原曲。</p>
+            <legend class="block-label route-head">批量出片<button type="button" class="route-hint-btn" id="batchHintBtn" popovertarget="batchHint" aria-expanded="false" aria-controls="batchHint" aria-label="批量出片说明">!</button></legend>
+            <div id="batchHint" class="route-hint route-hint-wide" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="batchHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>在自己的电脑上排队渲染。选了原曲，成片从「第一个音的时间 − 0.7 秒」对齐这首音频（OFFSET 已经算进音符时间，不会再减一次）。只放 TJA 时不含原曲。</p>
+              <p>批量出片要在自己的电脑上运行 node render.js --serve。GitHub Pages 只预览动画，不会在网页上渲染。</p>
+            </div>
             <div class="batch-actions">
               <label class="file-btn">加入谱面<input id="batchTja" type="file" accept=".tja,text/plain" multiple></label>
               <label class="file-btn">选择原曲<input id="batchSong" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus"></label>
@@ -1159,7 +1179,7 @@ LEVEL:6
         <div class="seg editor-mode-seg" id="editorModeSeg" role="radiogroup" aria-label="手顺模式">
           <button type="button" data-ed-mode="auto" role="radio" aria-checked="false">纯自动</button>
           <button type="button" class="on" data-ed-mode="tweak" role="radio" aria-checked="true">自动+微调</button>
-          <button type="button" data-ed-mode="custom" role="radio" aria-checked="false">导入自定义</button>
+          <button type="button" data-ed-mode="custom" role="radio" aria-checked="false" aria-disabled="true">导入自定义</button>
         </div>
         <div class="editor-auto-settings" id="editorAutoSettings">
           <div class="editor-field editor-tech-block">
@@ -1182,12 +1202,11 @@ LEVEL:6
                   </button>
                   <button type="button" class="editor-tech-option" role="option" data-tech="炒菜">
                     <span class="name">炒菜</span>
-                    <span class="desc">散音都用惯用手，连音惯用手起交替；<span class="nowrap">BPM ≥ 270 不炒 8 分</span></span>
+                    <span class="desc">散音（8 分或更慢）全用惯用手，每个三连和密簇都从惯用手起</span>
                   </button>
                 </div>
               </div>
             </div>
-            <p class="editor-field-hint">休息段一律用惯用手</p>
           </div>
           <div class="editor-field editor-hand-block">
             <p class="block-label">惯用手</p>
@@ -1203,9 +1222,8 @@ LEVEL:6
               <button type="button" class="on" data-roll="自动滚奏" role="radio" aria-checked="true">自动滚奏</button>
               <button type="button" data-roll="24分滚奏" role="radio" aria-checked="false">24 分滚奏</button>
             </div>
-            <p class="editor-field-hint" id="editorRollHint">12 分 1-2，16／24 分整串 2-2</p>
+            <p class="editor-field-hint" id="editorRollHint">12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2</p>
           </div>
-          <p class="editor-lock-hint" id="editorLockHint" hidden>已载入手顺 JSON，以上设置不生效</p>
         </div>
       </div>
       <div class="editor-toolbar-right">

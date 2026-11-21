@@ -22,8 +22,8 @@
   };
   const ROLL_HINTS = {
     "不滚奏": "全部单打，按手法左右交替",
-    "自动滚奏": "12 分 1-2，16／24 分整串 2-2",
-    "24分滚奏": "只滚 24 分，每段 1-2；12／16 分照常单打",
+    "自动滚奏": "12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2",
+    "24分滚奏": "24 分滚奏里 32 分 2-2，24 分 1-2，16 分或以下不滚",
   };
   const COURSE_JA = {
     Easy: "简单", Normal: "普通", Hard: "困难", Oni: "鬼", Ura: "里", Edit: "编",
@@ -69,7 +69,28 @@
     if (ui.rollSeg) ui.rollSeg.classList.toggle("is-locked", !!locked);
     ui.handSeg && ui.handSeg.querySelectorAll("button").forEach((b) => { b.disabled = !!locked; });
     ui.rollSeg && ui.rollSeg.querySelectorAll("button").forEach((b) => { b.disabled = !!locked; });
-    if (ui.lockHint) ui.lockHint.hidden = !locked;
+  }
+
+  function hasHandorder() {
+    const a = app();
+    return !!((a && a.getJson && a.getJson()) || "").trim();
+  }
+
+  function syncCustomButton() {
+    const btn = ui.customModeBtn;
+    if (!btn) return;
+    btn.setAttribute("aria-disabled", hasHandorder() ? "false" : "true");
+  }
+
+  function onHandorderChange() {
+    syncCustomButton();
+  }
+
+  function releaseCustomIfEmpty() {
+    syncCustomButton();
+    if (state.mode === "custom" && !hasHandorder()) {
+      setEditorMode("tweak", { silent: !state.open });
+    }
   }
 
   function syncToolbarFromApp() {
@@ -108,6 +129,7 @@
       b.classList.toggle("on", on);
       b.setAttribute("aria-checked", String(on));
     });
+    syncCustomButton();
     if (ui.root) ui.root.classList.toggle("is-readonly", isReadonly());
     if (ui.chartHint) {
       ui.chartHint.textContent = isReadonly()
@@ -118,6 +140,10 @@
 
   function setEditorMode(mode, opts) {
     if (mode !== "auto" && mode !== "tweak" && mode !== "custom") mode = "tweak";
+    if (mode === "custom" && !hasHandorder()) {
+      syncCustomButton();
+      return;
+    }
     const prev = state.mode;
     state.mode = mode;
     setModeButtons();
@@ -125,12 +151,6 @@
     if (mode === "custom") {
       if (a && a.setMode) a.setMode("suyue");
       setLocked(true);
-      if (!((a && a.getJson && a.getJson()) || "").trim()) {
-        setAdvanced(true);
-        if (!(opts && opts.skipPicker) && ui.jsonFile && prev !== "custom") {
-          try { ui.jsonFile.click(); } catch (err) { /* ignore */ }
-        }
-      }
     } else {
       if (a && a.setMode) a.setMode("zhuren");
       setLocked(false);
@@ -1133,8 +1153,13 @@
   }
 
   function importJsonText(text) {
+    const raw = String(text || "");
     const a = app();
-    if (a && a.setJson) a.setJson(text);
+    if (a && a.setJson) a.setJson(raw);
+    if (!raw.trim()) {
+      releaseCustomIfEmpty();
+      return;
+    }
     if (a && a.setMode) a.setMode("suyue");
     state.mode = "custom";
     setModeButtons();
@@ -1164,7 +1189,8 @@
     ui.handSeg = $("editorHandSeg");
     ui.rollSeg = $("editorRollSeg");
     ui.rollHint = $("editorRollHint");
-    ui.lockHint = $("editorLockHint");
+    ui.customModeBtn = ui.modeSeg && ui.modeSeg.querySelector('[data-ed-mode="custom"]');
+    syncCustomButton();
     ui.status = $("editorStatus");
     ui.statusText = $("editorStatusText");
     ui.statusDot = ui.status && ui.status.querySelector(".dot");
@@ -1195,7 +1221,19 @@
       ui.modeSeg.addEventListener("click", (e) => {
         const btn = e.target.closest("[data-ed-mode]");
         if (!btn) return;
+        if (btn.getAttribute("aria-disabled") === "true") {
+          e.preventDefault();
+          return;
+        }
         setEditorMode(btn.dataset.edMode);
+      });
+      ui.modeSeg.addEventListener("keydown", (e) => {
+        const btn = e.target.closest("[data-ed-mode]");
+        if (!btn || btn.getAttribute("aria-disabled") !== "true") return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       });
     }
 
@@ -1559,6 +1597,8 @@
     isOpen: () => state.open,
     onGenerate: onGenerate,
     setMode: setEditorMode,
+    onHandorderChange: onHandorderChange,
+    releaseCustomIfEmpty: releaseCustomIfEmpty,
     rebuild: rebuild,
     selectRange: (from, to) => { if (state.open) showRangePop(from, to); },
     selectNote: (index) => { if (state.open) showSwapPop(index); },

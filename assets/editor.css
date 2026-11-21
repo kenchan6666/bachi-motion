@@ -82,9 +82,12 @@ body.editor-mode .editor {
 }
 
 .editor-toolbar {
+  --editor-caption: 11px;
+  --editor-caption-gap: 4px;
   flex: 0 0 auto;
   min-height: 78px;
   display: flex;
+  /* Tops stay put. Centering would let the roll hint lift its buttons. */
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px 20px;
@@ -104,6 +107,7 @@ body.editor-mode .editor {
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  margin-top: calc(var(--editor-caption, 11px) + var(--editor-caption-gap, 4px));
   margin-left: auto;
 }
 
@@ -111,6 +115,8 @@ body.editor-mode .editor {
   width: auto;
   height: 36px;
   flex: 0 0 auto;
+  /* No caption above these, so drop them onto the shared button row. */
+  margin-top: calc(var(--editor-caption, 11px) + var(--editor-caption-gap, 4px));
 }
 .editor .seg.editor-mode-seg button {
   flex: 0 0 auto;
@@ -123,6 +129,10 @@ body.editor-mode .editor {
   font-weight: 500;
   white-space: nowrap;
 }
+.editor .seg.editor-mode-seg button[data-ed-mode="custom"][aria-disabled="true"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
 
 .editor-auto-settings {
   display: flex;
@@ -133,7 +143,15 @@ body.editor-mode .editor {
   flex-wrap: wrap;
   min-width: 0;
 }
-.editor-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.editor-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--editor-caption-gap, 4px);
+  min-width: 0;
+}
+.editor-tech-block {
+  margin-top: calc(var(--editor-caption, 11px) + var(--editor-caption-gap, 4px));
+}
 .editor-field-row {
   display: flex;
   align-items: center;
@@ -142,7 +160,7 @@ body.editor-mode .editor {
 .editor-field-label,
 .editor .block-label {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--editor-caption, 11px);
   font-weight: 700;
   color: var(--ink-soft);
   letter-spacing: 0.04em;
@@ -156,14 +174,6 @@ body.editor-mode .editor {
   line-height: 1.35;
   max-width: 280px;
 }
-.editor-lock-hint {
-  margin: 2px 0 0;
-  font-size: 11px;
-  color: var(--ink-soft);
-  line-height: 1.35;
-  flex: 1 0 100%;
-}
-.editor-lock-hint[hidden] { display: none !important; }
 
 .editor-tech { position: relative; }
 .editor-tech-btn {

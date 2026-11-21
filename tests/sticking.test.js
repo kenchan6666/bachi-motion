@@ -877,18 +877,28 @@ extra("short oxxxo is ox xx o; only runs of 8 or more may shift", function () {
   assertLead("8 same colour stays", "dddddddd", "RLLRRLLRR", "1-2,3-4,5-6,7-8");
 });
 
-extra("16th triplets stay 2-1 and 24th quads stay 1-2-1 ahead of 2-2", function () {
+extra("rolls keep 四连 1-2-1, 三连 2-1 and 12分 1-2 ahead of 2-2", function () {
+  // 绝对规则只在滚奏上：四连 1-2-1、三连 2-1、12分 1-2。优先于从第一颗 2-2，也优先于挪位。
   // 6 音三连短于 8，仍是 2-1，不改成从第一颗 2-2。
   assertLead("xoo stays 2-1", "kddkdd", "RLLRLLR", "1-2,4-5");
   // 第一对是逆手外刷：先按三连 2-1，再拆掉这一对。不是整串改回 2-2。
   assertLead("oxx 2-1 breaks the off-hand outer brush", "dkkdkk", "RLRLRRL", "4-5");
   assertStick("quad stays 1-2-1", "dddd", 1 / 6, "RLLR", "1-2", { bpm: 300 });
   assertStick("quad outer brush still breaks", "kdkd", 1 / 6, "RLRL", "", { bpm: 300 });
+  // 12 分一拍三颗用 1-2，单下落在拍头。从第一颗 2-2 会是 RRLLRR / RRLLRRLLR。
+  // 八颗以上也不为躲开逆手外刷改成挪位后的 2-2。
+  assertStick("12 stays 1-2", "kddkdd", 1 / 3, "RLLRLL", "1-2,4-5");
+  assertStick("12 three beats stay 1-2", "ddddddddd", 1 / 3, "RLLRLLRLL", "1-2,4-5,7-8");
+  assertStick("12 eight does not shift", "dkdkdkdk", 1 / 3, "RLLRLRLR", "1-2");
+  // 不滚奏不受这三条影响，不套 1-2 / 2-1 / 1-2-1。
+  assertStick("12 unrolled", "kddkdd", 1 / 3, "RLRLRL", "", { 滚奏: "不滚奏" });
+  assertStick("triplet unrolled", "kddkdd", 0.25, "RLRLRL", "", { 滚奏: "不滚奏" });
+  assertStick("quad unrolled", "dddd", 1 / 6, "RLRL", "", { 滚奏: "不滚奏" });
   // 24 分的 xoo 不是 16 分三连。长于 8 音时自动滚奏仍用原来的 1-2。
   assertStick("24 xoo stays 1-2", "kddkddkdd", 1 / 6, "RLLRLLRLL", "1-2,4-5,7-8");
 });
 
-extra("全2-2 rolls 16 24 32 from the first note after the absolute cuts", function () {
+extra("全2-2 rolls 16 24 32 from the first note after 四连 1-2-1, 三连 2-1, 12分 1-2", function () {
   const mode = { 滚奏: "全2-2" };
   assert.strictEqual(parser.normRoll("全2-2"), "全2-2");
   assert.strictEqual(parser.normRoll("全 2-2"), "全2-2");
@@ -900,10 +910,45 @@ extra("全2-2 rolls 16 24 32 from the first note after the absolute cuts", funct
   assertLead("8 stays 2-2", "dkkkdddd", "RLLRRLLRR", "1-2,3-4,5-6,7-8", mode);
   assertLead("auto 8 still shifts", "dkkkdddd", "RLRRLLRRL", "2-3,4-5,6-7");
 
+  // 绝对规则只在滚奏上。全 2-2 也先守：四连 1-2-1、三连 2-1、12分 1-2。
+  // 然后其余 16/24/32 才从第一颗 2-2。
   assertLead("triplet still 2-1", "kddkdd", "RLLRLLR", "1-2,4-5", mode);
   assertLead("triplet still breaks", "dkkdkk", "RLRLRRL", "4-5", mode);
   assertStick("quad still 1-2-1", "dddd", 1 / 6, "RLLR", "1-2", mode);
   assertStick("quad still breaks", "kdkd", 1 / 6, "RLRL", "", mode);
+  // 12 分一拍三颗用 1-2，单下落在拍头。从第一颗 2-2 会跟拍错位。
+  assertStick("12 stays 1-2", "kddkdd", 1 / 3, "RLLRLL", "1-2,4-5", mode);
+  assertStick("12 three beats stay 1-2", "ddddddddd", 1 / 3, "RLLRLLRLL", "1-2,4-5,7-8", mode);
+  assertStick("12 eight stays 1-2", "dkdkdkdk", 1 / 3, "RLLRLRLR", "1-2", mode);
+  // 开头不在拍头：单打仍落在拍头，不是从第一颗 1-2，也不是从第一颗 2-2。
+  const offBeat = [1 / 3, 2 / 3, 1, 4 / 3, 5 / 3, 2].map(function (beat) {
+    return { beat: beat, colour: "don", big: false };
+  });
+  ["全2-2", "自动滚奏"].forEach(function (roll) {
+    const aligned = sticking.autoSticking(offBeat, {
+      bpm: 250, 手法: "全换", 惯用手: "R", 滚奏: roll,
+    });
+    assert.strictEqual(aligned.hands.join(""), "RRLRRL", roll + " " + aligned.hands.join("") + " / " + pairSig(aligned));
+    assert.strictEqual(pairSig(aligned), "0-1,3-4", roll);
+  });
+  // 不滚奏不套这三条。
+  const bare = sticking.autoSticking(offBeat, {
+    bpm: 250, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏",
+  });
+  assert.strictEqual(bare.hands.join(""), "RLRLRL", bare.hands.join(""));
+  assert.strictEqual(pairSig(bare), "");
+  assertStick("12 unrolled in 全2-2 block", "ddddddddd", 1 / 3, "RLRLRLRLR", "", { 滚奏: "不滚奏" });
+
+  // 同一串里连续三颗及以上的 12 分也不跟 2-2。旁边的 24 / 16 仍从自己的第一颗 2-2，四连仍是 1-2-1。
+  const twelveThen24 = notesByGaps("dddddddddddd", [1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6, 1 / 6]);
+  assertRoll("12 then 24", twelveThen24, "RLLRLLRRLLRR", "1-2,4-5,6-7,8-9,10-11", Object.assign({ bpm: 250 }, mode));
+  assertRoll("12 then 24 auto", twelveThen24, "RLLRLLRRLLRR", "1-2,4-5,6-7,8-9,10-11", { bpm: 250, 滚奏: "自动滚奏" });
+  const twelveThenQuad = notesByGaps("ddddddd", [1 / 3, 1 / 3, 1 / 6, 1 / 6, 1 / 6, 1 / 6]);
+  assertRoll("12 then quad", twelveThenQuad, "RLLRLLR", "1-2,4-5", Object.assign({ bpm: 250 }, mode));
+  assertRoll("12 then quad auto", twelveThenQuad, "RLLRLLR", "1-2,4-5", { bpm: 250, 滚奏: "自动滚奏" });
+  const sixteenThen12 = notesByGaps("dddddddddd", [0.25, 0.25, 0.25, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3, 1 / 3]);
+  assertRoll("16 then 12", sixteenThen12, "RRLLRLLRLL", "0-1,2-3,5-6,8-9", Object.assign({ bpm: 250 }, mode));
+  assertRoll("16 then 12 auto", sixteenThen12, "RRLLRLLRLL", "0-1,2-3,5-6,8-9", { bpm: 250, 滚奏: "自动滚奏" });
 
   // 不属于绝对规则的 24 分不再改成三连 2-1 或 1-2。24 分滚奏本身不变。
   assertStick("24 six is 2-2", "dddddd", 1 / 6, "RRLLRR", "0-1,2-3,4-5", mode);
@@ -913,7 +958,6 @@ extra("全2-2 rolls 16 24 32 from the first note after the absolute cuts", funct
 
   assertStick("16 is 2-2", "dddddddd", 0.25, "RRLLRRLL", "0-1,2-3,4-5,6-7", mode);
   assertStick("32 is 2-2", "dddddddd", 0.125, "RRLLRRLL", "0-1,2-3,4-5,6-7", mode);
-  assertStick("12 stays 1-2", "kddkdd", 1 / 3, "RLLRLL", "1-2,4-5", mode);
   // 两音逆手外刷：自动滚奏拆成单打。全 2-2 不改切法，仍是从第一颗起的一对。
   const two = [
     { beat: 0, colour: "ka", big: false },

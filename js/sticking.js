@@ -757,8 +757,8 @@
   function chooseAuto22PairsLegacy(runNotes, startHand, dominant, pure22) {
     var n = runNotes.length;
     var canPair = function (i, j) { return !runNotes[i].big && !runNotes[j].big; };
-    // 全 2-2：这段不属于三连或四连，16/24/32 都从第一颗 2-2。
-    // 不挪位，也不改成 1-2 / 2-1，逆手外刷留在对里。
+    // 全 2-2：这段不属于四连、三连，也不是连续三颗及以上的 12 分。
+    // 16/24/32 都从第一颗 2-2。不挪位，也不改成 1-2 / 2-1，逆手外刷留在对里。
     if (pure22) return plan22(n, canPair);
     var cycle = detectCycle(runNotes);
     var pairs;
@@ -788,15 +788,34 @@
     return breakNizytePairs(runNotes, 0, pairs, startHand, dominant);
   }
 
+  // 本串里这一颗算不算 12 分。串头没有入间隔时看出间隔。
+  function is12RunNote(runNotes, i) {
+    var d = (i === 0) ? classifyDelta(outbound(runNotes, i)) : classifyDelta(inbound(runNotes, i));
+    return d === 12;
+  }
+
+  // 连续三颗及以上才是 12 分绝对规则要切开的一段。两颗组不成一拍，
+  // 12-24-12 那种四音仍留在后面的切法里。
+  function twelveRunLen(runNotes, i, end) {
+    if (!is12RunNote(runNotes, i)) return 0;
+    var j = i;
+    while (j <= end && is12RunNote(runNotes, j)) j++;
+    var len = j - i;
+    return len >= 3 ? len : 0;
+  }
+
   // 16 分三连（xoo/oxx/xxo/oox，至少两格）一律 2-1。中途换型就从新格重切，
   // 不把开头的 1-2 锁到整串，也不把后面的三连留在 2-2 上。
   // 同色三颗走默认 2-2，长度 3 时自然是 (oo)o / (xx)x。四音型不在这里。
+  // 绝对规则只在滚奏串里，优先于后面的 2-2，也优先于躲开逆手外刷的挪位：
+  // 四连 1-2-1、三连 2-1、连续三颗及以上的 12 分 1-2。
   function chooseAuto22Pairs(runNotes, startHand, dominant, pure22) {
     var n = runNotes.length;
     var segments = [];
     var i = 0;
     while (i < n) {
       // 纯滚里正好四颗 24 分也是 1-2-1，夹在 16 分中间同样。更长的 24 分仍走原来的 2-2。
+      var twelve = twelveRunLen(runNotes, i, n - 1);
       if (quad24At(runNotes, i, n - 1)) {
         segments.push({ start: i, end: i + 3, kind: "121" });
         i += 4;
@@ -804,9 +823,13 @@
         var span = cycleSpan(runNotes, i);
         segments.push({ start: i, end: span.end, kind: "21" });
         i = span.end + 1;
+      } else if (twelve) {
+        // 12 分按拍头对齐的 1-2，不从这段第一颗 2-2。
+        segments.push({ start: i, end: i + twelve - 1, kind: "12" });
+        i += twelve;
       } else {
         var j = i + 1;
-        while (j < n && !preferCycleStart(runNotes, j) && !quad24At(runNotes, j, n - 1)) j++;
+        while (j < n && !preferCycleStart(runNotes, j) && !quad24At(runNotes, j, n - 1) && !twelveRunLen(runNotes, j, n - 1)) j++;
         segments.push({ start: i, end: j - 1, kind: "legacy" });
         i = j;
       }
@@ -820,6 +843,9 @@
       if (seg.kind === "121") {
         rel = [];
         if (!slice[1].big && !slice[2].big) rel.push([1, 2]);
+        rel = breakNizytePairs(slice, 0, rel, h, dominant);
+      } else if (seg.kind === "12") {
+        rel = choose12Pairs(slice, 0, slice.length - 1);
         rel = breakNizytePairs(slice, 0, rel, h, dominant);
       } else if (seg.kind === "21") {
         var canPair = function (a, b) { return !slice[a].big && !slice[b].big; };
@@ -843,6 +869,7 @@
     return 0;
   }
 
+  // 12 分 1-2：单打落在拍头。开头三颗里有拍头就从那颗对齐，否则从这段第一颗 1-2。
   function choose12Pairs(notes, start, end) {
     var n = end - start + 1;
     var canPair = function (i, j) {
@@ -1054,6 +1081,7 @@
   }
 
   function chooseAutoPairs(notes, start, end, startHand, dominant, mode) {
+    // 不滚奏只单打交替。四连 1-2-1、三连 2-1、12分 1-2 都建立在滚奏上，这里不套。
     if (mode === "不滚奏") return [];
     var n = end - start + 1;
     if (n < 2) return [];
@@ -1072,8 +1100,12 @@
       return toAbsPairs(rel, start);
     }
 
-    // 自动滚奏，以及全 2-2。12 分都按 1-2。
-    // 全 2-2 的 16/24/32 在三连、四连之外从第一颗 2-2，不再改成别的切法。
+    // 绝对规则只在滚奏里。自动滚奏和全 2-2 都先守这三条，不跟 2-2 走：
+    // 四连 1-2-1、三连 2-1、12分 1-2。
+    // 12 分一拍三颗用 1-2，单下落在拍头；从第一颗 2-2 会跟拍错位。
+    // 纯 12 分整段在这里按 1-2。连续三颗及以上、夹在 16/24/32 里的 12 分，
+    // 在 chooseAuto22Pairs 里同样先切开。不满三颗的（12-24-12 四音）仍留在原来的切法。
+    // 这三条优先于全 2-2 从第一颗起的 2-2，也优先于为躲开逆手外刷而挪位。
     var divs = {};
     for (var k = start; k <= end; k++) {
       var d = (k === start) ? classifyDelta(outbound(notes, k)) : classifyDelta(inbound(notes, k));
@@ -1090,9 +1122,7 @@
       return toAbsPairs(p12, start);
     }
 
-    // 16 / 24 / 32 / mixed (and mixed with leftover 12 after family split shouldn't appear)
-    // If a run somehow mixed 12 with 16 after we failed to split, 5.5 says 16+24 don't split
-    // but 16↔12 on downbeat should have been split already.
+    // 16 / 24 / 32，以及和 12 分混在同一串里的。四连、三连、连续 12 分在里面先切。
     var auto22 = chooseAuto22Pairs(sliceNotes(notes, start, end), startHand, dominant, mode === "全2-2");
     return toAbsPairs(auto22, start);
   }

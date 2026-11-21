@@ -691,6 +691,28 @@ extra("synthetic TJA: 16夹24 fish 24s are 1-2, 12夹24 stays", function () {
     [15, "1"], [18, "1"], [21, "1"],
   ], 48);
   assertRoll("16 fish ooox(xx)ooo", fish, "RLRLRRLRL", "4-5");
+  // 连续两个 16夹24 鱼蛋 ooo(xxx)ooo(xxx)。1-2 接着数，第二组 (xx) 是逆手滚。
+  // 第二组 24 分恰好结在谱尾，后面没有再跟 16 分。
+  const twoFishEnd = tjaBySlots([
+    [0, "1"], [3, "1"], [6, "1"],
+    [9, "2"], [11, "2"], [13, "2"],
+    [15, "1"], [18, "1"], [21, "1"],
+    [24, "2"], [26, "2"], [28, "2"],
+  ], 48);
+  ["全换", "炒菜", "半换A", "半换B"].forEach(function (tech) {
+    assertRoll("two fish end " + tech, twoFishEnd, "RLRLRRLRLRLL", "4-5,10-11", { 手法: tech });
+  });
+  // 第二组后面还有 16 分，仍是 1-2 逆手滚，不改成 2-1。
+  const twoFishMore = tjaBySlots([
+    [0, "1"], [3, "1"], [6, "1"],
+    [9, "2"], [11, "2"], [13, "2"],
+    [15, "1"], [18, "1"], [21, "1"],
+    [24, "2"], [26, "2"], [28, "2"],
+    [30, "1"], [33, "1"], [36, "1"],
+  ], 48);
+  ["全换", "炒菜", "半换A", "半换B"].forEach(function (tech) {
+    assertRoll("two fish more " + tech, twoFishMore, "RLRLRRLRLRLLRLR", "4-5,10-11", { 手法: tech });
+  });
   // 12 夹 24：12 分占 4 槽。仍是旧的入间隔 1-2，把后面那颗 12 分卷进 24 段。
   const fish12 = tjaBySlots([
     [0, "1"], [4, "1"], [8, "1"],

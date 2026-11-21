@@ -946,17 +946,21 @@
     return (left === 16 && right === 16) || (left === 12 && right === 12);
   }
 
-  // 16 夹 24 鱼蛋：一串时值是 24 分的音，前后都是 16 分。
+  // 16 夹 24 鱼蛋：一串时值是 24 分的音，从 16 分后面接出来。
   // 时值是这一颗到下一颗的间隔（合成 TJA 的槽位），不是入间隔。
-  // 返回这组 24 的长度，以及后面第一颗 16 分的下标。不够两颗 24 时不是鱼蛋。
+  // 返回这组 24 的长度，以及组后面第一颗音的下标（可能已经超出串尾）。
+  // 1-2 只决定哪两颗成对，不把每一对再正手起；整串从已经排好的手接着数。
+  // 组尾若正好是最后一颗，没有出间隔，入间隔仍是 24 分，也要算进这组。
   function sixteenFish24(notes, i, end) {
     if (i <= 0 || i > end) return null;
     if (classifyDelta(inbound(notes, i)) !== 16) return null;
     if (classifyDelta(outbound(notes, i)) !== 24) return null;
     var j = i;
     while (j <= end && classifyDelta(outbound(notes, j)) === 24) j++;
+    if (j === end && classifyDelta(inbound(notes, j)) === 24) j++;
     var len = j - i;
-    if (len < 2 || j > end) return null;
+    if (len < 2) return null;
+    if (j > end) return { len: len, next: j };
     var follow = classifyDelta(outbound(notes, j));
     // 后面紧跟 12 分的是 12 夹 24，不在这里改。
     if (follow === 12) return null;

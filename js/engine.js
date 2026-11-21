@@ -4,16 +4,18 @@
  * 1. CONFIG / GEOM —— 尺寸、颜色、时长（颜色全部来自汐月 v2 规格）
  * =================================================================== */
 const COL = {
-  outline: "#2B2320",                  // 统一描边 3px
+  outline: "#2B2320",                  // 统一描边 3px（手、棒、卡片、谱面；鼓不用这根）
   skin: "#FFE3CC", tint: "#FFC9B8",      // 指尖/指节一点点浅粉（α0.4）
   shaft: "#F3E6C8", tape: "#B9A6E8", tapeLine: "#8F7BC8",   // 鼓棒 v2.3：米白棒身、浅紫缠胶带、黑环
   don: "#E8503A", ka: "#4FE0E6", gold: "#F5C542",
   R: "#5FC99A",                        // 右手（正手）袖口 + 握把粉/绿标记
   L: "#F49AC1",                        // 左手（逆手）袖口 + 握把粉/绿标记（v2.3 起，避开浅紫胶带）
-  face: "#F6EEDC", studBand: "#E9C48A", body: "#C8342A", bodyDark: "#9E2620", stud: "#2B2320",
+  face: "#FFFDF8", studBand: "#F3D08A", body: "#FF4F19", bodyDark: "#D63A10", stud: "#8A3A28",
   noteDon: "#E8503A", noteKa: "#3FB6E8",   // 谱面音符颜色（和谱面图一致）
 };
-const OUT = 3;   // 描边宽度
+const OUT = 3;   // 全局描边宽度（鼓以外）
+const DRUM_OUT = 10;            // 鼓自己的轮廓描边。只画在鼓上，不改 OUT
+const DRUM_OUTLINE = "#000000"; // 鼓轮廓纯黑
 
 const CONFIG = {
   RISE: 0.10,           // 兼容旧调用：等于 STRIKE_DOWN_MAX（稀疏下砸）
@@ -44,23 +46,23 @@ const CONFIG = {
   SINGLE_FOLLOW: 1,     // 单击完全固定：手+棒同一变换，跟手比例永远是 1（密度只缩抬起高度，不缩跟手）
   SINGLE_FOLLOW_DENSE: 1, // 已停用：密击不再降低 follow（保留键以免旧调用读到 undefined）
   // 棒尖比击中位置高出的像素（按同一手上一下间隔查表）
-  LIFT_PX_DENSE: 36,    // 密串/纯 16 分滚串 ≲0.1s
+  LIFT_PX_DENSE: 52,    // 密串/纯 16 分滚串 ≲0.1s
   LIFT_PX_LIGHT: 140,   // 8+16 复合轻点兜底（实际按同组重音 × 0.75 ≈ 141px）
-  LIFT_PX_8TH: 85,      // 纯 8 分连串 ~0.1–0.2s（后面不接 16 分对）
+  LIFT_PX_8TH: 105,     // 纯 8 分连串 ~0.1–0.2s（后面不接 16 分对）
   LIFT_PX_SPARSE: 130,  // 普通散音 ~0.2–0.4s
-  LIFT_PX_LONG: 185,    // 长散音 / 休息后第一下 ≳0.4s
+  LIFT_PX_LONG: 200,    // 长散音 / 休息后第一下 ≳0.4s
   LIFT_PX_COMPOUND_HEAVY: 188, // 复合重音（8 分后紧跟 16 分密对），旧版幅度 185–190
   LIFT_COMPOUND_LIGHT_RATIO: 0.75, // 复合轻点 = 同组重音 × 0.75 ≈ 141px，重轻比 ≈ 1.33
   LIFT_PX_SLOW: 130,    // 兼容旧调用：等于普通散音
-  LIFT_PX_FAST: 36,     // 兼容旧调用：等于密串
-  LIFT_PX_FAST_MIN: 36,
+  LIFT_PX_FAST: 52,     // 兼容旧调用：等于密串
+  LIFT_PX_FAST_MIN: 52,
   LIFT_PX_WINDUP: 180,  // 不再用于「密串前预抬」；保留键以免旧调用读到 undefined
   LIFT_PX: 130,         // 兼容旧调用：等于普通散音
   KA_LIFT_PX: 14,       // 咔举起：在接触位上再往上送；与快串同量级，避免回弹跨度过大
   ROLL_LIFT_PX: 150,    // 滚奏大抬回：任意一帧都能看出一只手低（在打）、一只手高（抬起）
   LIFT_OUT_PX: 12,      // 咚举起时棒尖略向外；咔的外移靠宽站位，不靠这个小数
   KA_STICK_OUT_DEG: 10, // 咔棒近竖直，只外倾一点（不再靠长棒斜着从画面下方够鼓边）
-  KA_GRIP_Y: 536,       // 咔接触时握点高度：至少抬到鼓下缘（bodyBottom=548）附近
+  KA_GRIP_Y: 536,       // 咔接触时握点高度。手和棒锁定，不跟鼓身下缘一起挪
   KA_TIP_OUT_PX: 14,    // 咔接触点相对 H.ka 沿棒伸出的距离：校准后接触点落在 1/11 点钟鼓边黑线上
   KA_TIP_PAST_RATIO: 0.20, // 棒尖再沿棒伸出接触点，长度为可见棒身（黑环→接触点）的约 1/5；冲击光仍用接触点
   WRIST_TILT_DEG: 5,    // 举起时整只手+棒绕手腕后倒 4–6°（焊死，棒相对手仍是 0°）
@@ -182,8 +184,8 @@ const CONFIG = {
 };
 
 const GEOM = {
-  face: { cx: 400, cy: 300, rx: 190, ry: 118 },   // 米白椭圆鼓面
-  bodyBottom: 548,                                 // 鼓身往下收成圆底的最低点
+  face: { cx: 400, cy: 344, rx: 190, ry: 162 },   // 近白椭圆鼓面（更正面，ry/rx ≈ 0.85；上沿仍在 cy−ry = 182）
+  bodyBottom: 616,                                 // 鼓身圆底。鼓面下沿 cy+ry=506，露出约 110px 正面橘身
   lane: { y: 70, judgeX: 92, x0: 30, x1: 775 },
   card: { x: 40, y: 128, w: 720, h: 720 },
   hands: {
@@ -194,9 +196,9 @@ const GEOM = {
     // 第一人称：手从画面底部进来；单击时手+棒是刚体，pivot 只是握点的参考原点
     // kaAng：咔在近端鼓边的位置（0=右，-90=上）。右手约 1 点钟 -55°，左手镜像 11 点钟 235°。
     // 闲置/预备：棒尖在鼓心咚位上方悬停，两棒倒V；idle 坐标已不用（姿势由 singleIdlePose 算）。
-    // don 是落点；donLen 只用来定棒长（跟手焊死用），避免把落点上提时把棒拉长。
-    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 258 }, donLen: { x: 350, y: 272 }, kaAng: 226, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
-    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 258 }, donLen: { x: 450, y: 272 }, kaAng: -46, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
+    // don 是落点（汐月锁定 y=314）；donLen 只用来定棒长（跟手焊死用），落点下移时棒长不变。
+    L: { pivot: { x: 255, y: 806 }, don: { x: 350, y: 314 }, donLen: { x: 350, y: 272 }, kaAng: 226, out: -1, rest: { x: 342, y: 226 }, idle: { x: 360, y: 410 } },
+    R: { pivot: { x: 545, y: 806 }, don: { x: 450, y: 314 }, donLen: { x: 450, y: 272 }, kaAng: -46, out: 1, rest: { x: 458, y: 226 }, idle: { x: 440, y: 410 } },
   },
 };
 // 咔接触点：鼓边黑线上（grow=0）。棒头再沿棒伸出 KA_TIP_OUT_PX。
@@ -1909,21 +1911,21 @@ function renderStatic() {
   // 鼓下淡淡冷灰接触阴影（#2A2A30 / 0.11），跟鼓一起走 scene 缩放
   s += `<ellipse cx="${GEOM.face.cx}" cy="${GEOM.bodyBottom + 8}" rx="168" ry="30" fill="#2A2A30" opacity=".11" filter="url(#drumFloorShadow)"/>`;
   s += `<defs><clipPath id="bodyClip"><path d="${bodyD}"/></clipPath></defs>`;
-  s += `<path d="${bodyD}" fill="${COL.bodyDark}"/>`;                       // 底部深红暗带（整块先铺深红）
-  s += `<path d="${drumBodyD(-24)}" fill="${COL.body}" clip-path="url(#bodyClip)"/>`; // 上面盖鼓身红，露出底下一条
-  // 钉带：贴着鼓面下缘的一圈米黄带 + 一排鼓钉
+  s += `<path d="${bodyD}" fill="${COL.bodyDark}"/>`;                       // 底部深橘暗带（整块先铺深橘）
+  s += `<path d="${drumBodyD(-24)}" fill="${COL.body}" clip-path="url(#bodyClip)"/>`; // 上面盖鼓身亮橘，露出底下一条
+  // 钉带：贴着鼓面下缘的一圈暖黄带 + 一排红褐鼓钉。带缘用鼓的纯黑，宽度仍是原来的细边，不是 10px 轮廓。
   const band = ellipseArcD(4, 176, 0, 40);
   s += `<g clip-path="url(#bodyClip)" transform="translate(0,24)">
-          <path d="${band}" fill="none" stroke="${COL.outline}" stroke-width="32"/>
+          <path d="${band}" fill="none" stroke="${DRUM_OUTLINE}" stroke-width="32"/>
           <path d="${band}" fill="none" stroke="${COL.studBand}" stroke-width="25"/></g>`;
   for (let a = 18; a <= 162; a += 12) {
     const p = ellipsePt(a, 0);
     if (p.y + 24 < F.cy + 8) continue;
     s += `<circle cx="${f1(p.x)}" cy="${f1(p.y + 24)}" r="4.2" fill="${COL.stud}"/>`;
   }
-  s += `<path d="${bodyD}" fill="none" stroke="${COL.outline}" stroke-width="${OUT}" stroke-linejoin="round"/>`;
-  // 米白鼓面 + 左上白色椭圆高光（α0.55）
-  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="${COL.face}" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
+  s += `<path d="${bodyD}" fill="none" stroke="${DRUM_OUTLINE}" stroke-width="${DRUM_OUT}" stroke-linejoin="round"/>`;
+  // 近白鼓面 + 左上白色椭圆高光（α0.55）
+  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="${COL.face}" stroke="${DRUM_OUTLINE}" stroke-width="${DRUM_OUT}"/>`;
   s += `</g>`;
   return s;
 }
@@ -2220,9 +2222,9 @@ function tipTrailSilhouette(pose, fill) {
 const SWIPE_ARROW = {
   a0Deg: -84.1,             // 右手内刷箭尾（atan2、y 向下、0° 朝右）
   a1Deg: -174.1,            // 右手内刷箭头
-  cxOff: 0.653,             // 辅圆圆心相对 F.cx 的 rx 倍数（右手 +，左手 −）
-  cyOff: 0.102,             // 辅圆圆心相对 F.cy 的 ry 倍数（向上）
-  rFac: 0.544,              // 正圆半径（只用 F.rx，不按鼓面椭圆压扁）
+  cxOff: 0.696,             // 辅圆圆心相对 F.cx 的 rx 倍数（右手 +，左手 −）
+  cyOff: 0.164,             // 辅圆圆心相对 F.cy 的 ry 倍数（向上）。鼓面改圆后重配，rimInset 仍贴新沿
+  rFac: 0.620,              // 正圆半径（只用 F.rx，不按鼓面椭圆压扁）
   tipExtend: 0.04,          // 外刷箭头沿切线再往外送（× F.rx）
   strokeFac: 0.0662,        // 杆宽
   outlineFac: 0.0132,       // 外描边宽
@@ -2230,6 +2232,9 @@ const SWIPE_ARROW = {
   headWidFac: 2.45,         // 头宽 × strokeWidth
   shaftBack: 0.64,          // 杆终点沿弧从尖往回，盖住圆头
   opacity: 0.90,
+  // 辅圆朝鼓心内收，并同量缩小半径。箭头墨线因此落在 10px 鼓描边内侧，不压进黑边。
+  // 只用于箭头；滚奏点仍用原来的辅圆，再按 DRUM_OUT 自己夹到鼓沿。
+  rimInset: 30,
   minVisible: 0.09,         // 最短可见 90ms（BPM 高时一对只有几十毫秒）
   drawK: 0.45,              // 0 → 0.45T 起笔
   holdK: 0.55,              // 0.45T → 0.55T 停在满箭头
@@ -2266,8 +2271,11 @@ function swipeArrowGeom(hand, type) {
   const F = GEOM.face, S = SWIPE_ARROW;
   const left = hand === "L";
   const inner = type === "kd";
-  const C = { x: F.cx + (left ? -S.cxOff : S.cxOff) * F.rx, y: F.cy - S.cyOff * F.ry };
-  const r = S.rFac * F.rx;
+  const inset = S.rimInset || 0;
+  const C0 = { x: F.cx + (left ? -S.cxOff : S.cxOff) * F.rx, y: F.cy - S.cyOff * F.ry };
+  const inward = V.norm({ x: F.cx - C0.x, y: F.cy - C0.y });
+  const C = { x: C0.x + inward.x * inset, y: C0.y + inward.y * inset };
+  const r = S.rFac * F.rx - inset;
   const ang = (deg) => {
     const a = deg * Math.PI / 180;
     return left ? Math.PI - a : a;
@@ -2431,7 +2439,7 @@ function rollDotGeomKey(hand, type) {
   return [
     hand, F.cx, F.cy, F.rx, F.ry,
     S.cxOff, S.cyOff, S.rFac,
-    D.midDeg, D.rimPad, D.rimSamples, rFac, D.stroke, D.bounceScale, OUT,
+    D.midDeg, D.rimPad, D.rimSamples, rFac, D.stroke, D.bounceScale, DRUM_OUT,
   ].join("	");
 }
 
@@ -2439,8 +2447,8 @@ function rollDotGeomKey(hand, type) {
  * 用给定的最短距离函数计算滚奏点圆心（与历史逐帧算法相同）。
  * 圆的圆心：SWIPE_ARROW 辅圆弧中点，左手镜像。
  * 夹紧按「放到 bounceScale 最大」+「圆心到鼓沿椭圆的最短距离」：
- * 白边外沿离鼓沿描边外沿（椭圆中心线再扣描边半宽 OUT/2）至少 rimPad。
- * 不是击打落点。
+ * 白边外沿离鼓沿描边内沿（椭圆中心线再扣鼓描边半宽 DRUM_OUT/2）至少 rimPad。
+ * 不是击打落点。箭头的 rimInset 不参与，点仍贴着鼓沿。
  */
 function rollDotPosFromDist(hand, distFn, type) {
   const F = GEOM.face, S = SWIPE_ARROW, D = ROLL_DOT;
@@ -2452,8 +2460,8 @@ function rollDotPosFromDist(hand, distFn, type) {
   const x = C.x + R * Math.cos(ang);
   let y = C.y + R * Math.sin(ang);
   const rMax = rollDotRFac(type) * F.rx * D.bounceScale;
-  // 放到 1.15× 时白边外沿半径，再留 6px，并扣掉鼓沿描边半宽（描边外沿朝鼓面的那一侧）
-  const need = rMax + D.stroke + D.rimPad + OUT / 2;
+  // 放到 1.15× 时白边外沿半径，再留 6px，并扣掉鼓沿描边半宽（描边内沿朝鼓面的那一侧）
+  const need = rMax + D.stroke + D.rimPad + DRUM_OUT / 2;
   const dist = (yy) => distFn(F.cx, F.cy, F.rx, F.ry, x, yy, D.rimSamples);
   if (dist(y) < need) {
     let lo = y, hi = F.cy;
@@ -2594,7 +2602,7 @@ function renderFaceGlow(_events, _second, _now) {
   const F = GEOM.face;
   // 去掉旧的半边橙红/粉色染色残留（不再整半边鼓染色），只保留鼓面高光和外圈描边；击中光集中在落点侧。
   let s = `<ellipse cx="${F.cx - 70}" cy="${F.cy - 62}" rx="72" ry="21" fill="#fff" opacity=".55" transform="rotate(-10 ${F.cx - 70} ${F.cy - 62})"/>`;
-  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="none" stroke="${COL.outline}" stroke-width="${OUT}"/>`;
+  s += `<ellipse cx="${F.cx}" cy="${F.cy}" rx="${F.rx}" ry="${F.ry}" fill="none" stroke="${DRUM_OUTLINE}" stroke-width="${DRUM_OUT}"/>`;
   return s;
 }
 

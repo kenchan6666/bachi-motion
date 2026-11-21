@@ -199,7 +199,9 @@
         const files = Array.from(tjaInput.files || []);
         tjaInput.value = "";
         Promise.all(files.map(function (file) {
-          return file.text().then(function (text) {
+          const decode = window.TjaEncoding && window.TjaEncoding.readFile;
+          const pending = decode ? decode(file) : file.text();
+          return pending.then(function (text) {
             pushRow({ name: file.name, tjaText: text, songFile: defaultSong, stickingText: "" });
           });
         })).catch(function () { setStatus("读取 TJA 失败"); });

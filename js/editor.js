@@ -22,8 +22,8 @@
   };
   const ROLL_HINTS = {
     "不滚奏": "全部单打，按手法左右交替",
-    "自动滚奏": "12 分 1-2，16／24 分整串 2-2",
-    "24分滚奏": "只滚 24 分，每段 1-2；12／16 分照常单打",
+    "自动滚奏": "12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2",
+    "24分滚奏": "24 分滚奏里 32 分 2-2，24 分 1-2，16 分或以下不滚",
   };
   const COURSE_JA = {
     Easy: "简单", Normal: "普通", Hard: "困难", Oni: "鬼", Ura: "里", Edit: "编",
@@ -69,7 +69,28 @@
     if (ui.rollSeg) ui.rollSeg.classList.toggle("is-locked", !!locked);
     ui.handSeg && ui.handSeg.querySelectorAll("button").forEach((b) => { b.disabled = !!locked; });
     ui.rollSeg && ui.rollSeg.querySelectorAll("button").forEach((b) => { b.disabled = !!locked; });
-    if (ui.lockHint) ui.lockHint.hidden = !locked;
+  }
+
+  function hasHandorder() {
+    const a = app();
+    return !!((a && a.getJson && a.getJson()) || "").trim();
+  }
+
+  function syncCustomButton() {
+    const btn = ui.customModeBtn;
+    if (!btn) return;
+    btn.setAttribute("aria-disabled", hasHandorder() ? "false" : "true");
+  }
+
+  function onHandorderChange() {
+    syncCustomButton();
+  }
+
+  function releaseCustomIfEmpty() {
+    syncCustomButton();
+    if (state.mode === "custom" && !hasHandorder()) {
+      setEditorMode("tweak", { silent: !state.open });
+    }
   }
 
   function syncToolbarFromApp() {
@@ -108,6 +129,7 @@
       b.classList.toggle("on", on);
       b.setAttribute("aria-checked", String(on));
     });
+    syncCustomButton();
     if (ui.root) ui.root.classList.toggle("is-readonly", isReadonly());
     if (ui.chartHint) {
       ui.chartHint.textContent = isReadonly()
@@ -118,6 +140,10 @@
 
   function setEditorMode(mode, opts) {
     if (mode !== "auto" && mode !== "tweak" && mode !== "custom") mode = "tweak";
+    if (mode === "custom" && !hasHandorder()) {
+      syncCustomButton();
+      return;
+    }
     const prev = state.mode;
     state.mode = mode;
     setModeButtons();
@@ -125,12 +151,6 @@
     if (mode === "custom") {
       if (a && a.setMode) a.setMode("suyue");
       setLocked(true);
-      if (!((a && a.getJson && a.getJson()) || "").trim()) {
-        setAdvanced(true);
-        if (!(opts && opts.skipPicker) && ui.jsonFile && prev !== "custom") {
-          try { ui.jsonFile.click(); } catch (err) { /* ignore */ }
-        }
-      }
     } else {
       if (a && a.setMode) a.setMode("zhuren");
       setLocked(false);
@@ -1064,6 +1084,7 @@
     if (ui.root) ui.root.hidden = false;
     if (ui.pageTitle) ui.pageTitle.hidden = false;
     moveStage(true);
+    refitTitles();
     syncToolbarFromApp();
     setModeButtons();
     setLocked(state.mode === "custom");
@@ -1085,6 +1106,13 @@
     if (typeof window.renderAt === "function" && window.taikoAnim && window.taikoAnim.state) {
       window.renderAt(window.taikoAnim.state.now);
     }
+    refitTitles();
+  }
+
+  function refitTitles() {
+    requestAnimationFrame(function () {
+      if (typeof window.layoutTitleBar === "function") window.layoutTitleBar();
+    });
   }
 
   function onGenerate(data) {
@@ -1125,8 +1153,13 @@
   }
 
   function importJsonText(text) {
+    const raw = String(text || "");
     const a = app();
-    if (a && a.setJson) a.setJson(text);
+    if (a && a.setJson) a.setJson(raw);
+    if (!raw.trim()) {
+      releaseCustomIfEmpty();
+      return;
+    }
     if (a && a.setMode) a.setMode("suyue");
     state.mode = "custom";
     setModeButtons();
@@ -1156,7 +1189,8 @@
     ui.handSeg = $("editorHandSeg");
     ui.rollSeg = $("editorRollSeg");
     ui.rollHint = $("editorRollHint");
-    ui.lockHint = $("editorLockHint");
+    ui.customModeBtn = ui.modeSeg && ui.modeSeg.querySelector('[data-ed-mode="custom"]');
+    syncCustomButton();
     ui.status = $("editorStatus");
     ui.statusText = $("editorStatusText");
     ui.statusDot = ui.status && ui.status.querySelector(".dot");
@@ -1187,7 +1221,19 @@
       ui.modeSeg.addEventListener("click", (e) => {
         const btn = e.target.closest("[data-ed-mode]");
         if (!btn) return;
+        if (btn.getAttribute("aria-disabled") === "true") {
+          e.preventDefault();
+          return;
+        }
         setEditorMode(btn.dataset.edMode);
+      });
+      ui.modeSeg.addEventListener("keydown", (e) => {
+        const btn = e.target.closest("[data-ed-mode]");
+        if (!btn || btn.getAttribute("aria-disabled") !== "true") return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          e.stopPropagation();
+        }
       });
     }
 
@@ -1264,9 +1310,9 @@
       ui.tjaFile.addEventListener("change", (e) => {
         const file = e.target.files && e.target.files[0];
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = () => importTjaText(String(reader.result || ""));
-        reader.readAsText(file, "utf-8");
+        const decode = window.TjaEncoding && window.TjaEncoding.readFile;
+        const pending = decode ? decode(file) : file.text();
+        pending.then((text) => importTjaText(String(text || ""))).catch(() => {});
         e.target.value = "";
       });
     }
@@ -1332,6 +1378,65 @@
     return Number.isFinite(i) ? i : null;
   }
 
+  function onScrollbar(e) {
+    const el = ui.scroll;
+    if (!el) return false;
+    const r = el.getBoundingClientRect();
+    // Overlay bars don't change client size, but they still sit on the
+    // trailing edge. Leave that strip to the native scrollbar.
+    const barY = Math.max(el.offsetHeight - el.clientHeight, 18);
+    const barX = Math.max(el.offsetWidth - el.clientWidth, 12);
+    if (el.scrollWidth > el.clientWidth + 1 && e.clientY >= r.bottom - barY && e.clientY <= r.bottom + 2) return true;
+    if (el.scrollHeight > el.clientHeight + 1 && e.clientX >= r.right - barX && e.clientX <= r.right + 2) return true;
+    return false;
+  }
+
+  function isEmptyTrack(target) {
+    if (!target || !target.closest || !ui.scroll || !ui.scroll.contains(target)) return false;
+    if (target.closest(".editor-note, .editor-string, .editor-zoom, .editor-popover, button, a, input, textarea, label")) return false;
+    return true;
+  }
+
+  function beginTrackPan(e) {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origin = e.target;
+    const startLeft = ui.scroll.scrollLeft;
+    const startTop = ui.scroll.scrollTop;
+    let moved = false;
+    const move = (ev) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
+      moved = true;
+      ui.scroll.classList.add("is-panning");
+      ui.scroll.scrollLeft = startLeft - dx;
+      ui.scroll.scrollTop = startTop - dy;
+    };
+    const up = (ev) => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      ui.scroll.classList.remove("is-panning");
+      if (moved) return;
+      const t = timeAtClientX(ev.clientX);
+      if (t != null && origin && origin.closest && (origin.closest(".editor-lane") || origin.closest(".editor-hands"))) {
+        seekTo(t);
+      }
+      hidePops();
+      state.selection = null;
+      if (state.expanded) collapseString();
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
+  }
+
+  function wheelPixels(delta, mode) {
+    if (mode === 1) return delta * 16;
+    if (mode === 2) return delta * ((ui.scroll && ui.scroll.clientWidth) || 800);
+    return delta;
+  }
+
   function onPointerDown(e) {
     if (e.button !== 0) return;
     if (e.target.closest(".editor-popover")) return;
@@ -1349,6 +1454,12 @@
         expandString(s, { focusIndex: nearestNoteInString(s, e.clientX) });
       }
       e.preventDefault();
+      return;
+    }
+
+    if (isEmptyTrack(e.target)) {
+      if (onScrollbar(e)) return;
+      beginTrackPan(e);
       return;
     }
 
@@ -1425,10 +1536,21 @@
   }
 
   function onZoomWheel(e) {
-    if (!state.expanded) return;
+    if (e.ctrlKey) return;
+    const dx = wheelPixels(e.deltaX, e.deltaMode);
+    const dy = wheelPixels(e.deltaY, e.deltaMode);
+    const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
+    if (!delta) return;
+    if (state.expanded) {
+      e.preventDefault();
+      panZoom(delta);
+      return;
+    }
+    if (!ui.scroll) return;
+    const max = ui.scroll.scrollWidth - ui.scroll.clientWidth;
+    if (max <= 0) return;
     e.preventDefault();
-    const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
-    panZoom(delta);
+    ui.scroll.scrollLeft += delta;
   }
 
   function bindZoomTouch() {
@@ -1475,6 +1597,8 @@
     isOpen: () => state.open,
     onGenerate: onGenerate,
     setMode: setEditorMode,
+    onHandorderChange: onHandorderChange,
+    releaseCustomIfEmpty: releaseCustomIfEmpty,
     rebuild: rebuild,
     selectRange: (from, to) => { if (state.open) showRangePop(from, to); },
     selectNote: (index) => { if (state.open) showSwapPop(index); },

@@ -208,11 +208,12 @@ async function setupExportPage(page, url, size, data, rate, preloadAssets) {
       const title = (document.getElementById("titlebarTitle") || {}).textContent || "";
       const meta = (document.getElementById("titlebarMeta") || {}).textContent || "";
       const text = title + meta;
-      try {
-        if (document.fonts && document.fonts.load) {
-          await document.fonts.load('bold 1em "Bachi Serif CJK"', text);
-        }
-      } catch (err) { /* ignore */ }
+      const specs = (window.TitleFit && window.TitleFit.titleFontLoadSpecs)
+        ? window.TitleFit.titleFontLoadSpecs()
+        : ['bold 1em "Bachi Serif CJK"', 'bold 1em "Noto Serif SC"', 'bold 1em "Noto Serif TC"'];
+      if (document.fonts && document.fonts.load) {
+        await Promise.all(specs.map((spec) => document.fonts.load(spec, text).catch(() => [])));
+      }
     }
     if (typeof window.layoutTitleBar === "function") window.layoutTitleBar();
   });

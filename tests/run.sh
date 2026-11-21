@@ -69,7 +69,7 @@ echo "== original-audio mux =="
 node tests/audio-mux.test.js
 echo
 
-echo "== original song (高级) =="
+echo "== original song switch (高级) =="
 node tests/original-song.test.js
 echo
 

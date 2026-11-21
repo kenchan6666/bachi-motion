@@ -1,6 +1,6 @@
-bachi-motion 0.1.0（Windows）
+bachi-motion 0.2.0（Windows）
 
-下载 `bachi-motion-0.1.0-windows-x64.zip`，整包解压后双击 `bachi-motion.exe`。
+下载 `bachi-motion-0.2.0-windows-x64.zip`，整包解压后双击 `bachi-motion.exe`。
 
 - 打开的是程序自己的窗口，不用另外打开浏览器，也不用安装 Node 或 Chrome。
 - 安装包里带了 Chromium 和 ffmpeg。解压之后不需要联网。
@@ -9,3 +9,11 @@ bachi-motion 0.1.0（Windows）
 - 成片在「视频\bachi-motion」。
 
 请解压全部文件。只拷贝 exe 会缺页面、字体和 ffmpeg。
+
+这个版本新增
+
+- 导入或粘贴 TJA 后进入全自动；已经导入的自定义手顺，生成器仍然不能改写
+- 缩小播放页时，标题不再盖住上方的手顺编辑器和「溯溯的鼓棒」
+- 变速可以开关（勾选框在慢放和流速上面）；流速支持 1.1、1.2
+- 有谱面分歧时，点难度后再选普通、玄人、达人
+- 四连 24分用 1-2-1（自动滚奏里也一样）；16夹24 和 12夹24 用 1-2

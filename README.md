@@ -109,9 +109,9 @@ for (let f = 0; f < frames; f++) {
 
 如果只从 `t = 0` 录到结尾（不含 0 之前的入场），也可以 `for f in 0..duration*60: renderAt(f/60)`，这里的 `duration` 用 `window.chartDuration`。
 
-## Windows 出片包 0.1.0
+## Windows 出片包 0.2.0
 
-Release 标签 `v0.1.0` 的 zip 里是 `bachi-motion.exe`。双击后打开程序自己的窗口，用包内的 Chromium 显示界面并逐帧渲染，用包内的 ffmpeg 编码。解压之后不需要联网，也不用另外安装 Node、Chrome 或 ffmpeg。有显卡时画面和编码都优先走显卡（NVENC / AMF / QSV）；没有显卡或初始化失败时自动改用 CPU。步骤见 `出片说明.md`。
+Release 标签 `v0.2.0` 的 zip 里是 `bachi-motion.exe`。双击后打开程序自己的窗口，用包内的 Chromium 显示界面并逐帧渲染，用包内的 ffmpeg 编码。解压之后不需要联网，也不用另外安装 Node、Chrome 或 ffmpeg。有显卡时画面和编码都优先走显卡（NVENC / AMF / QSV）；没有显卡或初始化失败时自动改用 CPU。步骤见 `出片说明.md`。
 
 ## 命令行：渲染「手元」mp4
 

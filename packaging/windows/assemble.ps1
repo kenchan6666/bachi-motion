@@ -13,7 +13,9 @@ if ($version -ne "0.1.0") {
 }
 
 $electronVersion = "45.4.1"
-$ffmpegUrl = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+# Pinned autobuild, not the floating "latest" tag. This zip's ffmpeg.exe is
+# N-129150-g7ddf7bc8a4 and contains h264_nvenc, h264_amf, h264_qsv, and libx264.
+$ffmpegUrl = "https://github.com/FFmpeg-Builds/FFmpeg-Builds/releases/download/autobuild-2026-11-20-12-40/ffmpeg-N-129150-g7ddf7bc8a4-win64-gpl.zip"
 $electronUrl = "https://github.com/electron/electron/releases/download/v$electronVersion/electron-v$electronVersion-win32-x64.zip"
 
 $dist = Join-Path $root "dist"
@@ -83,12 +85,20 @@ Get-ChildItem $ffmpegExtract -Recurse -File | Where-Object {
   Copy-Item -Force $_.FullName (Join-Path $ffmpegDir $_.Name)
 }
 
-$encoderList = & (Join-Path $ffmpegDir "ffmpeg.exe") -hide_banner -encoders
+$ffmpegBin = Join-Path $ffmpegDir "ffmpeg.exe"
+# ffmpeg -encoders prints one encoder per line. PowerShell's -notmatch on that
+# array returns the non-matching lines, which is still truthy, so the check
+# must run against one string.
+$encoderText = (& $ffmpegBin -hide_banner -encoders 2>&1 | Out-String)
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($encoderText)) {
+  throw "ffmpeg -encoders failed (exit $LASTEXITCODE)"
+}
 foreach ($name in @("h264_nvenc", "h264_amf", "h264_qsv", "libx264")) {
-  if ($encoderList -notmatch [regex]::Escape($name)) {
+  if ($encoderText -notmatch [regex]::Escape($name)) {
     throw "bundled ffmpeg is missing encoder $name"
   }
 }
+Write-Host "bundled ffmpeg has h264_nvenc, h264_amf, h264_qsv, and libx264"
 
 Copy-Item -Force (Join-Path $root "出片说明.md") (Join-Path $stage "出片说明.md")
 

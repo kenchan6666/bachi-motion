@@ -10,6 +10,7 @@ const fs = require("fs");
 const path = require("path");
 const assert = require("assert");
 const sticking = require(path.join(__dirname, "..", "js", "sticking.js"));
+const parser = require(path.join(__dirname, "..", "js", "parser.js"));
 
 const FIXTURE = path.join(__dirname, "fixtures", "sticking-cases.json");
 const data = JSON.parse(fs.readFileSync(FIXTURE, "utf8"));
@@ -493,16 +494,18 @@ extra("genuine eighths stay 散音 after a 16th string, and pure eighths stay do
   assert.strictEqual(handsOf(only8, { 手法: "半换B", 滚奏: "不滚奏", bpm: 160 }).hands, "RLRL");
 });
 
-extra("24分滚奏 keeps the original pairing", function () {
-  // 32 分 2-2，24 分从段首 1-2，16 分和 12 分不滚。
+extra("24分滚奏 keeps 32 as 2-2 and rolls 24 triplets as 2-1", function () {
+  // 32 分 2-2。不在鱼蛋里的 24 分按三连 2-1，尾巴单打。16 分和 12 分不滚。
   assertStick("32 is 2-2", "dddddddd", 0.125, "RRLLRRLL", "0-1,2-3,4-5,6-7", { 滚奏: "24分滚奏" });
-  assertStick("24 is 1-2", "dddddd", 1 / 6, "RLLRLL", "1-2,4-5", { 滚奏: "24分滚奏" });
-  assertStick("24 left", "dddddd", 1 / 6, "LRRLRR", "1-2,4-5", { 滚奏: "24分滚奏", 惯用手: "L" });
+  assertStick("24 six is two triplets", "dddddd", 1 / 6, "RRLRRL", "0-1,3-4", { 滚奏: "24分滚奏" });
+  assertStick("24 six left", "dddddd", 1 / 6, "LLRLLR", "0-1,3-4", { 滚奏: "24分滚奏", 惯用手: "L" });
+  assertStick("24 four is one triplet plus a single", "dddd", 1 / 6, "RRLR", "0-1", { 滚奏: "24分滚奏" });
+  assertStick("24 five leaves two singles", "ddddd", 1 / 6, "RRLRL", "0-1", { 滚奏: "24分滚奏" });
+  assertStick("24 two are singles", "dd", 1 / 6, "RL", "", { 滚奏: "24分滚奏" });
+  assertStick("24 eight is two triplets plus two singles", "dddddddd", 1 / 6, "RRLRRLRL", "0-1,3-4", { 滚奏: "24分滚奏" });
   assertStick("16 stays singles", "dddddddd", 0.25, "RLRLRLRL", "", { 滚奏: "24分滚奏" });
   assertStick("16 left stays singles", "dddddddd", 0.25, "LRLRLRLR", "", { 滚奏: "24分滚奏", 惯用手: "L" });
   assertStick("12 stays unrolled", "kddkdd", 1 / 3, "RLRLRL", "", { 滚奏: "24分滚奏" });
-  // 纯 24 的四音已经是从段首起的 1-2，四颗就是 1-2-1。夹心格不能把这条改掉。
-  assertStick("24 four notes already 1-2-1", "dddd", 1 / 6, "RLLR", "1-2", { 滚奏: "24分滚奏" });
 });
 
 // 咚 = don，咔 = ka。下面都是合成音符，不读谱面、不读音频。
@@ -640,8 +643,8 @@ extra("alternating ox clusters pair 2-2 from the first note and keep 逆手外�
   assertStick("32 oxoxoxo", "dkdkdkd", 0.125, "RRLLRRL", "0-1,2-3,4-5");
   assertStick("32 oxoxoxo 24mode", "dkdkdkd", 0.125, "RRLLRRL", "0-1,2-3,4-5", { 滚奏: "24分滚奏" });
   assertStick("32 xoxo 24mode", "kdkd", 0.125, "RRLL", "0-1,2-3", { 滚奏: "24分滚奏" });
-  // 24 分滚奏的 24 分仍从段首 1-2，不改成 2-2，也不改夹心。
-  assertStick("24 oxoxoxo stays 1-2", "dkdkdkd", 1 / 6, "RLLRLRL", "1-2", { 滚奏: "24分滚奏" });
+  // 不在鱼蛋里的 24 分改成三连 2-1，不再整串 1-2。夹心四音仍是 1-2-1，不在这条里。
+  assertStick("24 oxoxoxo is 2-1", "dkdkdkd", 1 / 6, "RRLRRLR", "0-1,3-4", { 滚奏: "24分滚奏" });
 });
 
 extra("two-note off-hand ox stays singles", function () {
@@ -667,6 +670,87 @@ extra("自动滚奏 keeps 16夹24 oxxo on continuous 2-2", function () {
   assertRoll("auto 16 xxxo", sandwichNotes(["kkkd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
   // 同色夹心的 1-2-1 只在 24 分滚奏。自动滚奏里咚咚咚咚仍是连续 2-2。
   assertRoll("auto 16 咚咚咚咚", sandwichNotes(["dddd"], 0.25), "RRLL", "0-1,2-3", { 滚奏: "自动滚奏" });
+});
+
+function tjaBySlots(marks, slots) {
+  const chars = Array(slots).fill("0");
+  marks.forEach(function (m) { chars[m[0]] = m[1]; });
+  const text = [
+    "TITLE:synth", "BPM:120", "OFFSET:0", "COURSE:Oni", "LEVEL:1",
+    "#START", chars.join("") + ",", "#END", "",
+  ].join("\n");
+  const parsed = parser.parseTja(text);
+  return parser.notesToStickingInput(parsed.notes, parsed.measures, false);
+}
+
+extra("synthetic TJA: 16夹24 fish 24s are 1-2, 12夹24 stays", function () {
+  // ooo(xxx)ooo。1 是咚，2 是咔。48 槽里 16 分占 3 槽、24 分占 2 槽。
+  const fish = tjaBySlots([
+    [0, "1"], [3, "1"], [6, "1"],
+    [9, "2"], [11, "2"], [13, "2"],
+    [15, "1"], [18, "1"], [21, "1"],
+  ], 48);
+  assertRoll("16 fish ooox(xx)ooo", fish, "RLRLRRLRL", "4-5");
+  // 12 夹 24：12 分占 4 槽。仍是旧的入间隔 1-2，把后面那颗 12 分卷进 24 段。
+  const fish12 = tjaBySlots([
+    [0, "1"], [4, "1"], [8, "1"],
+    [12, "2"], [14, "2"], [16, "2"],
+    [18, "1"], [22, "1"], [26, "1"],
+  ], 48);
+  assertRoll("12 fish unchanged", fish12, "RLRLRLLRL", "5-6");
+});
+
+extra("全换 after 散音 keeps the off-hand start and does not warn", function () {
+  function at(list) {
+    return list.map(function (b) {
+      return { beat: b[0], colour: b[1] === "x" ? "ka" : "don", big: false };
+    });
+  }
+  // 8 分后面的 16 分五连 oxoxo：全换从逆手起，手顺不改成正手，也不标拿不准。
+  let out = sticking.autoSticking(at([
+    [0, "o"], [0.5, "o"], [0.75, "x"], [1, "o"], [1.25, "x"], [1.5, "o"],
+  ]), { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(out.hands.join(""), "RLLRRL", "oxoxo " + out.hands.join(""));
+  assert.strictEqual(pairSig(out), "1-2,3-4");
+  assert.deepStrictEqual(out.warnings, []);
+  // 16 分三连 xxo 仍是 2-1，起手留在逆手。
+  out = sticking.autoSticking(at([
+    [0, "o"], [0.5, "x"], [0.75, "x"], [1, "o"],
+  ]), { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(out.hands.join(""), "RLLR", "xxo " + out.hands.join(""));
+  assert.strictEqual(pairSig(out), "1-2");
+  assert.deepStrictEqual(out.warnings, []);
+  // 不滚奏也接着交替，不标拿不准。
+  out = sticking.autoSticking(at([
+    [0, "o"], [0.5, "o"], [0.75, "o"], [1, "o"], [1.25, "o"],
+  ]), { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  assert.strictEqual(out.hands.join(""), "RLRLR");
+  assert.deepStrictEqual(out.warnings, []);
+  // 密串后面空恰好一拍，不是散音后。全换仍接着打，逆手起照旧标。
+  const kept = tailOf(afterFive(2.0, "ddd"), 5);
+  assert.strictEqual(kept.hands, "LLR");
+  assert.strictEqual(kept.warn, true);
+});
+
+extra("炒菜 restarts a dense string on the dominant hand after 散音", function () {
+  const notes = [
+    { beat: 0, colour: "don", big: false },
+    { beat: 1, colour: "don", big: false },
+    { beat: 1.25, colour: "ka", big: false },
+    { beat: 1.5, colour: "don", big: false },
+    { beat: 1.75, colour: "ka", big: false },
+  ];
+  let out = sticking.autoSticking(notes, { bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "不滚奏" });
+  assert.strictEqual(out.hands.join(""), "RRLRL", "炒菜 singles " + out.hands.join(""));
+  out = sticking.autoSticking(notes, { bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(out.hands.join(""), "RRRLL", "炒菜 roll " + out.hands.join(""));
+  assert.strictEqual(pairSig(out), "1-2,3-4");
+  // 串尾只空一格 16 分仍是同一串，不重新正手起。
+  const hole = [0, 0.25, 0.5, 1, 1.25, 1.5].map(function (b) {
+    return { beat: b, colour: "don", big: false };
+  });
+  out = sticking.autoSticking(hole, { bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "不滚奏" });
+  assert.strictEqual(out.hands.join(""), "RLRLRL", "hole " + out.hands.join(""));
 });
 
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);

@@ -244,13 +244,18 @@ body.editor-mode .editor {
   flex: 0 0 auto;
 }
 .editor-hand-block .seg { min-width: 148px; }
-.editor-roll-block .seg { min-width: 260px; }
+.editor-roll-block .seg { min-width: 320px; }
 .editor-hand-block .seg button,
 .editor-roll-block .seg button {
   padding: 0 12px;
   font-size: 13px;
   height: auto;
   align-self: stretch;
+}
+.editor-roll-block .seg button {
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .editor-status {

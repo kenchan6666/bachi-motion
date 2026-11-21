@@ -854,6 +854,7 @@
     if (!s) return "自动滚奏";
     if (s === "不滚奏" || s === "off" || s === "none" || s === "no" || /^no[-_]?roll$/i.test(s)) return "不滚奏";
     if (s === "24分滚奏" || s === "24 分滚奏" || s === "24" || s === "24th" || /^24[-_]?roll$/i.test(s)) return "24分滚奏";
+    if (s === "全2-2" || s === "全 2-2") return "全2-2";
     if (s === "自动滚奏" || s === "auto" || /^auto[-_]?roll$/i.test(s)) return "自动滚奏";
     return "自动滚奏";
   }

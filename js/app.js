@@ -10,7 +10,6 @@
   const modeSuyue = $("modeSuyue");
   const jsonPanel = $("jsonPanel");
   const songEl = $("song");
-  const settingsEl = $("settings");
   const chartBtn = $("chartBtn");
   const chartMenu = $("chartMenu");
   const chartLabel = $("chartLabel");
@@ -228,7 +227,8 @@
       b.setAttribute("aria-checked", String(on));
     });
     const hint = $("rollHint");
-    if (hint) hint.textContent = ROLL_HINTS[v] || ROLL_HINTS["自动滚奏"];
+    const line = hint && (hint.querySelector("p") || hint);
+    if (line) line.textContent = ROLL_HINTS[v] || ROLL_HINTS["自动滚奏"];
   }
 
   function setStickingLocked(locked) {
@@ -317,7 +317,12 @@
   }
 
   function openSettings() {
-    if (settingsEl) settingsEl.open = true;
+    const fold = $("settingsOpen");
+    if (!fold) return;
+    fold.open = true;
+    if (window.matchMedia && window.matchMedia("(max-width: 840px)").matches) {
+      fold.scrollIntoView({ block: "nearest" });
+    }
   }
 
   $("btnGenerate").onclick = () => generate(true);
@@ -548,11 +553,11 @@
     };
     window.addEventListener("resize", reposition);
     document.addEventListener("scroll", reposition, true);
-    if (settingsEl) {
-      settingsEl.addEventListener("toggle", () => {
-        if (!settingsEl.open) hide();
+    document.querySelectorAll("details.settings").forEach((fold) => {
+      fold.addEventListener("toggle", () => {
+        if (!fold.open && fold.contains(btn)) hide();
       });
-    }
+    });
 
     routeHintCtrls.push({ pop, isOpen, hide });
   }
@@ -560,6 +565,10 @@
   setupRouteHint("routeHintBtn", "routeHint");
   setupRouteHint("chartHintBtn", "chartHint");
   setupRouteHint("batchHintBtn", "batchHint");
+  setupRouteHint("modeHintBtn", "modeHint");
+  setupRouteHint("rollHintBtn", "rollHint");
+  setupRouteHint("bigNoteHintBtn", "bigNoteHint");
+  setupRouteHint("jsonHintBtn", "jsonHint");
   setupRouteHint("previewHitsHintBtn", "previewHitsHint");
   setupRouteHint("editorPreviewHitsHintBtn", "editorPreviewHitsHint");
   setupRouteHint("settingsBlankHintBtn", "settingsBlankHint");

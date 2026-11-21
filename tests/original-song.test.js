@@ -221,24 +221,30 @@ check("原曲 switches sit beside 叠打点声; explanation lives in the !", () 
     assert.ok(!/[咕咛咞咐呼咩]/.test(line), line);
   }
 
-  const settingsAt = html.indexOf('id="settings"');
-  const advancedAt = html.indexOf('id="settingsAdvanced"');
   const editorAt = html.indexOf('id="editor"');
-  assert.ok(settingsAt >= 0 && settingsAt < advancedAt && advancedAt < editorAt);
-  const tag = html.slice(advancedAt - 80, advancedAt + 80);
-  const openTag = tag.slice(tag.lastIndexOf("<details"));
-  assert.ok(openTag.startsWith("<details"), openTag);
-  assert.ok(!/\sopen(\s|>|=)/.test(openTag.split(">")[0]), openTag);
-
-  const adv = html.slice(advancedAt, html.indexOf("</details>", advancedAt));
-  assert.ok(!adv.includes('id="settingsOriginalUse"'));
-  assert.ok(!adv.includes('id="originalHint"'));
-  assert.ok(!adv.includes("data-original-use"));
-  assert.ok(!adv.includes(">原曲</label>"));
-  assert.ok(!adv.includes("打开原曲"));
-  assert.ok(!adv.includes('type="file"'));
-  assert.ok(!adv.includes("不要原曲"));
-  for (const line of song.EXPLAIN) assert.ok(!adv.includes(line), line);
+  assert.ok(editorAt > 0);
+  assert.ok(!html.includes("谱面与设置"));
+  assert.ok(!html.includes('id="settingsAdvanced"'));
+  const home = html.slice(0, editorAt);
+  for (const id of ["settingsOpen", "settingsHands", "settingsPlay", "settingsBatch"]) {
+    const at = home.indexOf('id="' + id + '"');
+    assert.ok(at >= 0, id);
+    const tag = home.slice(Math.max(0, at - 80), at + 40);
+    const openTag = tag.slice(tag.lastIndexOf("<details"));
+    assert.ok(openTag.startsWith("<details"), id + " " + openTag);
+    assert.ok(!/\sopen(\s|>|=)/.test(openTag.split(">")[0]), id + " starts open");
+  }
+  const stackAt = home.indexOf('id="settingsStack"');
+  assert.ok(stackAt >= 0);
+  const stack = home.slice(stackAt);
+  assert.ok(!stack.includes('id="settingsOriginalUse"'));
+  assert.ok(!stack.includes('id="originalHint"'));
+  assert.ok(!stack.includes("data-original-use"));
+  assert.ok(!stack.includes(">原曲</label>"));
+  assert.ok(!stack.includes("打开原曲"));
+  assert.ok(!stack.includes("data-original-song"));
+  assert.ok(!stack.includes("不要原曲"));
+  for (const line of song.EXPLAIN) assert.ok(!stack.includes(line), line);
 
   const homeHits = sliceBetween(html, 'class="preview-hits"', 'class="rates"');
   assert.ok(homeHits.indexOf('id="previewHits"') < homeHits.indexOf('id="settingsOriginalUse"'));
@@ -384,12 +390,9 @@ function songState() {
     now: 1.3, playing: true, rate: 1, timeShift: 0, offset: -2,
   });
   const player = api.player();
-  const adv = document.getElementById("settingsAdvanced");
+  const folds = [...document.querySelectorAll(".rail details.settings")];
   const pop = document.getElementById("originalHint");
   const editorPop = document.getElementById("editorOriginalHint");
-  const advClone = adv.cloneNode(true);
-  const popClone = advClone.querySelector("#originalHint");
-  if (popClone) popClone.remove();
   const homeRow = box.closest(".preview-hits");
   const editorRow = editorBox.closest(".editor-preview-hits");
   function rect(id) {
@@ -404,9 +407,9 @@ function songState() {
     editorDisabled: editorBox.disabled,
     editorChecked: editorBox.checked,
     editorLabel: editorBox.parentElement.textContent.replace(/\s+/g, ""),
-    homeBesideHits: !!(homeRow && homeRow.querySelector("#previewHits") && !adv.contains(box)),
+    homeBesideHits: !!(homeRow && homeRow.querySelector("#previewHits") && !box.closest("details.settings")),
     editorBesideHits: !!(editorRow && editorRow.querySelector("#editorPreviewHits") && !document.getElementById("editorAdvancedPanel").contains(editorBox)),
-    settingsHasSwitch: !!adv.querySelector("[data-original-use], #originalHint, #settingsOriginalUse"),
+    settingsHasSwitch: folds.some((el) => !!el.querySelector("[data-original-use], #originalHint, #settingsOriginalUse")),
     fileName: file ? file.name : "",
     activeName: active ? active.name : "",
     enabled: api.isEnabled(),
@@ -414,9 +417,9 @@ function songState() {
     currentTime: target ? target.currentTime : null,
     src: player && player.src ? player.src : "",
     editorName: document.getElementById("editorOriginalName").textContent,
-    homepageFiles: adv.querySelectorAll('input[type="file"]').length,
+    homepageFiles: folds.reduce((n, el) => n + el.querySelectorAll("input[data-original-song]").length, 0),
     editorFiles: document.querySelectorAll("#editorAdvancedPanel input[type=file][data-original-song]").length,
-    explainOnPage: advClone.textContent.includes("原曲文件在手顺编辑器"),
+    explainOnPage: folds.some((el) => el.textContent.includes("原曲文件在手顺编辑器")),
     explainInPopover: pop.textContent.includes("原曲文件在手顺编辑器")
       && pop.textContent.includes("从第一个音 − 0.7 秒对齐")
       && editorPop.textContent.includes("原曲文件在手顺编辑器")
@@ -494,11 +497,6 @@ function hintBox(hintId) {
     const page = await browser.newPage();
     await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
     await page.goto("http://127.0.0.1:" + port + "/index.html", { waitUntil: "networkidle0", timeout: 30000 });
-    await page.evaluate(() => {
-      document.getElementById("settings").open = true;
-      document.getElementById("settingsAdvanced").open = true;
-    });
-
     const before = await page.evaluate(songState);
     assert.strictEqual(before.disabled, true);
     assert.strictEqual(before.checked, false);
@@ -607,8 +605,7 @@ function hintBox(hintId) {
     assertSynced(returned, "returned");
 
     await page.evaluate(() => {
-      document.getElementById("settings").open = true;
-      document.getElementById("settingsAdvanced").open = true;
+      document.getElementById("settingsBatch").open = true;
     });
     await page.click("#batchAddCurrent");
     await page.waitForFunction(() => document.querySelectorAll("#batchList .batch-song").length === 1);

@@ -490,14 +490,22 @@
   .legend .R { color: var(--grip-r); }
   .legend .L { color: var(--grip-l); }
 
+  .settings-stack {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex: 0 1 auto;
+    min-height: 0;
+    overflow: auto;
+  }
   .settings {
     border: 1.5px solid var(--line);
     border-radius: 16px;
     background: var(--paper);
     padding: 0;
-    flex: 0 1 auto;
+    flex: 0 0 auto;
     min-height: 0;
-    overflow: auto;
+    overflow: hidden;
   }
   .settings > summary {
     list-style: none;
@@ -508,7 +516,8 @@
     color: var(--ink-deep);
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
+    gap: 6px;
     position: sticky;
     top: 0;
     background: var(--paper);
@@ -519,11 +528,13 @@
     content: "";
     width: 8px;
     height: 8px;
+    margin-left: auto;
     border-right: 1.6px solid var(--ink);
     border-bottom: 1.6px solid var(--ink);
     transform: rotate(45deg);
     margin-top: -4px;
     transition: transform .15s ease;
+    flex: 0 0 auto;
   }
   .settings[open] > summary::after {
     transform: rotate(-135deg);
@@ -761,12 +772,11 @@
   .batch-fields {
     border: 0;
     margin: 0;
-    padding: 12px 0 0;
+    padding: 0;
     min-inline-size: 0;
     display: flex;
     flex-direction: column;
     gap: 8px;
-    border-top: 1px solid var(--line);
   }
   .batch-fields > legend { padding: 0; }
   .batch-fields > legend.route-head {
@@ -805,42 +815,6 @@
     line-height: 1.4;
   }
   .file-btn[hidden] { display: none; }
-  .settings-advanced {
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    background: #FBF7F0;
-  }
-  .settings-advanced > summary {
-    list-style: none;
-    cursor: pointer;
-    padding: 8px 12px;
-    font-weight: 700;
-    font-size: 13px;
-    color: var(--ink-deep);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .settings-advanced > summary::-webkit-details-marker { display: none; }
-  .settings-advanced > summary::after {
-    content: "";
-    width: 8px;
-    height: 8px;
-    border-right: 1.6px solid var(--ink);
-    border-bottom: 1.6px solid var(--ink);
-    transform: rotate(45deg);
-    margin-top: -4px;
-  }
-  .settings-advanced[open] > summary::after {
-    transform: rotate(-135deg);
-    margin-top: 4px;
-  }
-  .settings-advanced-body {
-    padding: 0 12px 12px;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
   .blank-chart-fields {
     display: flex;
     gap: 8px;
@@ -941,9 +915,15 @@
     body:not(.export) #titlebar { position: absolute; }
     .transport { order: 3; padding: 8px 16px 4px; }
     .legend { order: 4; padding: 4px 16px; }
-    .settings {
+    .settings-stack {
       order: 5;
       margin: 6px 16px 16px;
+      flex: none;
+      min-height: auto;
+      overflow: visible;
+    }
+    .settings {
+      margin: 0;
       flex: none;
       min-width: 0;
       overflow: hidden;
@@ -1165,91 +1145,26 @@
         <span><b class="L">● 左手 L</b></span>
       </div>
 
-      <details class="settings" id="settings">
-        <summary>谱面与设置</summary>
-        <div class="settings-body">
-          <div>
-            <p class="block-label">手顺模式</p>
-            <div class="chips">
-              <button type="button" class="chip on" id="modeZhuren" aria-pressed="true">自动生成</button>
-              <button type="button" class="chip" id="modeSuyue" aria-pressed="false">导入手顺 JSON</button>
-            </div>
-            <p class="hint" style="margin-top:6px">选『滚奏演示』会自动载入配套的手顺 JSON</p>
-          </div>
-
-          <div id="autoStickingControls">
+      <div class="settings-stack" id="settingsStack">
+        <details class="settings" id="settingsOpen">
+          <summary>打开谱面</summary>
+          <div class="settings-body">
             <div>
-              <p class="block-label">手法</p>
-              <select id="techniqueSelect" class="pretty" aria-label="手法">
-                <option value="全换" selected>全换</option>
-                <option value="半换A">半换 A</option>
-                <option value="半换B">半换 B</option>
-                <option value="炒菜">炒菜</option>
-              </select>
-            </div>
-            <div style="margin-top:12px">
-              <p class="block-label">惯用手</p>
-              <div class="seg" id="handSeg" role="radiogroup" aria-label="惯用手">
-                <button type="button" class="on" data-hand="R" role="radio" aria-checked="true">右手</button>
-                <button type="button" data-hand="L" role="radio" aria-checked="false">左手</button>
+              <div class="route-head">
+                <p class="block-label">谱面规则</p>
+                <button type="button" class="route-hint-btn" id="chartHintBtn" popovertarget="chartHint" aria-expanded="false" aria-controls="chartHint" aria-label="谱面规则说明">!</button>
+              </div>
+              <div class="chips">
+                <label class="file-btn">打开 TJA<input id="tjaFile" type="file" accept=".tja,text/plain"></label>
+                <label class="file-btn">打开手顺 JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
+              </div>
+              <div id="chartHint" class="route-hint route-hint-wide" popover="auto">
+                <button type="button" class="route-hint-close" popovertarget="chartHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                <p>谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
               </div>
             </div>
-            <div style="margin-top:12px">
-              <p class="block-label">滚奏</p>
-              <div class="seg" id="rollSeg" role="radiogroup" aria-label="滚奏">
-                <button type="button" data-roll="不滚奏" role="radio" aria-checked="false">不滚奏</button>
-                <button type="button" class="on" data-roll="自动滚奏" role="radio" aria-checked="true">自动滚奏</button>
-                <button type="button" data-roll="24分滚奏" role="radio" aria-checked="false">24 分滚奏</button>
-              </div>
-              <p class="hint" id="rollHint" style="margin-top:6px">12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2</p>
-            </div>
-            <button type="button" class="file-btn" id="btnOpenEditorSettings" style="margin-top:8px;align-self:flex-start">打开手顺编辑器</button>
-          </div>
 
-          <div>
-            <div class="route-head">
-              <p class="block-label">内外刷</p>
-              <button type="button" class="route-hint-btn" id="routeHintBtn" popovertarget="routeHint" aria-expanded="false" aria-controls="routeHint" aria-label="内外刷说明">!</button>
-            </div>
-            <select id="route" class="pretty" aria-label="内外刷">
-              <option value="data" selected>自动（按颜色）</option>
-              <option value="inner">全内刷</option>
-              <option value="outer">全外刷</option>
-            </select>
-            <div id="routeHint" class="route-hint" popover="auto">
-              <button type="button" class="route-hint-close" popovertarget="routeHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>默认按谱面颜色自动走：滚红 / 滚蓝直上直下，kd 内收，dk 外甩。这是强制覆盖，一般不用改。</p>
-            </div>
-          </div>
-
-          <div>
-            <p class="block-label">大音符</p>
-            <div class="chips" id="bigNoteChips" role="radiogroup" aria-label="大音符">
-              <button type="button" class="chip on" data-bignote="single" role="radio" aria-checked="true">单手</button>
-              <button type="button" class="chip" data-bignote="both" role="radio" aria-checked="false">双手</button>
-              <button type="button" class="chip" data-bignote="small" role="radio" aria-checked="false">当小音符</button>
-            </div>
-            <p class="hint" style="margin-top:6px">单手：轮流打；双手：两棒一起落；当小音符：画小、单手打</p>
-          </div>
-
-          <label class="check"><input id="labels" type="checkbox"> R/L 标签（调试）</label>
-
-          <div>
-            <div class="route-head">
-              <p class="block-label">谱面规则</p>
-              <button type="button" class="route-hint-btn" id="chartHintBtn" popovertarget="chartHint" aria-expanded="false" aria-controls="chartHint" aria-label="谱面规则说明">!</button>
-            </div>
-            <div class="chips">
-              <label class="file-btn">打开 TJA<input id="tjaFile" type="file" accept=".tja,text/plain"></label>
-              <label class="file-btn">打开手顺 JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
-            </div>
-            <div id="chartHint" class="route-hint route-hint-wide" popover="auto">
-              <button type="button" class="route-hint-close" popovertarget="chartHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
-            </div>
-          </div>
-
-          <textarea id="tjaInput" spellcheck="false" aria-label="TJA 谱面">TITLE:溯溯的练习谱2
+            <textarea id="tjaInput" spellcheck="false" aria-label="TJA 谱面">TITLE:溯溯的练习谱2
 SUBTITLE:原创示例 8分散音+16分三连五连
 BPM:170
 OFFSET:0
@@ -1264,61 +1179,165 @@ LEVEL:6
 3000400030000000,
 #END
 </textarea>
-          <div id="jsonPanel" hidden>
-            <p class="hint">覆盖自动手顺，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json</p>
-            <textarea id="jsonInput" spellcheck="false" aria-label="手顺 JSON" placeholder='{ "events": [ { "t": 0, "hand": "R", "face": "don", "grip": "roll" } ] }'></textarea>
+            <div id="jsonPanel" hidden>
+              <div class="route-head">
+                <p class="block-label">手顺 JSON</p>
+                <button type="button" class="route-hint-btn" id="jsonHintBtn" popovertarget="jsonHint" aria-expanded="false" aria-controls="jsonHint" aria-label="手顺 JSON 说明">!</button>
+              </div>
+              <div id="jsonHint" class="route-hint route-hint-wide" popover="auto">
+                <button type="button" class="route-hint-close" popovertarget="jsonHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                <p>覆盖自动手顺，可含滚奏 / 插音 / 金色光圈。格式见 samples/handorder.example.json</p>
+              </div>
+              <textarea id="jsonInput" spellcheck="false" aria-label="手顺 JSON" placeholder='{ "events": [ { "t": 0, "hand": "R", "face": "don", "grip": "roll" } ] }'></textarea>
+            </div>
+            <button type="button" class="primary-btn" id="btnGenerate">生成 / 播放</button>
+            <p class="hint" id="src"></p>
+            <div id="error" hidden></div>
+
+            <div class="blank-chart-fields">
+              <label class="blank-chart-field">BPM
+                <input id="settingsBlankBpm" type="number" min="1" max="999" step="1" value="120" inputmode="numeric">
+              </label>
+              <label class="blank-chart-field">小节
+                <input id="settingsBlankMeasures" type="number" min="1" max="512" step="1" value="8" inputmode="numeric">
+              </label>
+            </div>
+            <div class="blank-chart-open">
+              <button type="button" class="file-btn" id="settingsOpenBlank">打开空谱面</button>
+              <button type="button" class="route-hint-btn" id="settingsBlankHintBtn" popovertarget="settingsBlankHint" aria-expanded="false" aria-controls="settingsBlankHint" aria-label="打开空谱面说明">!</button>
+            </div>
+            <div id="settingsBlankHint" class="route-hint" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+            </div>
           </div>
-          <button type="button" class="primary-btn" id="btnGenerate">生成 / 播放</button>
-          <p class="hint" id="src"></p>
-          <div id="error" hidden></div>
+        </details>
 
-          <details class="settings-advanced" id="settingsAdvanced">
-            <summary>高级</summary>
-            <div class="settings-advanced-body">
-              <div class="blank-chart-fields">
-                <label class="blank-chart-field">BPM
-                  <input id="settingsBlankBpm" type="number" min="1" max="999" step="1" value="120" inputmode="numeric">
-                </label>
-                <label class="blank-chart-field">小节
-                  <input id="settingsBlankMeasures" type="number" min="1" max="512" step="1" value="8" inputmode="numeric">
-                </label>
+        <details class="settings" id="settingsHands">
+          <summary>手顺</summary>
+          <div class="settings-body">
+            <div>
+              <div class="route-head">
+                <p class="block-label">手顺模式</p>
+                <button type="button" class="route-hint-btn" id="modeHintBtn" popovertarget="modeHint" aria-expanded="false" aria-controls="modeHint" aria-label="手顺模式说明">!</button>
               </div>
-              <div class="blank-chart-open">
-                <button type="button" class="file-btn" id="settingsOpenBlank">打开空谱面</button>
-                <button type="button" class="route-hint-btn" id="settingsBlankHintBtn" popovertarget="settingsBlankHint" aria-expanded="false" aria-controls="settingsBlankHint" aria-label="打开空谱面说明">!</button>
+              <div class="chips">
+                <button type="button" class="chip on" id="modeZhuren" aria-pressed="true">自动生成</button>
+                <button type="button" class="chip" id="modeSuyue" aria-pressed="false">导入手顺 JSON</button>
               </div>
-              <div id="settingsBlankHint" class="route-hint" popover="auto">
-                <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
-                <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              <div id="modeHint" class="route-hint" popover="auto">
+                <button type="button" class="route-hint-close" popovertarget="modeHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                <p>选『滚奏演示』会自动载入配套的手顺 JSON</p>
               </div>
             </div>
-          </details>
 
-          <fieldset class="batch-fields">
-            <legend class="block-label route-head">批量出片<button type="button" class="route-hint-btn" id="batchHintBtn" popovertarget="batchHint" aria-expanded="false" aria-controls="batchHint" aria-label="批量出片说明">!</button></legend>
-            <div id="batchHint" class="route-hint route-hint-wide" popover="auto">
-              <button type="button" class="route-hint-close" popovertarget="batchHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>在自己的电脑上排队渲染。选了原曲，成片从「第一个音的时间 − 0.7 秒」对齐这首音频（OFFSET 已经算进音符时间，不会再减一次）。只放 TJA 时不含原曲。</p>
-              <p>批量出片要在自己的电脑上运行 node render.js --serve。GitHub Pages 只预览动画，不会在网页上渲染。</p>
+            <div id="autoStickingControls">
+              <div>
+                <p class="block-label">手法</p>
+                <select id="techniqueSelect" class="pretty" aria-label="手法">
+                  <option value="全换" selected>全换</option>
+                  <option value="半换A">半换 A</option>
+                  <option value="半换B">半换 B</option>
+                  <option value="炒菜">炒菜</option>
+                </select>
+              </div>
+              <div style="margin-top:12px">
+                <p class="block-label">惯用手</p>
+                <div class="seg" id="handSeg" role="radiogroup" aria-label="惯用手">
+                  <button type="button" class="on" data-hand="R" role="radio" aria-checked="true">右手</button>
+                  <button type="button" data-hand="L" role="radio" aria-checked="false">左手</button>
+                </div>
+              </div>
+              <div style="margin-top:12px">
+                <div class="route-head">
+                  <p class="block-label">滚奏</p>
+                  <button type="button" class="route-hint-btn" id="rollHintBtn" popovertarget="rollHint" aria-expanded="false" aria-controls="rollHint" aria-label="滚奏说明">!</button>
+                </div>
+                <div class="seg" id="rollSeg" role="radiogroup" aria-label="滚奏">
+                  <button type="button" data-roll="不滚奏" role="radio" aria-checked="false">不滚奏</button>
+                  <button type="button" class="on" data-roll="自动滚奏" role="radio" aria-checked="true">自动滚奏</button>
+                  <button type="button" data-roll="24分滚奏" role="radio" aria-checked="false">24 分滚奏</button>
+                </div>
+                <div id="rollHint" class="route-hint" popover="auto">
+                  <button type="button" class="route-hint-close" popovertarget="rollHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                  <p>12 分仍 1-2；16 分三连 2-1；不是三连的密 16／24 分仍可 2-2</p>
+                </div>
+              </div>
+              <button type="button" class="file-btn" id="btnOpenEditorSettings" style="margin-top:8px;align-self:flex-start">打开手顺编辑器</button>
             </div>
-            <div class="batch-actions">
-              <label class="file-btn">加入谱面<input id="batchTja" type="file" accept=".tja,text/plain" multiple></label>
-              <label class="file-btn">选择原曲<input id="batchSong" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
-              <button type="button" class="file-btn" id="batchAddCurrent">把当前谱面加入队列</button>
+          </div>
+        </details>
+
+        <details class="settings" id="settingsPlay">
+          <summary>演奏</summary>
+          <div class="settings-body">
+            <div>
+              <div class="route-head">
+                <p class="block-label">内外刷</p>
+                <button type="button" class="route-hint-btn" id="routeHintBtn" popovertarget="routeHint" aria-expanded="false" aria-controls="routeHint" aria-label="内外刷说明">!</button>
+              </div>
+              <select id="route" class="pretty" aria-label="内外刷">
+                <option value="data" selected>自动（按颜色）</option>
+                <option value="inner">全内刷</option>
+                <option value="outer">全外刷</option>
+              </select>
+              <div id="routeHint" class="route-hint" popover="auto">
+                <button type="button" class="route-hint-close" popovertarget="routeHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                <p>默认按谱面颜色自动走：滚红 / 滚蓝直上直下，kd 内收，dk 外甩。这是强制覆盖，一般不用改。</p>
+              </div>
             </div>
-            <p class="hint" id="batchSongName">未选择原曲：成片不含原曲。打点声可以另外叠。</p>
-            <label class="check"><input id="batchHits" type="checkbox"> 叠打点声（合成 don/ka，不是原曲）</label>
-            <ol class="batch-list" id="batchList"></ol>
-            <button type="button" class="primary-btn" id="batchStart">开始渲染</button>
-            <label class="hint" id="batchItemLabel" for="batchItemProgress">当前</label>
-            <progress id="batchItemProgress" class="batch-progress" max="1" value="0" aria-labelledby="batchItemLabel"></progress>
-            <label class="hint" id="batchOverallLabel" for="batchOverallProgress">整批 0%</label>
-            <progress id="batchOverallProgress" class="batch-progress" max="1" value="0" aria-labelledby="batchOverallLabel"></progress>
-            <p class="hint" id="batchStatus" role="status"></p>
-            <div id="batchDownloads"></div>
-          </fieldset>
+
+            <div>
+              <div class="route-head">
+                <p class="block-label">大音符</p>
+                <button type="button" class="route-hint-btn" id="bigNoteHintBtn" popovertarget="bigNoteHint" aria-expanded="false" aria-controls="bigNoteHint" aria-label="大音符说明">!</button>
+              </div>
+              <div class="chips" id="bigNoteChips" role="radiogroup" aria-label="大音符">
+                <button type="button" class="chip on" data-bignote="single" role="radio" aria-checked="true">单手</button>
+                <button type="button" class="chip" data-bignote="both" role="radio" aria-checked="false">双手</button>
+                <button type="button" class="chip" data-bignote="small" role="radio" aria-checked="false">当小音符</button>
+              </div>
+              <div id="bigNoteHint" class="route-hint" popover="auto">
+                <button type="button" class="route-hint-close" popovertarget="bigNoteHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                <p>单手：轮流打；双手：两棒一起落；当小音符：画小、单手打</p>
+              </div>
+            </div>
+
+            <label class="check"><input id="labels" type="checkbox"> R/L 标签（调试）</label>
+          </div>
+        </details>
+
+        <details class="settings" id="settingsBatch">
+          <summary>
+            <span>批量出片</span>
+            <button type="button" class="route-hint-btn" id="batchHintBtn" popovertarget="batchHint" aria-expanded="false" aria-controls="batchHint" aria-label="批量出片说明">!</button>
+          </summary>
+          <div class="settings-body">
+            <fieldset class="batch-fields">
+              <div class="batch-actions">
+                <label class="file-btn">加入谱面<input id="batchTja" type="file" accept=".tja,text/plain" multiple></label>
+                <label class="file-btn">选择原曲<input id="batchSong" type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
+                <button type="button" class="file-btn" id="batchAddCurrent">把当前谱面加入队列</button>
+              </div>
+              <p class="hint" id="batchSongName">未选择原曲：成片不含原曲。打点声可以另外叠。</p>
+              <label class="check"><input id="batchHits" type="checkbox"> 叠打点声（合成 don/ka，不是原曲）</label>
+              <ol class="batch-list" id="batchList"></ol>
+              <button type="button" class="primary-btn" id="batchStart">开始渲染</button>
+              <label class="hint" id="batchItemLabel" for="batchItemProgress">当前</label>
+              <progress id="batchItemProgress" class="batch-progress" max="1" value="0" aria-labelledby="batchItemLabel"></progress>
+              <label class="hint" id="batchOverallLabel" for="batchOverallProgress">整批 0%</label>
+              <progress id="batchOverallProgress" class="batch-progress" max="1" value="0" aria-labelledby="batchOverallLabel"></progress>
+              <p class="hint" id="batchStatus" role="status"></p>
+              <div id="batchDownloads"></div>
+            </fieldset>
+          </div>
+        </details>
+        <div id="batchHint" class="route-hint route-hint-wide" popover="auto">
+          <button type="button" class="route-hint-close" popovertarget="batchHint" popovertargetaction="hide" aria-label="关闭">×</button>
+          <p>在自己的电脑上排队渲染。选了原曲，成片从「第一个音的时间 − 0.7 秒」对齐这首音频（OFFSET 已经算进音符时间，不会再减一次）。只放 TJA 时不含原曲。</p>
+          <p>批量出片要在自己的电脑上运行 node render.js --serve。GitHub Pages 只预览动画，不会在网页上渲染。</p>
         </div>
-      </details>
+      </div>
     </aside>
   </div>
 

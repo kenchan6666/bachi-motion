@@ -109,6 +109,10 @@ for (let f = 0; f < frames; f++) {
 
 如果只从 `t = 0` 录到结尾（不含 0 之前的入场），也可以 `for f in 0..duration*60: renderAt(f/60)`，这里的 `duration` 用 `window.chartDuration`。
 
+## Windows 出片包 0.1.0
+
+Release 标签 `v0.1.0` 的 zip 里是 `bachi-motion.exe`。双击后打开程序自己的窗口，用包内的 Chromium 显示界面并逐帧渲染，用包内的 ffmpeg 编码。解压之后不需要联网，也不用另外安装 Node、Chrome 或 ffmpeg。有显卡时画面和编码都优先走显卡（NVENC / AMF / QSV）；没有显卡或初始化失败时自动改用 CPU。步骤见 `出片说明.md`。
+
 ## 命令行：渲染「手元」mp4
 
 在溯溯自己的电脑上把第一人称手部动画导出成视频：
@@ -147,7 +151,7 @@ t = chartStart + (f / fps) * rate
 
 所以 `--rate 0.5 --fps 60` 时，每一帧谱面时间只往前走 `0.5/60` 秒，片子是 1× 的两倍长。
 
-实现：用 puppeteer-core 打开本地静态页（`?export=1`），按帧调用 `window.renderAt`，截整个舞台。默认开启多路并行（`--workers`），将时间轴分段，每段直接以 JPEG 管道送入 ffmpeg（不写逐帧临时图），最后 `-c copy` 无损拼接成 h264 / yuv420p（`--workers 1` 保留旧版单路 PNG 落盘路径）。找不到浏览器时，设置 `CHROME_PATH` 或 `PUPPETEER_EXECUTABLE_PATH`。
+实现：用 puppeteer-core 打开本地静态页（`?export=1`），按帧调用 `window.renderAt`，截整个舞台。默认开启多路并行（`--workers`），将时间轴分段，每段直接以 JPEG 管道送入 ffmpeg（不写逐帧临时图），最后 `-c copy` 无损拼接成 h264 / yuv420p（`--workers 1` 保留旧版单路 PNG 落盘路径）。有显卡时 Chrome 不用 `--disable-gpu`，ffmpeg 依次尝试 NVENC、AMF、QSV；没有显卡、显卡初始化失败或硬件编码失败时自动改用 CPU（软件渲染和 libx264）。找不到浏览器时，设置 `CHROME_PATH` 或 `PUPPETEER_EXECUTABLE_PATH`。
 
 ### 打点声（`--audio`）
 

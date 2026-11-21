@@ -29,6 +29,18 @@ echo "== parser self-check =="
 node js/parser.js
 echo
 
+echo "== render acceleration (GPU prefer, CPU fallback) =="
+node tests/render-accel.test.js
+echo
+
+echo "== offline assets =="
+node tests/offline-assets.test.js
+echo
+
+echo "== desktop shell =="
+node tests/desktop-shell.test.js
+echo
+
 echo "== title-bar BPM range =="
 node tests/titlebar-bpm.test.js
 echo

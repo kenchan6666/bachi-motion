@@ -229,9 +229,15 @@ function mixHitAudio(events, opts) {
   return { sampleRate: sr, samples: out };
 }
 
+function ffmpegCommand() {
+  const configured = process.env.FFMPEG_PATH;
+  if (configured && String(configured).trim()) return String(configured).trim();
+  return "ffmpeg";
+}
+
 function runFfmpeg(argv) {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffmpeg", argv, { stdio: ["ignore", "ignore", "pipe"] });
+    const proc = spawn(ffmpegCommand(), argv, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true });
     let err = "";
     proc.stderr.on("data", (d) => { err += d; });
     proc.on("error", reject);

@@ -123,8 +123,11 @@ check("title face loads Bachi plus Noto Serif SC and TC", function () {
   assert.ok(fit.FONT_STACK.indexOf('"Noto Serif SC"') >= 0);
   assert.ok(fit.FONT_STACK.indexOf('"Noto Serif TC"') >= 0);
   const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
-  assert.ok(html.indexOf("family=Noto+Serif+SC") >= 0);
-  assert.ok(html.indexOf("family=Noto+Serif+TC") >= 0);
+  const uiCss = fs.readFileSync(path.join(ROOT, "assets/fonts/ui.css"), "utf8");
+  assert.ok(html.indexOf('href="assets/fonts/ui.css"') >= 0);
+  assert.ok(uiCss.indexOf("font-family: 'Noto Serif SC'") >= 0);
+  assert.ok(uiCss.indexOf("font-family: 'Noto Serif TC'") >= 0);
+  assert.ok(uiCss.indexOf("https://") < 0);
   assert.ok(html.indexOf("--font-title:") >= 0 && html.indexOf("Noto Serif SC") >= 0 && html.indexOf("Noto Serif TC") >= 0);
   assert.ok(html.indexOf("font-family: var(--font-title)") >= 0);
   const songRule = html.slice(html.indexOf(".song {"), html.indexOf(".song {") + 400);

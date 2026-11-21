@@ -16,11 +16,12 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
-const { spawn, spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 
 const jobs = require("./js/render-jobs.js");
 const audio = require("./js/audio-mux.js");
 const batch = require("./js/batch-queue.js");
+const accel = require("./js/render-accel.js");
 const { startRenderServer } = require("./js/render-server.js");
 
 const ROOT = __dirname;
@@ -56,21 +57,7 @@ function parseSize(s) {
 }
 
 function findChrome() {
-  const candidates = [
-    process.env.CHROME_PATH,
-    process.env.PUPPETEER_EXECUTABLE_PATH,
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-    "/usr/bin/microsoft-edge",
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "C:\\\\Program Files\\\\Google\\\\Chrome\\\\Application\\\\chrome.exe",
-  ].filter(Boolean);
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
-  }
-  return null;
+  return accel.findChrome();
 }
 
 function startStaticServer(root) {
@@ -96,10 +83,13 @@ function startStaticServer(root) {
 
 function runFfmpeg(argv) {
   return new Promise((resolve, reject) => {
-    const proc = spawn("ffmpeg", argv, { stdio: ["ignore", "pipe", "pipe"] });
+    const proc = spawn(accel.ffmpegBin(), argv, { stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
     let err = "";
     proc.stderr.on("data", (d) => { err += d; });
-    proc.on("error", reject);
+    proc.on("error", (error) => {
+      if (error && error.code === "ENOENT") reject(new Error(accel.missingFfmpegMessage()));
+      else reject(error);
+    });
     proc.on("close", (code) => {
       if (code === 0) resolve();
       else reject(new Error("ffmpeg 失败 (exit " + code + ")\n" + err.slice(-2000)));
@@ -108,13 +98,17 @@ function runFfmpeg(argv) {
 }
 
 function spawnFfmpegPipe(argv) {
-  const proc = spawn("ffmpeg", argv, { stdio: ["pipe", "pipe", "pipe"] });
+  const proc = spawn(accel.ffmpegBin(), argv, { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   let err = "";
   let exited = false;
   let exitCode = null;
   proc.stderr.on("data", (d) => { err += d; });
   const done = new Promise((resolve, reject) => {
-    proc.on("error", (e) => { exited = true; reject(e); });
+    proc.on("error", (e) => {
+      exited = true;
+      if (e && e.code === "ENOENT") reject(new Error(accel.missingFfmpegMessage()));
+      else reject(e);
+    });
     proc.on("close", (code) => {
       exited = true;
       exitCode = code;
@@ -162,6 +156,21 @@ function spawnFfmpegPipe(argv) {
     }
   }
   return { proc, done, write, end, kill };
+}
+
+let activeEncoder = null;
+async function currentEncoder() {
+  if (!activeEncoder) {
+    activeEncoder = await accel.resolveVideoEncoder();
+    console.log("[bachi-motion] 编码：" + activeEncoder.label);
+  }
+  return activeEncoder;
+}
+
+function useCpuEncoder() {
+  activeEncoder = accel.useEncoder(accel.encoderByName("libx264"));
+  console.warn("[bachi-motion] 硬件编码失败，改用 libx264（CPU）。");
+  return activeEncoder;
 }
 
 async function prepareExportAudio(args, data, chartStart, chartEnd, work) {
@@ -299,17 +308,25 @@ async function renderSingleWorker(browser, url, size, data, args, work, outPath,
   if (wavPath) {
     ff.push("-i", wavPath, "-c:a", "aac", "-shortest");
   }
-  ff.push(
-    "-c:v", "libx264",
-    "-pix_fmt", "yuv420p",
-    "-movflags", "+faststart",
-    outPath,
-  );
+  const encoder = await currentEncoder();
+  function withCodec(enc) {
+    const args = ff.slice();
+    // PNG input is the first -i. Hardware init flags belong before that input.
+    if (enc.beforeInput && enc.beforeInput.length) args.splice(1, 0, ...enc.beforeInput);
+    args.push.apply(args, enc.args);
+    args.push("-movflags", "+faststart", outPath);
+    return args;
+  }
   console.log("[bachi-motion] ffmpeg …");
-  await runFfmpeg(ff);
+  try {
+    await runFfmpeg(withCodec(encoder));
+  } catch (err) {
+    if (encoder.name === "libx264") throw err;
+    await runFfmpeg(withCodec(useCpuEncoder()));
+  }
 }
 
-async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath, hooks) {
+async function renderParallelWorkers(openBrowser, url, size, data, args, work, outPath, hooks) {
   const browsers = [];
   let timing;
   let segments;
@@ -317,15 +334,7 @@ async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, arg
   const activePipes = [];
   try {
     const pages = await Promise.all(Array.from({ length: args.workers }, async () => {
-      let b;
-      try {
-        b = await puppeteer.launch(launchOpts);
-      } catch (err) {
-        throw new Error(
-          "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
-          "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
-        );
-      }
+      const b = await openBrowser();
       browsers.push(b);
       const p = await b.newPage();
       await setupExportPage(p, url, size, data, args.rate, true);
@@ -373,45 +382,60 @@ async function renderParallelWorkers(launchOpts, puppeteer, url, size, data, arg
     const ffThreads = Math.max(1, Math.floor(os.cpus().length / segments.length));
     let completed = 0;
     const logEvery = Math.max(1, Math.round(args.fps));
+    let encoder = await currentEncoder();
 
-    await Promise.all(segments.map(async (seg, idx) => {
+    async function pipeSegment(seg, idx, enc) {
       const page = pages[idx];
-      const pipe = spawnFfmpegPipe([
-        "-y",
+      const argsForPipe = ["-y"].concat(enc.beforeInput || []).concat([
         "-f", "image2pipe",
         "-vcodec", "mjpeg",
         "-framerate", String(args.fps),
         "-i", "pipe:0",
-        "-vf", "scale=in_range=pc:out_range=tv,format=yuv420p",
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-threads", String(ffThreads),
-        "-video_track_timescale", String(Math.round(args.fps * 256)),
-        seg.segPath,
+        "-vf", enc.vf,
       ]);
+      argsForPipe.push.apply(argsForPipe, enc.args);
+      if (enc.name === "libx264") argsForPipe.push("-threads", String(ffThreads));
+      argsForPipe.push("-video_track_timescale", String(Math.round(args.fps * 256)), seg.segPath);
+      const pipe = spawnFfmpegPipe(argsForPipe);
       activePipes.push(pipe);
-      // Attach early rejection guard while rendering
       pipe.done.catch(() => {});
-
-      for (let f = seg.startFrame; f < seg.endFrame; f++) {
-        const t = Math.min(chartEnd, chartStart + (f / args.fps) * args.rate);
-        await page.evaluate((t) => window.renderAt(t), t);
-        const buf = await page.screenshot({
-          type: "jpeg",
-          quality: 90,
-          optimizeForSpeed: true,
-          captureBeyondViewport: false,
-        });
-        await pipe.write(Buffer.from(buf));
-        completed++;
-        noteFrame(hooks, completed, frameCount);
-        if (completed === 1 || completed === frameCount || completed % logEvery === 0) {
-          console.log("[bachi-motion] progress " + completed + "/" + frameCount +
-            "  (worker " + idx + " frame " + (f + 1) + " t=" + t.toFixed(3) + "s)");
+      let local = 0;
+      try {
+        for (let f = seg.startFrame; f < seg.endFrame; f++) {
+          const t = Math.min(chartEnd, chartStart + (f / args.fps) * args.rate);
+          await page.evaluate((t) => window.renderAt(t), t);
+          const buf = await page.screenshot({
+            type: "jpeg",
+            quality: 90,
+            optimizeForSpeed: true,
+            captureBeyondViewport: false,
+          });
+          await pipe.write(Buffer.from(buf));
+          local++;
+          completed++;
+          noteFrame(hooks, completed, frameCount);
+          if (completed === 1 || completed === frameCount || completed % logEvery === 0) {
+            console.log("[bachi-motion] progress " + completed + "/" + frameCount +
+              "  (worker " + idx + " frame " + (f + 1) + " t=" + t.toFixed(3) + "s)");
+          }
         }
+        pipe.end();
+        await pipe.done;
+      } catch (err) {
+        pipe.kill();
+        completed -= local;
+        throw err;
       }
-      pipe.end();
-      await pipe.done;
+    }
+
+    await Promise.all(segments.map(async (seg, idx) => {
+      try {
+        await pipeSegment(seg, idx, encoder);
+      } catch (err) {
+        if (encoder.name === "libx264") throw err;
+        encoder = useCpuEncoder();
+        await pipeSegment(seg, idx, encoder);
+      }
     }));
   } catch (err) {
     for (const pipe of activePipes) pipe.kill();
@@ -481,9 +505,7 @@ async function renderOne(args, ctx) {
   if (args.sticking && !fs.existsSync(path.resolve(args.sticking))) {
     throw new Error("找不到手顺 JSON：" + args.sticking);
   }
-  if (spawnSync("ffmpeg", ["-version"], { stdio: "ignore" }).error) {
-    throw new Error("找不到 ffmpeg，请先把它安装到 PATH");
-  }
+  accel.prepareFfmpeg();
 
   let puppeteer;
   try {
@@ -495,9 +517,7 @@ async function renderOne(args, ctx) {
     }
   }
   const chrome = findChrome();
-  if (!chrome && !puppeteer.executablePath) {
-    throw new Error("找不到 Chrome / Chromium。请安装浏览器，或设置环境变量 CHROME_PATH");
-  }
+  if (!chrome) throw new Error(accel.missingChromeMessage());
 
   const data = jobs.buildPayload(args);
   const outPath = path.resolve(args.out);
@@ -516,32 +536,19 @@ async function renderOne(args, ctx) {
   };
   let singleBrowser = null;
   try {
-    const launchOpts = {
-      headless: true,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--font-render-hinting=none",
-        "--hide-scrollbars",
-      ],
+    const plan = accel.createLaunchPlan(chrome);
+    const launchHooks = {
+      log: (msg) => console.log("[bachi-motion] " + msg),
+      warn: (msg) => console.warn("[bachi-motion] " + msg),
     };
-    if (chrome) launchOpts.executablePath = chrome;
+    const openBrowser = () => accel.launchBrowser(puppeteer, plan, launchHooks);
 
     if (args.workers === 1) {
-      try {
-        singleBrowser = await puppeteer.launch(launchOpts);
-      } catch (err) {
-        throw new Error(
-          "无法启动 headless Chrome（" + (err.message || err) + "）。\n" +
-          "请在有图形/浏览器环境的机器上安装 Chrome 或 Chromium，并设置 CHROME_PATH。",
-        );
-      }
+      singleBrowser = await openBrowser();
       await renderSingleWorker(singleBrowser, url, size, data, args, work, outPath, hooks);
       singleBrowser = null;
     } else {
-      await renderParallelWorkers(launchOpts, puppeteer, url, size, data, args, work, outPath, hooks);
+      await renderParallelWorkers(openBrowser, url, size, data, args, work, outPath, hooks);
     }
 
     const stat = fs.statSync(outPath);

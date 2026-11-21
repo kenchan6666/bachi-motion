@@ -173,17 +173,50 @@
     return P.sliceCourse(picked, P.parseMeasuresOpt(opts.measures));
   }
 
-  function freshAutoSession(parsed, opts) {
+  function courseStamp(opts) {
+    opts = opts || {};
+    const idx = opts.courseIndex != null ? String(opts.courseIndex) : "";
+    return idx + "\0" + (opts.course || "");
+  }
+
+  function noteIdentity(notes) {
+    let out = "";
+    for (let i = 0; i < (notes || []).length; i++) {
+      const n = notes[i];
+      out += (n && n.colour) || "";
+      out += "\0";
+    }
+    return out;
+  }
+
+  // Same course and the same don/ka sequence. Timing-only edits (BPM) and
+  // the big-note display switch stay on this session so a hand tweak is kept.
+  function sessionFitsChart(session, notes, opts) {
+    if (!session || !session.notes) return false;
+    if (session.courseStamp !== courseStamp(opts)) return false;
+    return noteIdentity(session.notes) === noteIdentity(notes);
+  }
+
+  function tagSession(session, opts) {
+    if (session) session.courseStamp = courseStamp(opts);
+    return session;
+  }
+
+  function stickingNotes(parsed, opts) {
     const P = Parser();
     const bigMode = P.normBigMode(opts.bigNote || opts.bigMode || opts.bignote);
-    const notes = P.notesToStickingInput(parsed.notes, parsed.measures, bigMode === "small");
+    return P.notesToStickingInput(parsed.notes, parsed.measures, bigMode === "small");
+  }
+
+  function freshAutoSession(parsed, opts) {
+    const notes = stickingNotes(parsed, opts);
     const auto = window.BachiSticking.autoSticking(notes, {
       bpm: parsed.headers && parsed.headers.bpm,
       手法: opts.手法,
       惯用手: opts.惯用手,
       滚奏: opts.滚奏,
     });
-    return { notes: notes, session: Edits().createSession(notes, opts, auto) };
+    return { notes: notes, session: tagSession(Edits().createSession(notes, opts, auto), opts) };
   }
 
   function payloadFromResolved(parsed, resolved, opts) {
@@ -266,16 +299,19 @@
           return;
         } else {
           const data = P.chartFromTjaAndHands(a.getTja(), raw, poke);
-          const notes = P.notesToStickingInput(parsed.notes, parsed.measures, P.normBigMode(poke.bigNote) === "small");
+          const notes = stickingNotes(parsed, poke);
           const resolved = Edits().resolvedFromEvents(data.events);
           state.notes = notes;
-          state.session = Edits().createSessionFromResolved(notes, poke, resolved);
+          state.session = tagSession(Edits().createSessionFromResolved(notes, poke, resolved), poke);
           state.chartData = data;
           setLocked(true);
         }
       } else {
         setLocked(false);
-        if (!state.session || opts.fresh) {
+        const notes = stickingNotes(parsed, poke);
+        // A new chart must not keep the previous song's tweaks. opts.fresh
+        // still covers an explicit 纯自动 / 自动+微调 switch on this chart.
+        if (!state.session || opts.fresh || !sessionFitsChart(state.session, notes, poke)) {
           const made = freshAutoSession(parsed, poke);
           state.notes = made.notes;
           state.session = made.session;
@@ -297,16 +333,59 @@
     }
   }
 
-  function noteChartReplaced() {
+  function clearEditorSelection() {
     state.session = null;
     state.notes = [];
     state.selection = null;
     state.expanded = null;
+  }
+
+  function noteChartReplaced() {
+    clearEditorSelection();
     if (state.mode === "custom") {
       state.mode = "tweak";
       setModeButtons();
       setLocked(false);
     }
+    if (state.open) rebuild({ keepTime: false, fresh: true });
+  }
+
+  // Import, paste, or a song/course change. Without a loaded 手顺 JSON,
+  // land on 自动+微调 with a fresh generator pass so the user can fine-tune
+  // without first clicking 纯自动. JSON already imported for this chart is
+  // reloaded as itself; the generator does not rewrite it.
+  function onChartReplaced(opts) {
+    opts = opts || {};
+    let parsed = null;
+    let poke = null;
+    let notes = null;
+    try {
+      parsed = parseCurrentCourse();
+      poke = currentOpts();
+      notes = stickingNotes(parsed, poke);
+    } catch (err) {
+      return;
+    }
+    const fits = sessionFitsChart(state.session, notes, poke);
+    const keepCustom = state.mode === "custom" && hasHandorder();
+    if (keepCustom) {
+      const sourced = state.session && (state.session.source === "hand-json" || state.session.authored);
+      if (!opts.force && fits && sourced) return;
+      clearEditorSelection();
+      setLocked(true);
+      setModeButtons();
+      if (state.open) rebuild({ keepTime: false, fresh: false });
+      return;
+    }
+    if (!opts.force && fits) return;
+    clearEditorSelection();
+    if (state.mode !== "tweak") {
+      state.mode = "tweak";
+      const a = app();
+      if (a && a.setMode) a.setMode("zhuren");
+    }
+    setLocked(false);
+    setModeButtons();
     if (state.open) rebuild({ keepTime: false, fresh: true });
   }
 
@@ -1327,7 +1406,8 @@
 
   function onGenerate(data) {
     if (!state.open) return;
-    // App just regenerated (settings change, sample load). Refresh the session.
+    // Settings changes keep an in-progress tweak. A different chart does not:
+    // rebuild drops the old session when its notes no longer match.
     rebuild({ keepTime: true, fresh: state.mode !== "custom" && !(state.session && state.session.patches && state.session.patches.length) });
   }
 
@@ -1417,10 +1497,13 @@
     } else if (a && a.setTja) a.setTja(text);
     // 跟主页打开 TJA 一样：谱面改成自定义，不要停在练习谱 2。
     if (a && a.syncChartPicker) a.syncChartPicker("custom");
-    if (state.mode === "custom") {
+    // 纯自动 is read-only. A newly opened chart lands on 自动+微调 so the
+    // fresh generator result can be edited without another mode click.
+    if (state.mode === "custom" || state.mode === "auto") {
+      const wasCustom = state.mode === "custom";
       state.mode = "tweak";
       if (a && a.setMode) a.setMode("zhuren");
-      if (a && a.setJson) a.setJson("");
+      if (wasCustom && a && a.setJson) a.setJson("");
     }
     setModeButtons();
     setLocked(false);
@@ -2163,6 +2246,7 @@
     expandAdvanced: (v) => setAdvanced(v !== false),
     importJsonText: importJsonText,
     noteChartReplaced: noteChartReplaced,
+    onChartReplaced: onChartReplaced,
     syncExportTja: syncExportTja,
     setAddingNotes: setAddingNotes,
     getState: () => state,

@@ -65,6 +65,10 @@ echo "== editor-opened TJA syncs the homepage chart picker =="
 node tests/editor-home-chart.test.js
 echo
 
+echo "== import / paste / song switch enters fresh auto sticking =="
+node tests/auto-on-import.test.js
+echo
+
 echo "== chart author (blank chart + 16th notes) =="
 node tests/chart-author.test.js
 echo

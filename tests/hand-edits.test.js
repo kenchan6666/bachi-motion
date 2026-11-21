@@ -278,6 +278,23 @@ function pairSig(resolved) {
   return (resolved.rollPairs || []).map((p) => p[0] + "-" + p[1]).join(",");
 }
 
+function notesAt(beats) {
+  return beats.map(function (beat) {
+    return { beat: beat, colour: "don", big: false, bpm: 120 };
+  });
+}
+
+// 从相反手顺改到 target，最后一次换手会把整句重认一遍滚奏。
+function afterHandEdit(notes, hands) {
+  const session = edits.createSession(notes, { bpm: 120, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" }, {
+    hands: hands.map(function (h) { return h === "L" ? "R" : "L"; }),
+    rollPairs: [],
+    warnings: [],
+  });
+  setHands(session, hands);
+  return edits.resolve(session);
+}
+
 extra("manual sticking LLRRL is (LL)(RR) plus a single L", function () {
   const session = sessionSeed(["R", "R", "R", "R", "R"]);
   setHands(session, ["L", "L", "R", "R", "L"]);
@@ -306,7 +323,8 @@ extra("LLL, RRR and LLLL are not rolls; LRLR stays singles", function () {
 });
 
 extra("a manual hand change that makes 2-2 re-marks roll grips; three-in-a-row does not", function () {
-  const tja = ["TITLE:t", "BPM:120", "OFFSET:0", "COURSE:Oni", "#START", "11111,", "#END", ""].join("\n");
+  // 16 分五颗（11111 均分一整小节的间隔是 0.8 拍，比 8 分更慢，不在这条里）。
+  const tja = ["TITLE:t", "BPM:120", "OFFSET:0", "COURSE:Oni", "#START", "1111100000000000,", "#END", ""].join("\n");
   const parsed = parser.sliceCourse(parser.pickCourse(parser.parseTja(tja)), null);
   const input = parser.notesToStickingInput(parsed.notes, parsed.measures, false);
   const opts = { bpm: 120, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" };
@@ -357,6 +375,79 @@ extra("a hand edit in another phrase does not re-mark an untouched pair", functi
   const got = edits.resolve(session);
   assert.deepStrictEqual(got.hands, ["L", "L", "R", "L"]);
   assert.deepStrictEqual(got.rollPairs, [], "the earlier LL stays a single until that phrase is edited");
+});
+
+extra("手改手顺：同小节两颗同手 8 分不滚，手顺保持用户设的手", function () {
+  const got = afterHandEdit(notesAt([0, 0.5]), ["R", "R"]);
+  assert.deepStrictEqual(got.hands, ["R", "R"]);
+  assert.deepStrictEqual(got.rollPairs, []);
+  const left = afterHandEdit(notesAt([0, 0.5]), ["L", "L"]);
+  assert.deepStrictEqual(left.hands, ["L", "L"]);
+  assert.deepStrictEqual(left.rollPairs, []);
+});
+
+extra("手改手顺：比 8 分更慢的同手散音不滚", function () {
+  // 间隔 1 拍仍在同一句里。只看「正好两下同手」会配成滚奏。
+  const got = afterHandEdit(notesAt([0, 1]), ["R", "R"]);
+  assert.deepStrictEqual(got.hands, ["R", "R"]);
+  assert.deepStrictEqual(got.rollPairs, []);
+});
+
+extra("手改手顺：散音紧挨密串且与串首同手，不并进滚奏，后面的 16 分仍可滚", function () {
+  // 散音 R，隔半拍，后面 16 分 RRLL。散音不能和串首配成一对。
+  const hands = ["R", "R", "R", "L", "L"];
+  const got = afterHandEdit(notesAt([0, 0.5, 0.75, 1, 1.25]), hands);
+  assert.deepStrictEqual(got.hands, hands);
+  assert.deepStrictEqual(got.rollPairs, [[1, 2], [3, 4]]);
+});
+
+extra("手改手顺：散音与密串第一颗正好同手两下，间隔是 8 分，仍不滚", function () {
+  const hands = ["R", "R", "L", "R", "L", "R"];
+  const got = afterHandEdit(notesAt([0, 0.5, 0.75, 1, 1.25, 1.5]), hands);
+  assert.deepStrictEqual(got.hands, hands);
+  assert.deepStrictEqual(got.rollPairs, []);
+});
+
+extra("手改手顺：两串密音隔 8 分，上一串右结束、下一串右起，这两颗保持单击", function () {
+  // RRLLR，隔半拍，RLLRR。跨缝的两颗右不滚；串内 16 分同手两下仍滚。
+  const beats = [0, 0.25, 0.5, 0.75, 1, 1.5, 1.75, 2, 2.25, 2.5];
+  const hands = ["R", "R", "L", "L", "R", "R", "L", "L", "R", "R"];
+  const got = afterHandEdit(notesAt(beats), hands);
+  assert.deepStrictEqual(got.hands, hands);
+  assert.deepStrictEqual(got.rollPairs, [[0, 1], [2, 3], [6, 7], [8, 9]]);
+});
+
+extra("手改手顺：两串密音隔得比 8 分更慢，跨缝的同手两下也不滚", function () {
+  const beats = [0, 0.25, 0.5, 0.75, 1, 2, 2.25, 2.5, 2.75, 3];
+  const hands = ["R", "R", "L", "L", "R", "R", "L", "L", "R", "R"];
+  const got = afterHandEdit(notesAt(beats), hands);
+  assert.deepStrictEqual(got.hands, hands);
+  // 跨缝的 index 4、5 保持单击；串内 16 分同手两下仍滚。
+  assert.deepStrictEqual(got.rollPairs, [[0, 1], [2, 3], [6, 7], [8, 9]]);
+});
+
+extra("手改手顺：同手 12 分仍可滚，16 分、24 分、32 分也可以", function () {
+  [1 / 3, 0.25, 1 / 6, 0.125].forEach(function (delta) {
+    const got = afterHandEdit(notesAt([0, delta]), ["L", "L"]);
+    assert.deepStrictEqual(got.hands, ["L", "L"], "delta " + delta);
+    assert.deepStrictEqual(got.rollPairs, [[0, 1]], "delta " + delta);
+  });
+});
+
+extra("手改手顺：五颗均分一小节，同手两下的间隔慢于 8 分，不滚", function () {
+  const tja = ["TITLE:t", "BPM:120", "OFFSET:0", "COURSE:Oni", "#START", "11111,", "#END", ""].join("\n");
+  const parsed = parser.sliceCourse(parser.pickCourse(parser.parseTja(tja)), null);
+  const input = parser.notesToStickingInput(parsed.notes, parsed.measures, false);
+  const hands = ["L", "L", "R", "R", "L"];
+  const got = afterHandEdit(input, hands);
+  assert.deepStrictEqual(got.hands, hands);
+  assert.deepStrictEqual(got.rollPairs, []);
+});
+
+extra("手改手顺：同手三连即使快于 8 分也不拆成滚奏", function () {
+  const got = afterHandEdit(notesAt([0, 1 / 3, 2 / 3]), ["R", "R", "R"]);
+  assert.deepStrictEqual(got.hands, ["R", "R", "R"]);
+  assert.deepStrictEqual(got.rollPairs, []);
 });
 
 extra("resolvedFromEvents round-trips auto 2-2 roll events", function () {

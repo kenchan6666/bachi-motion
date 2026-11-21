@@ -460,6 +460,12 @@
       releaseEditorCustom();
     }
     refreshCourses({ preferDefault: !!opts.preferDefault, forget: !!opts.forget, clearJson: !!opts.clearJson });
+    syncTjaExport();
+  }
+
+  function syncTjaExport() {
+    const ed = window.BachiEditor;
+    if (ed && typeof ed.syncExportTja === "function") ed.syncExportTja();
   }
 
   function parseOpts() {
@@ -938,6 +944,7 @@
   tjaInput.addEventListener("input", () => {
     if (writingTja) return;
     blankLive = false;
+    syncTjaExport();
     clearTimeout(courseInputTimer);
     courseInputTimer = setTimeout(() => refreshCourses({ pruneHands: true }), 200);
   });
@@ -1012,6 +1019,7 @@
       tjaInput.value = v || "";
       if (!(opts && opts.keepBlank)) blankLive = false;
       refreshCourses();
+      syncTjaExport();
     },
     loadChartText,
     syncChartPicker,

@@ -5,7 +5,7 @@
  *   applyRoll(session, from, to)
  *   applyAlternate(session, from, to)
  *   applyRestore(session, from, to)
- *   applySwap(session, index, hand)  // then re-detect 2-2 rolls in that phrase
+ *   applySwap(session, index, hand)  // then re-detect rolls in that phrase (8分及更慢不滚)
  *   setOptions(session, opts)   // re-runs autoSticking, keeps patches
  *   undo(session) / redo(session)
  *   resolve(session) → { hands, rollPairs, warnings, source }
@@ -162,6 +162,9 @@
 
   // 全换休息段阈值：超过一拍才回惯用手；间隔不超过一拍则接着前一音换手。
   var BEAT_EPS = 1e-9;
+  // 手改 / 导入手顺重认滚奏：间隔 ≥ 半拍（8 分或更慢）不配成对。
+  var HANDMADE_ROLL_GAP = 0.5;
+  var HANDMADE_GAP_EPS = 1e-4;
 
   function dominantOf(session) {
     return session.opts.惯用手 === "L" ? "L" : "R";
@@ -274,23 +277,43 @@
     return { from: a, to: b };
   }
 
-  function sameHandRun(hands, index) {
+  function beatGap(notes, index) {
+    if (!notes || index <= 0 || index >= notes.length) return null;
+    const prev = notes[index - 1];
+    const cur = notes[index];
+    if (!prev || !cur || prev.beat == null || cur.beat == null) return null;
+    const delta = cur.beat - prev.beat;
+    return isFinite(delta) ? delta : null;
+  }
+
+  // 看两颗音之间的间隔，不看某一颗自己是不是散音。
+  // 隔了 8 分或更慢就不滚。比 8 分更快（12 / 16 / 24 / 32 分）可以。
+  // 0 或负间隔也不是滚奏对。
+  function gapAllowsHandmadeRoll(delta) {
+    if (delta == null || !isFinite(delta)) return false;
+    if (!(delta > BEAT_EPS)) return false;
+    return delta < HANDMADE_ROLL_GAP - HANDMADE_GAP_EPS;
+  }
+
+  // 同一只手、并且相邻间隔快于 8 分，才连成一段。慢间隔把段切开。
+  function fastSameHandRun(notes, hands, index) {
     const h = hands[index];
     let a = index;
     let b = index;
-    while (a > 0 && hands[a - 1] === h) a--;
-    while (b + 1 < hands.length && hands[b + 1] === h) b++;
+    while (a > 0 && hands[a - 1] === h && gapAllowsHandmadeRoll(beatGap(notes, a))) a--;
+    while (b + 1 < hands.length && hands[b + 1] === h && gapAllowsHandmadeRoll(beatGap(notes, b + 1))) b++;
     return { from: a, to: b, len: b - a + 1 };
   }
 
-  // 手动改手之后，在这一句里按新手顺重认滚奏：同一只手正好两下是一对，
-  // 单下保持单击。三连同手或更长（LLL、RRR、LLLL）整段都不算滚奏，
-  // 所以 LLLL 不是 (LL)(LL)。左右交替保持单击。
-  function recognizeExactPairRolls(hands, from, to) {
+  // 手动改手之后，在这一句里按新手顺重认滚奏：同一只手、间隔快于 8 分、
+  // 正好两下，才是一对。隔了 8 分或更慢的两下保持单击，手顺不改。
+  // 三连同手或更长（LLL、RRR、LLLL）整段都不算滚奏，所以 LLLL 不是 (LL)(LL)。
+  // 左右交替保持单击。
+  function recognizeExactPairRolls(notes, hands, from, to) {
     const pairs = [];
     let i = from;
     while (i <= to) {
-      const run = sameHandRun(hands, i);
+      const run = fastSameHandRun(notes, hands, i);
       if (run.len === 2 && run.from >= from && run.to <= to) pairs.push([run.from, run.from + 1]);
       i = Math.max(run.to, i) + 1;
     }
@@ -304,7 +327,7 @@
       const p = rollPairs[i];
       if (p[1] < ph.from || p[0] > ph.to) kept.push(p);
     }
-    return addPairs(kept, recognizeExactPairRolls(hands, ph.from, ph.to));
+    return addPairs(kept, recognizeExactPairRolls(notes, hands, ph.from, ph.to));
   }
 
   function applyPatch(state, patch, session) {

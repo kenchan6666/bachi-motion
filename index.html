@@ -1507,8 +1507,12 @@ LEVEL:6
                 <input id="editorSplitMeasures" type="checkbox">
                 分开小节
               </label>
+              <label class="check" for="editorFullChart">
+                <input id="editorFullChart" type="checkbox">
+                全部谱面
+              </label>
             </span>
-            <button type="button" class="route-hint-btn" id="editorAddNoteHintBtn" popovertarget="editorAddNoteHint" aria-expanded="false" aria-controls="editorAddNoteHint" aria-label="加入音符和分开小节说明">!</button>
+            <button type="button" class="route-hint-btn" id="editorAddNoteHintBtn" popovertarget="editorAddNoteHint" aria-expanded="false" aria-controls="editorAddNoteHint" aria-label="加入音符、分开小节和全部谱面说明">!</button>
             <div class="editor-note-picker" id="editorNotePicker" hidden>
               <div class="seg" id="editorFaceSeg" role="radiogroup" aria-label="音符">
                 <button type="button" class="on" data-face="don" role="radio" aria-checked="true">咚</button>
@@ -1521,7 +1525,7 @@ LEVEL:6
             </div>
             <div id="editorAddNoteHint" class="route-hint route-hint-wide" popover="auto">
               <button type="button" class="route-hint-close" popovertarget="editorAddNoteHint" popovertargetaction="hide" aria-label="关闭">×</button>
-              <p>先选咚或咔，再选普通或大，然后点 16 分格子放进去。再点那颗音符就删掉。谱的末尾可以加一小节。换手和拖动画布仍然可用。关掉之后，恢复点音符换手、拖选和原来的拖动。不勾选时，谱面是一条连续的轨道，小节之间不拆开。勾选后，按小节分成一张张卡片，方便看乐句。</p>
+              <p>先选咚或咔，再选普通或大，然后点 16 分格子放进去。再点那颗音符就删掉。谱的末尾可以加一小节。换手和拖动画布仍然可用。关掉之后，恢复点音符换手、拖选和原来的拖动。不勾选时，谱面是一条连续的轨道，小节之间不拆开。勾选后，按小节分成一张张卡片，方便看乐句。勾选全部谱面后，整张谱换行排开，一次看完，左右箭头和小节总览先收起来。</p>
             </div>
           </div>
         </div>

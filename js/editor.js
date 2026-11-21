@@ -313,7 +313,7 @@
     const P = Parser();
     const author = Author();
     if (!author) return;
-    if (a && a.setTja) a.setTja(nextTja);
+    if (a && a.setTja) a.setTja(nextTja, { keepBlank: true });
     try {
       const parsed = parseCurrentCourse();
       const poke = currentOpts();

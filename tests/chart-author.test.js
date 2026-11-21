@@ -66,6 +66,46 @@ extra("blank chart honors BPM and measure count", function () {
   assert.strictEqual(parsed.notes.length, 0);
 });
 
+extra("blank chart takes a song title, and a later edit can change title and BPM", function () {
+  const named = author.normalizeBlankOptions({ title: "  空谱甲\n乙  ", bpm: 144, measures: 4 });
+  assert.strictEqual(named.title, "空谱甲 乙");
+  assert.strictEqual(named.bpm, 144);
+  assert.strictEqual(author.normalizeBlankOptions({ title: "   ", bpm: 0 }).title, "未命名");
+  assert.strictEqual(author.normalizeBlankOptions({ title: "   ", bpm: 0 }).bpm, 120);
+
+  let tja = author.blankTja({ title: "空谱甲", bpm: 144, measures: 4 });
+  let parsed = parser.parseTja(tja);
+  assert.strictEqual(parsed.headers.title, "空谱甲");
+  assert.strictEqual(parsed.headers.bpm, 144);
+  assert.strictEqual(parsed.measures.length, 4);
+  assert.strictEqual(parsed.notes.length, 0);
+
+  const placed = author.placeNote(tja, { measure: 2, cell: 4, face: "ka", size: "normal" });
+  tja = placed.tja;
+  const next = author.applyChartMeta(tja, { title: "空谱乙", bpm: 96 });
+  parsed = parser.parseTja(next);
+  assert.strictEqual(parsed.headers.title, "空谱乙");
+  assert.strictEqual(parsed.headers.bpm, 96);
+  assert.strictEqual(parsed.measures.length, 4);
+  assert.strictEqual(parsed.notes.length, 1);
+  assert.strictEqual(parsed.notes[0].type, "ka");
+  assert.strictEqual(parsed.notes[0].measure, 2);
+  assert.notStrictEqual(parsed.headers.title, "未命名");
+  assert.notStrictEqual(parsed.headers.bpm, 120);
+
+  const kept = "TITLEJA:别的名字\nTITLE:空谱乙\nBPM:96\n#START\n1000,\n#END\n";
+  const renamed = author.applyChartMeta(kept, { title: "空谱丙$", bpm: 80 });
+  assert.ok(renamed.includes("TITLEJA:别的名字"), renamed);
+  assert.ok(renamed.includes("TITLE:空谱丙$"), renamed);
+  assert.ok(!/^TITLE:空谱乙/m.test(renamed));
+  assert.ok(renamed.includes("BPM:80"));
+  assert.ok(renamed.includes("1000,"));
+  assert.strictEqual(author.applyChartMeta(kept, {}), kept);
+  const cleared = author.applyChartMeta(kept, { title: "" });
+  assert.ok(cleared.includes("TITLE:未命名"));
+  assert.ok(cleared.includes("TITLEJA:别的名字"));
+});
+
 extra("place and delete 咚/咔 normal and big on the 16th grid", function () {
   let tja = author.blankTja();
   const placed = [

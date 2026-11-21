@@ -10,6 +10,22 @@
   const modeSuyue = $("modeSuyue");
   const jsonPanel = $("jsonPanel");
   const songEl = $("song");
+  let blankLive = false;
+  let writingTja = false;
+  const BLANK_IDS = {
+    settings: {
+      title: "settingsBlankTitle",
+      bpm: "settingsBlankBpm",
+      measures: "settingsBlankMeasures",
+      button: "settingsOpenBlank",
+    },
+    editor: {
+      title: "editorBlankTitle",
+      bpm: "editorBlankBpm",
+      measures: "editorBlankMeasures",
+      button: "editorOpenBlank",
+    },
+  };
   const chartBtn = $("chartBtn");
   const chartMenu = $("chartMenu");
   const chartLabel = $("chartLabel");
@@ -352,6 +368,7 @@
     const pending = decode ? decode(file) : file.text();
     pending.then((text) => {
       tjaInput.value = String(text || "");
+      blankLive = false;
       setMode("zhuren");
       syncChartPicker("custom");
       openSettings();
@@ -372,6 +389,7 @@
     const tjaRes = await fetch("samples/" + sample + ".tja", { cache: "no-store" });
     if (!tjaRes.ok) throw new Error(tjaRes.status);
     tjaInput.value = await tjaRes.text();
+    blankLive = false;
     let hasHands = false;
     try {
       const jsonRes = await fetch("samples/" + sample + ".handorder.json", { cache: "no-store" });
@@ -578,15 +596,93 @@
   setupRouteHint("originalHintBtn", "originalHint");
   setupRouteHint("editorOriginalHintBtn", "editorOriginalHint");
 
-  function openBlankChart(bpm, measures) {
+  function fieldNumber(n) {
+    if (!isFinite(+n)) return "";
+    if (Math.abs(+n - Math.round(+n)) < 1e-9) return String(Math.round(+n));
+    return String(+n);
+  }
+
+  function paintBlankMeta(opts, sourceSide) {
+    ["settings", "editor"].forEach((side) => {
+      const ids = BLANK_IDS[side];
+      const titleEl = $(ids.title);
+      const bpmEl = $(ids.bpm);
+      if (titleEl) titleEl.value = opts.title;
+      if (bpmEl) bpmEl.value = fieldNumber(opts.bpm);
+      if (side === sourceSide) {
+        const measuresEl = $(ids.measures);
+        if (measuresEl) measuresEl.value = String(opts.measures);
+      }
+    });
+  }
+
+  function mirrorBlankFields(shown, sourceSide, commit) {
+    ["settings", "editor"].forEach((side) => {
+      const write = side !== sourceSide || commit;
+      if (!write) return;
+      const ids = BLANK_IDS[side];
+      if (shown.title != null) {
+        const el = $(ids.title);
+        if (el) el.value = shown.title;
+      }
+      if (shown.bpm != null) {
+        const el = $(ids.bpm);
+        if (el) el.value = shown.bpm;
+      }
+    });
+  }
+
+  function applyLiveMeta(patch, sourceSide, commit) {
+    const author = window.BachiChartAuthor;
+    if (!blankLive || !author || typeof author.applyChartMeta !== "function") return;
+    const spec = {};
+    if (Object.prototype.hasOwnProperty.call(patch, "title")) {
+      if (!commit && String(patch.title).trim() === "") return;
+      spec.title = patch.title;
+    }
+    if (Object.prototype.hasOwnProperty.call(patch, "bpm")) {
+      if (!commit && !(isFinite(+patch.bpm) && +patch.bpm > 0)) return;
+      spec.bpm = patch.bpm;
+    }
+    if (!Object.keys(spec).length) return;
+    let next;
+    try {
+      next = author.applyChartMeta(tjaInput.value, spec);
+    } catch (err) {
+      showError(err.message || String(err));
+      return;
+    }
+    if (next !== tjaInput.value) {
+      writingTja = true;
+      tjaInput.value = next;
+      writingTja = false;
+      regenerateKeepTime();
+    }
+    let parsed;
+    try {
+      parsed = window.TaikoParser.parseTja(tjaInput.value);
+    } catch (err) {
+      return;
+    }
+    const shown = {};
+    if (spec.title != null) shown.title = (parsed.headers && parsed.headers.title) || "";
+    if (spec.bpm != null) shown.bpm = fieldNumber(parsed.headers && parsed.headers.bpm);
+    mirrorBlankFields(shown, sourceSide, commit);
+  }
+
+  function openBlankChart(bpm, measures, title, sourceSide) {
     const author = window.BachiChartAuthor;
     if (!author) return false;
-    const opts = author.normalizeBlankOptions({ bpm: bpm, measures: measures });
+    const opts = author.normalizeBlankOptions({ bpm: bpm, measures: measures, title: title });
     if (author.chartHasNotes(tjaInput.value)) {
       const ok = window.confirm("当前谱面已有音符。打开空谱面会替换它，是否继续？");
       if (!ok) return false;
     }
+    writingTja = true;
     tjaInput.value = author.blankTja(opts);
+    writingTja = false;
+    blankLive = true;
+    paintBlankMeta(opts, sourceSide || "settings");
     setJsonValue("");
     setMode("zhuren");
     syncChartPicker("custom");
@@ -600,17 +696,39 @@
     return opts;
   }
 
-  function bindBlankChart(btnId, bpmId, measuresId) {
-    const btn = $(btnId);
-    if (!btn) return;
-    btn.addEventListener("click", () => {
-      const bpmEl = $(bpmId);
-      const measuresEl = $(measuresId);
-      openBlankChart(bpmEl ? bpmEl.value : "", measuresEl ? measuresEl.value : "");
-    });
+  function bindBlankSide(side) {
+    const ids = BLANK_IDS[side];
+    const btn = $(ids.button);
+    if (btn) {
+      btn.addEventListener("click", () => {
+        const titleEl = $(ids.title);
+        const bpmEl = $(ids.bpm);
+        const measuresEl = $(ids.measures);
+        openBlankChart(
+          bpmEl ? bpmEl.value : "",
+          measuresEl ? measuresEl.value : "",
+          titleEl ? titleEl.value : "",
+          side
+        );
+      });
+    }
+    const titleEl = $(ids.title);
+    if (titleEl) {
+      titleEl.addEventListener("input", () => applyLiveMeta({ title: titleEl.value }, side, false));
+      titleEl.addEventListener("change", () => applyLiveMeta({ title: titleEl.value }, side, true));
+    }
+    const bpmEl = $(ids.bpm);
+    if (bpmEl) {
+      bpmEl.addEventListener("input", () => applyLiveMeta({ bpm: bpmEl.value }, side, false));
+      bpmEl.addEventListener("change", () => applyLiveMeta({ bpm: bpmEl.value }, side, true));
+    }
   }
-  bindBlankChart("settingsOpenBlank", "settingsBlankBpm", "settingsBlankMeasures");
-  bindBlankChart("editorOpenBlank", "editorBlankBpm", "editorBlankMeasures");
+  bindBlankSide("settings");
+  bindBlankSide("editor");
+  tjaInput.addEventListener("input", () => {
+    if (writingTja) return;
+    blankLive = false;
+  });
 
   function regenerateKeepTime() {
     const anim = window.taikoAnim;
@@ -678,7 +796,10 @@
     regenerateKeepTime,
     updateHeading,
     getTja: () => tjaInput.value,
-    setTja: (v) => { tjaInput.value = v || ""; },
+    setTja: (v, opts) => {
+      tjaInput.value = v || "";
+      if (!(opts && opts.keepBlank)) blankLive = false;
+    },
     getJson: () => jsonInput.value,
     setJson: (v) => setJsonValue(v),
     openBlankChart,

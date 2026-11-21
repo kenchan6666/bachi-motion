@@ -54,7 +54,7 @@ function startStaticServer(root) {
   });
 }
 
-const BLANK_HELP = "用填写的 BPM 和小节数做一张空谱";
+const BLANK_HELP = "用填写的歌名、BPM 和小节数做一张空谱";
 const ADD_HELP = "先选咚或咔，再选普通或大";
 
 (async () => {
@@ -126,11 +126,67 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
     check(settingsHelp.open, "settings blank hint did not open");
     check(settingsHelp.text.includes(BLANK_HELP), "settings hint missing explanation");
     check(settingsHelp.text.includes("未命名"), "settings hint missing 未命名");
+    check(settingsHelp.text.includes("打开之后"), "settings hint missing later edit");
     check(!settingsHelp.text.includes("咕") && !settingsHelp.text.includes("咛"), "settings hint typo");
     await page.evaluate(() => {
       const pop = document.getElementById("settingsBlankHint");
       if (pop.matches(":popover-open")) pop.hidePopover();
     });
+
+    async function fieldLayout(prefix) {
+      return page.evaluate((which) => {
+        const fold = document.getElementById(which === "settings" ? "settingsOpen" : "editorAdvancedPanel");
+        function box(id) {
+          const r = document.getElementById(id).getBoundingClientRect();
+          return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width, h: r.height };
+        }
+        const foldBox = fold.getBoundingClientRect();
+        return {
+          title: box(which + "BlankTitle"),
+          bpm: box(which + "BlankBpm"),
+          measures: box(which + "BlankMeasures"),
+          fold: { l: foldBox.left, r: foldBox.right, w: foldBox.width },
+        };
+      }, prefix);
+    }
+    function assertFields(name, box) {
+      check(box.title.w > 40 && box.bpm.w > 40 && box.measures.w > 40, name + " fields have no size " + JSON.stringify(box));
+      check(box.title.l >= box.fold.l - 1 && box.title.r <= box.fold.r + 1, name + " title overflows");
+      check(box.bpm.l >= box.fold.l - 1 && box.measures.r <= box.fold.r + 1, name + " numbers overflow");
+      check(Math.abs(box.bpm.t - box.measures.t) <= 1, name + " bpm and measures are not on one row");
+      check(box.title.b <= box.bpm.t + 1, name + " title is not above bpm");
+      check(Math.abs(box.title.l - box.bpm.l) <= 2, name + " title and bpm are not left-aligned");
+      check(Math.abs(box.title.r - box.measures.r) <= 2, name + " title does not span the row");
+      check(box.bpm.r <= box.measures.l - 4, name + " bpm and measures are cramped");
+      check(Math.abs(box.title.h - box.bpm.h) <= 1 && Math.abs(box.bpm.h - box.measures.h) <= 1, name + " input heights differ");
+    }
+    assertFields("desktop settings", await fieldLayout("settings"));
+    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+    assertFields("narrow settings", await fieldLayout("settings"));
+    await page.setViewport({ width: 1280, height: 900, deviceScaleFactor: 1 });
+
+    const titles = await page.evaluate(() => {
+      return ["settingsBlankTitle", "editorBlankTitle"].map((id) => {
+        const el = document.getElementById(id);
+        return {
+          id: id,
+          type: el && el.type,
+          disabled: el ? el.disabled : true,
+          readOnly: el ? el.readOnly : true,
+        };
+      });
+    });
+    check(titles.length === 2 && titles.every((f) => f.type === "text" && !f.disabled && !f.readOnly),
+      "title fields " + JSON.stringify(titles));
+
+    await page.evaluate(() => {
+      const el = document.getElementById("settingsBlankTitle");
+      el.value = "练习曲甲";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const untouched = await page.$eval("#tjaInput", (el) => el.value.includes("TITLE:溯溯的练习谱2"));
+    check(untouched, "title field rewrote a chart before a blank chart was opened");
+    await page.$eval("#settingsBlankTitle", (el) => { el.value = ""; });
 
     const before = await page.$eval("#tjaInput", (el) => el.value);
     check(before.includes("TITLE:溯溯的练习谱2"), "fixture chart missing");
@@ -361,12 +417,119 @@ const ADD_HELP = "先选咚或咔，再选普通或大";
       const pop = document.getElementById("editorBlankHint");
       const standing = [...document.querySelectorAll("#editorAdvancedPanel p, #editorAdvancedPanel label")]
         .filter((el) => !el.closest(".route-hint"))
-        .some((el) => el.textContent.includes("用填写的 BPM"));
+        .some((el) => el.textContent.includes("用填写的歌名"));
       return { open: pop.matches(":popover-open"), text: pop.textContent, standing: standing };
     });
     check(editorHelp.open, "editor blank hint did not open");
     check(editorHelp.text.includes(BLANK_HELP), "editor blank hint missing explanation");
+    check(editorHelp.text.includes("打开之后"), "editor hint missing later edit");
     check(!editorHelp.standing, "editor blank explanation is standing copy");
+
+    assertFields("desktop editor", await fieldLayout("editor"));
+    await page.evaluate(() => {
+      if (window.BachiEditor && window.BachiEditor.close) window.BachiEditor.close();
+      document.getElementById("settingsOpen").open = true;
+    });
+
+    async function fill(id, value) {
+      await page.evaluate((fieldId, fieldValue) => {
+        const el = document.getElementById(fieldId);
+        el.value = fieldValue;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      }, id, value);
+    }
+    async function chartNow() {
+      return page.evaluate(() => {
+        const parsed = window.TaikoParser.parseTja(document.getElementById("tjaInput").value);
+        const song = document.getElementById("song");
+        const bar = document.getElementById("titlebarTitle");
+        return {
+          title: parsed.headers.title,
+          bpm: parsed.headers.bpm,
+          measures: parsed.measures.length,
+          notes: parsed.notes.length,
+          song: song.dataset.fullText || song.textContent,
+          bar: bar ? (bar.dataset.fullText || bar.textContent) : "",
+          settingsTitle: document.getElementById("settingsBlankTitle").value,
+          settingsBpm: document.getElementById("settingsBlankBpm").value,
+          editorTitle: document.getElementById("editorBlankTitle").value,
+          editorBpm: document.getElementById("editorBlankBpm").value,
+          titleLocked: document.getElementById("settingsBlankTitle").disabled || document.getElementById("settingsBlankTitle").readOnly,
+          bpmLocked: document.getElementById("settingsBlankBpm").disabled || document.getElementById("settingsBlankBpm").readOnly,
+        };
+      });
+    }
+
+    await fill("settingsBlankTitle", "空谱甲");
+    await fill("settingsBlankBpm", "144");
+    await fill("settingsBlankMeasures", "6");
+    const dialogsAtCreate = dialogs.length;
+    await page.click("#settingsOpenBlank");
+    check(dialogs.length === dialogsAtCreate, "empty chart confirmed again while creating a named blank chart");
+    const created = await chartNow();
+    check(created.title === "空谱甲" && created.bpm === 144 && created.measures === 6 && created.notes === 0,
+      "create with title and bpm " + JSON.stringify(created));
+    check(created.song.includes("空谱甲") && created.song.includes("BPM 144"), "page song " + created.song);
+    check(created.bar === "空谱甲", "title bar " + created.bar);
+    check(created.editorTitle === "空谱甲" && created.editorBpm === "144", "editor fields did not follow create " + JSON.stringify(created));
+    check(!created.titleLocked && !created.bpmLocked, "title or bpm locked after create");
+
+    await fill("settingsBlankTitle", "空谱乙");
+    const renamed = await chartNow();
+    check(renamed.title === "空谱乙" && renamed.bpm === 144 && renamed.measures === 6,
+      "rename locked or rewrote the chart " + JSON.stringify(renamed));
+    check(renamed.title !== "未命名", "rename fell back to 未命名");
+    check(renamed.song.includes("空谱乙") && renamed.bar === "空谱乙", "page song did not follow rename " + renamed.song + " / " + renamed.bar);
+    check(renamed.editorTitle === "空谱乙", "editor title stayed behind");
+
+    await fill("settingsBlankBpm", "132");
+    const retimed = await chartNow();
+    check(retimed.title === "空谱乙" && retimed.bpm === 132 && retimed.measures === 6,
+      "bpm edit " + JSON.stringify(retimed));
+    check(retimed.bpm !== 120 && retimed.bpm !== 144, "bpm stayed on a fixed value");
+    check(retimed.song.includes("BPM 132") && retimed.song.includes("空谱乙"), "page song bpm " + retimed.song);
+    check(retimed.editorBpm === "132", "editor bpm stayed behind");
+
+    await page.evaluate(() => { document.getElementById("settingsBlankMeasures").value = "2"; });
+    const measuresKept = await chartNow();
+    check(measuresKept.measures === 6, "measure field rewrote the open chart");
+
+    await page.click("#btnOpenEditor");
+    await page.click("#editorAdvancedBtn");
+    await page.waitForSelector("#editorAdvancedPanel:not([hidden])");
+    await fill("editorBlankTitle", "空谱丙");
+    await fill("editorBlankBpm", "150");
+    const fromEditorFields = await chartNow();
+    check(fromEditorFields.title === "空谱丙" && fromEditorFields.bpm === 150 && fromEditorFields.measures === 6,
+      "editor rename " + JSON.stringify(fromEditorFields));
+    check(fromEditorFields.song.includes("空谱丙") && fromEditorFields.song.includes("BPM 150"),
+      "page song after editor edit " + fromEditorFields.song);
+    check(fromEditorFields.settingsTitle === "空谱丙" && fromEditorFields.settingsBpm === "150",
+      "settings fields stayed behind the editor");
+
+    await page.click("#editorAddNoteBtn");
+    await page.waitForSelector(".editor-cell");
+    await page.click('.editor-cell[data-measure="1"][data-cell="0"]');
+    const stillEditing = await chartNow();
+    check(stillEditing.notes === 1 && stillEditing.title === "空谱丙" && stillEditing.bpm === 150,
+      "editing after rename " + JSON.stringify(stillEditing));
+    check(stillEditing.song.includes("空谱丙"), "page song dropped after a note was added");
+
+    await page.setViewport({ width: 390, height: 844, deviceScaleFactor: 1 });
+    await page.evaluate(() => {
+      if (window.BachiEditor && window.BachiEditor.expandAdvanced) window.BachiEditor.expandAdvanced(true);
+    });
+    assertFields("narrow editor", await fieldLayout("editor"));
+
+    await page.evaluate(() => {
+      document.getElementById("tjaInput").dispatchEvent(new Event("input", { bubbles: true }));
+      const el = document.getElementById("settingsBlankTitle");
+      el.value = "不该写上";
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const stopped = await chartNow();
+    check(stopped.title === "空谱丙", "hand-edited tja still accepted blank-field rewrites " + stopped.title);
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

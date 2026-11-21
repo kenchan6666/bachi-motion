@@ -8,6 +8,7 @@
   const $ = (id) => document.getElementById(id);
   const Edits = () => window.BachiHandEdits;
   const Parser = () => window.TaikoParser;
+  const Author = () => window.BachiChartAuthor;
 
   const MEASURE_W = 344;
   const LANE_MARGIN = 8;
@@ -46,6 +47,9 @@
     drag: null,
     playerViewBox: "0 0 800 860",
     raf: 0,
+    addingNotes: false,
+    noteFace: "don",
+    noteSize: "normal",
   };
 
   function app() { return window.BachiApp || null; }
@@ -245,20 +249,30 @@
 
       if (state.mode === "custom") {
         const raw = (a && a.getJson ? a.getJson() : "").trim();
-        if (!raw) {
+        const noteCount = (parsed.notes || []).length;
+        const keepAuthored = !opts.fresh && state.session && state.session.authored
+          && state.session.notes && state.session.notes.length === noteCount;
+        if (keepAuthored) {
+          state.notes = state.session.notes;
+          const resolved = Edits().resolve(state.session);
+          state.chartData = payloadFromResolved(parsed, resolved, poke);
+          if (state.chartData) state.chartData.source = state.session.source || "hand-json";
+          setLocked(true);
+        } else if (!raw) {
           state.session = null;
           state.chartData = null;
           renderTracks();
           updateStatus();
           return;
+        } else {
+          const data = P.chartFromTjaAndHands(a.getTja(), raw, poke);
+          const notes = P.notesToStickingInput(parsed.notes, parsed.measures, P.normBigMode(poke.bigNote) === "small");
+          const resolved = Edits().resolvedFromEvents(data.events);
+          state.notes = notes;
+          state.session = Edits().createSessionFromResolved(notes, poke, resolved);
+          state.chartData = data;
+          setLocked(true);
         }
-        const data = P.chartFromTjaAndHands(a.getTja(), raw, poke);
-        const notes = P.notesToStickingInput(parsed.notes, parsed.measures, P.normBigMode(poke.bigNote) === "small");
-        const resolved = Edits().resolvedFromEvents(data.events);
-        state.notes = notes;
-        state.session = Edits().createSessionFromResolved(notes, poke, resolved);
-        state.chartData = data;
-        setLocked(true);
       } else {
         setLocked(false);
         if (!state.session || opts.fresh) {
@@ -279,6 +293,142 @@
       if (a && a.showError) a.showError(err.message || String(err));
       else console.error(err);
     }
+  }
+
+  function noteChartReplaced() {
+    state.session = null;
+    state.notes = [];
+    state.selection = null;
+    state.expanded = null;
+    if (state.mode === "custom") {
+      state.mode = "tweak";
+      setModeButtons();
+      setLocked(false);
+    }
+    if (state.open) rebuild({ keepTime: false, fresh: true });
+  }
+
+  function applyAuthoringChange(nextTja, change) {
+    const a = app();
+    const P = Parser();
+    const author = Author();
+    if (!author) return;
+    if (a && a.setTja) a.setTja(nextTja);
+    try {
+      const parsed = parseCurrentCourse();
+      const poke = currentOpts();
+      state.parsed = parsed;
+      state.rawNotes = parsed.notes || [];
+      state.measures = parsed.measures || [];
+      const newNotes = P.notesToStickingInput(parsed.notes, parsed.measures, P.normBigMode(poke.bigNote) === "small");
+      if (change.type === "append") {
+        if (!state.session) {
+          const made = freshAutoSession(parsed, poke);
+          state.notes = made.notes;
+          state.session = made.session;
+        } else {
+          state.session.notes = newNotes;
+          state.notes = newNotes;
+        }
+      } else if (!state.session || author.shouldRegenerate(state.session)) {
+        const made = freshAutoSession(parsed, poke);
+        state.notes = made.notes;
+        state.session = made.session;
+      } else {
+        author.shiftSession(state.session, {
+          type: change.type,
+          index: change.index,
+          notes: newNotes,
+          dominant: poke.惯用手,
+        });
+        state.notes = newNotes;
+      }
+      const resolved = Edits().resolve(state.session);
+      state.chartData = payloadFromResolved(parsed, resolved, poke);
+      if (state.session && state.session.source === "hand-json" && state.chartData) {
+        state.chartData.source = "hand-json";
+      }
+      state.selection = null;
+      hidePops();
+      applyToEngine(state.chartData, true);
+      renderTracks();
+      updateStatus();
+    } catch (err) {
+      if (a && a.showError) a.showError(err.message || String(err));
+      else console.error(err);
+    }
+  }
+
+  function placeOnGrid(measure, cell) {
+    const a = app();
+    const author = Author();
+    if (!a || !author || !a.getTja) return;
+    const res = author.placeNote(a.getTja(), {
+      measure: measure,
+      cell: cell,
+      face: state.noteFace,
+      size: state.noteSize,
+    });
+    if (!res.changed) return;
+    applyAuthoringChange(res.tja, { type: "insert", index: res.index });
+  }
+
+  function deleteOnGrid(measure, cell) {
+    const a = app();
+    const author = Author();
+    if (!a || !author || !a.getTja) return;
+    const res = author.deleteNote(a.getTja(), { measure: measure, cell: cell });
+    if (!res.changed) return;
+    applyAuthoringChange(res.tja, { type: "delete", index: res.index });
+  }
+
+  function appendEmptyMeasure() {
+    const a = app();
+    const author = Author();
+    if (!a || !author || !a.getTja) return;
+    const res = author.appendMeasure(a.getTja());
+    applyAuthoringChange(res.tja, { type: "append" });
+  }
+
+  function cellOfNote(index) {
+    const n = state.rawNotes[index];
+    if (!n) return null;
+    const m = (state.measures || []).find((mm) => mm.index === n.measure);
+    const beats = m && m.beats != null ? m.beats : (n.measureBeats || 4);
+    const count = Math.max(1, Math.round(beats * 4));
+    const slots = n.slots || count;
+    let cell = Math.round(n.pos * count / slots);
+    if (cell >= count) cell = count - 1;
+    if (cell < 0) cell = 0;
+    return { measure: n.measure, cell: cell };
+  }
+
+  function setFaceSize(kind, value) {
+    if (kind === "face") state.noteFace = value === "ka" ? "ka" : "don";
+    else state.noteSize = value === "big" ? "big" : "normal";
+    const root = kind === "face" ? ui.faceSeg : ui.sizeSeg;
+    const attr = kind === "face" ? "data-face" : "data-size";
+    const current = kind === "face" ? state.noteFace : state.noteSize;
+    if (!root) return;
+    root.querySelectorAll("[" + attr + "]").forEach((b) => {
+      const on = b.getAttribute(attr) === current;
+      b.classList.toggle("on", on);
+      b.setAttribute("aria-checked", String(on));
+    });
+  }
+
+  function setAddingNotes(on) {
+    state.addingNotes = !!on;
+    if (ui.addNoteBtn) {
+      ui.addNoteBtn.setAttribute("aria-pressed", String(state.addingNotes));
+    }
+    if (ui.notePicker) ui.notePicker.hidden = !state.addingNotes;
+    if (ui.root) ui.root.classList.toggle("is-adding-notes", state.addingNotes);
+    if (!state.addingNotes) {
+      hidePops();
+      state.selection = null;
+    }
+    if (state.open) renderTracks();
   }
 
   function resolvedNow() {
@@ -708,6 +858,19 @@
         tick.style.left = (LANE_PAD + (t / ticks) * INNER_W) + "px";
         lane.appendChild(tick);
       }
+      if (state.addingNotes) {
+        for (let c = 0; c < ticks; c++) {
+          const cell = document.createElement("button");
+          cell.type = "button";
+          cell.className = "editor-cell";
+          cell.dataset.measure = String(measure.index);
+          cell.dataset.cell = String(c);
+          cell.style.left = (LANE_PAD + (c / ticks) * INNER_W) + "px";
+          cell.style.width = (INNER_W / ticks) + "px";
+          cell.setAttribute("aria-label", "第 " + measure.index + " 小节 第 " + (c + 1) + " 个 16 分");
+          lane.appendChild(cell);
+        }
+      }
       const idxs = notesByMeasure[measure.index] || [];
       for (let k = 0; k < idxs.length; k++) {
         const i = idxs[k];
@@ -802,6 +965,14 @@
       el.appendChild(handsEl);
       frag.appendChild(el);
     });
+    if (state.addingNotes) {
+      const add = document.createElement("button");
+      add.type = "button";
+      add.className = "editor-add-measure";
+      add.id = "editorAddMeasure";
+      add.textContent = "加一小节";
+      frag.appendChild(add);
+    }
     ui.measuresEl.replaceChildren(frag);
     if (ui.playhead) ui.playhead.hidden = !measures.length;
     paintPlayhead();
@@ -1207,6 +1378,10 @@
     ui.rangePopTitle = $("editorRangePopTitle");
     ui.swapPop = $("editorSwapPop");
     ui.chartHint = $("editorChartHint");
+    ui.addNoteBtn = $("editorAddNoteBtn");
+    ui.notePicker = $("editorNotePicker");
+    ui.faceSeg = $("editorFaceSeg");
+    ui.sizeSeg = $("editorSizeSeg");
     ui.stageHost = $("editorStageHost");
     ui.playText = $("editorPlayText");
     ui.playHand = $("editorPlayHand");
@@ -1333,6 +1508,31 @@
     }
     if (ui.playBtn) ui.playBtn.addEventListener("click", () => togglePlay());
 
+    if (ui.addNoteBtn) {
+      ui.addNoteBtn.addEventListener("click", () => setAddingNotes(!state.addingNotes));
+    }
+    if (ui.faceSeg) {
+      ui.faceSeg.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-face]");
+        if (!btn) return;
+        setFaceSize("face", btn.dataset.face);
+      });
+    }
+    if (ui.sizeSeg) {
+      ui.sizeSeg.addEventListener("click", (e) => {
+        const btn = e.target.closest("[data-size]");
+        if (!btn) return;
+        setFaceSize("size", btn.dataset.size);
+      });
+    }
+    if (ui.measuresEl) {
+      ui.measuresEl.addEventListener("click", (e) => {
+        const btn = e.target.closest(".editor-add-measure");
+        if (!btn || !state.addingNotes) return;
+        appendEmptyMeasure();
+      });
+    }
+
     if (ui.scroll) {
       ui.scroll.addEventListener("mousedown", onPointerDown);
       ui.scroll.addEventListener("wheel", onZoomWheel, { passive: false });
@@ -1440,6 +1640,44 @@
   function onPointerDown(e) {
     if (e.button !== 0) return;
     if (e.target.closest(".editor-popover")) return;
+    if (e.target.closest(".editor-add-measure")) return;
+
+    if (state.addingNotes) {
+      const note = e.target.closest(".editor-note");
+      const cell = !note && e.target.closest(".editor-cell");
+      if (note || cell) {
+        e.preventDefault();
+        const startX = e.clientX;
+        const startY = e.clientY;
+        const startLeft = ui.scroll.scrollLeft;
+        const startTop = ui.scroll.scrollTop;
+        let moved = false;
+        const move = (ev) => {
+          const dx = ev.clientX - startX;
+          const dy = ev.clientY - startY;
+          if (!moved && Math.abs(dx) + Math.abs(dy) <= 4) return;
+          moved = true;
+          ui.scroll.classList.add("is-panning");
+          ui.scroll.scrollLeft = startLeft - dx;
+          ui.scroll.scrollTop = startTop - dy;
+        };
+        const up = () => {
+          document.removeEventListener("mousemove", move);
+          document.removeEventListener("mouseup", up);
+          ui.scroll.classList.remove("is-panning");
+          if (moved) return;
+          if (note) {
+            const hit = cellOfNote(+note.dataset.index);
+            if (hit) deleteOnGrid(hit.measure, hit.cell);
+          } else if (cell) {
+            placeOnGrid(+cell.dataset.measure, +cell.dataset.cell);
+          }
+        };
+        document.addEventListener("mousemove", move);
+        document.addEventListener("mouseup", up);
+        return;
+      }
+    }
 
     // Clicking a collapsed string (or its tag) expands it; clicking another
     // string while zoomed switches to that one.
@@ -1614,6 +1852,8 @@
     },
     expandAdvanced: (v) => setAdvanced(v !== false),
     importJsonText: importJsonText,
+    noteChartReplaced: noteChartReplaced,
+    setAddingNotes: setAddingNotes,
     getState: () => state,
     getResolved: resolvedNow,
   };

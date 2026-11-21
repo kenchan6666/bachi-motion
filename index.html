@@ -818,6 +818,33 @@
     flex-direction: column;
     gap: 8px;
   }
+  .blank-chart-fields {
+    display: flex;
+    gap: 8px;
+  }
+  .blank-chart-field {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--ink-deep);
+  }
+  .blank-chart-field input {
+    width: 100%;
+    height: 32px;
+    border: 1.5px solid var(--line-strong);
+    border-radius: 8px;
+    background: var(--btn);
+    padding: 0 8px;
+    color: var(--ink-deep);
+  }
+  .blank-chart-open {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
   .original-song-chosen {
     display: flex;
     flex-wrap: wrap;
@@ -1200,6 +1227,22 @@ LEVEL:6
           <details class="settings-advanced" id="settingsAdvanced">
             <summary>高级</summary>
             <div class="settings-advanced-body">
+              <div class="blank-chart-fields">
+                <label class="blank-chart-field">BPM
+                  <input id="settingsBlankBpm" type="number" min="1" max="999" step="1" value="120" inputmode="numeric">
+                </label>
+                <label class="blank-chart-field">小节
+                  <input id="settingsBlankMeasures" type="number" min="1" max="512" step="1" value="8" inputmode="numeric">
+                </label>
+              </div>
+              <div class="blank-chart-open">
+                <button type="button" class="file-btn" id="settingsOpenBlank">打开空谱面</button>
+                <button type="button" class="route-hint-btn" id="settingsBlankHintBtn" popovertarget="settingsBlankHint" aria-expanded="false" aria-controls="settingsBlankHint" aria-label="打开空谱面说明">!</button>
+              </div>
+              <div id="settingsBlankHint" class="route-hint" popover="auto">
+                <button type="button" class="route-hint-close" popovertarget="settingsBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
+                <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+              </div>
               <div class="chips">
                 <label class="file-btn">打开原曲<input id="settingsOriginalSong" data-original-song type="file" accept="audio/*,.wav,.mp3,.ogg,.flac,.m4a,.aac,.opus,.mp4"></label>
               </div>
@@ -1297,6 +1340,22 @@ LEVEL:6
         <div class="editor-advanced" id="editorAdvanced">
           <button type="button" class="editor-advanced-btn" id="editorAdvancedBtn" aria-expanded="false">高级 <span class="chevron" aria-hidden="true"></span></button>
           <div class="editor-advanced-panel" id="editorAdvancedPanel" hidden>
+            <div class="blank-chart-fields">
+              <label class="blank-chart-field">BPM
+                <input id="editorBlankBpm" type="number" min="1" max="999" step="1" value="120" inputmode="numeric">
+              </label>
+              <label class="blank-chart-field">小节
+                <input id="editorBlankMeasures" type="number" min="1" max="512" step="1" value="8" inputmode="numeric">
+              </label>
+            </div>
+            <div class="blank-chart-open">
+              <button type="button" class="file-btn" id="editorOpenBlank">打开空谱面</button>
+              <button type="button" class="route-hint-btn" id="editorBlankHintBtn" popovertarget="editorBlankHint" aria-expanded="false" aria-controls="editorBlankHint" aria-label="打开空谱面说明">!</button>
+            </div>
+            <div id="editorBlankHint" class="route-hint" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="editorBlankHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>用填写的 BPM 和小节数做一张空谱。不填就是 BPM 120、8 小节，标题是「未命名」。这张谱不带原曲。已经有音符时会先确认，再替换当前谱。</p>
+            </div>
             <label class="file-btn">导入 JSON<input id="editorJsonFile" type="file" accept=".json,application/json"></label>
             <button type="button" class="file-btn" id="editorExportJson">导出 JSON</button>
             <label class="file-btn">打开 TJA<input id="editorTjaFile" type="file" accept=".tja,text/plain"></label>
@@ -1316,6 +1375,24 @@ LEVEL:6
         <div class="editor-chart-head">
           <h2>谱面与手顺轨道</h2>
           <p id="editorChartHint">拖选一段可改滚奏或交互 · 单击音符可换手</p>
+          <div class="editor-author" id="editorAuthor">
+            <button type="button" class="file-btn" id="editorAddNoteBtn" aria-pressed="false">加入音符</button>
+            <button type="button" class="route-hint-btn" id="editorAddNoteHintBtn" popovertarget="editorAddNoteHint" aria-expanded="false" aria-controls="editorAddNoteHint" aria-label="加入音符说明">!</button>
+            <div class="editor-note-picker" id="editorNotePicker" hidden>
+              <div class="seg" id="editorFaceSeg" role="radiogroup" aria-label="音符">
+                <button type="button" class="on" data-face="don" role="radio" aria-checked="true">咚</button>
+                <button type="button" data-face="ka" role="radio" aria-checked="false">咔</button>
+              </div>
+              <div class="seg" id="editorSizeSeg" role="radiogroup" aria-label="大小">
+                <button type="button" class="on" data-size="normal" role="radio" aria-checked="true">普通</button>
+                <button type="button" data-size="big" role="radio" aria-checked="false">大</button>
+              </div>
+            </div>
+            <div id="editorAddNoteHint" class="route-hint route-hint-wide" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="editorAddNoteHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>先选咚或咔，再选普通或大，然后点 16 分格子放进去。再点那颗音符就删掉。谱的末尾可以加一小节。换手和拖动画布仍然可用。关掉之后，恢复点音符换手、拖选和原来的拖动。</p>
+            </div>
+          </div>
         </div>
         <div class="editor-scroll" id="editorScroll">
           <div class="editor-measures" id="editorMeasures"></div>
@@ -1375,6 +1452,7 @@ LEVEL:6
 <script src="js/sticking.js"></script>
 <script src="js/parser.js"></script>
 <script src="js/hand-edits.js"></script>
+<script src="js/chart-author.js"></script>
 <script src="js/loop-range.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/original-song.js"></script>

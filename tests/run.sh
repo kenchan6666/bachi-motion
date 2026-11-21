@@ -45,6 +45,14 @@ echo "== settings hint popovers anchor to their buttons =="
 node tests/hint-popover.test.js
 echo
 
+echo "== chart author (blank chart + 16th notes) =="
+node tests/chart-author.test.js
+echo
+
+echo "== chart author UI (高级空谱面 / 加入音符) =="
+node tests/chart-author-ui.test.js
+echo
+
 echo "== section loop + playback rate =="
 node tests/loop-range.test.js
 echo

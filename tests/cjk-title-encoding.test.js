@@ -133,10 +133,14 @@ check("title face loads Bachi plus Noto Serif SC and TC", function () {
   assert.ok(songRule.indexOf("min-width: 4.5em") >= 0);
 });
 
-check("chart track horizontal scrollbar is thickened", function () {
+check("chart track hides the thin scrollbar", function () {
   const css = fs.readFileSync(path.join(ROOT, "assets/editor.css"), "utf8");
+  assert.ok(css.indexOf("scrollbar-width: none") >= 0);
   assert.ok(css.indexOf(".editor-scroll::-webkit-scrollbar {") >= 0);
-  assert.ok(css.indexOf("height: 18px;") >= 0);
+  assert.ok(!/\.editor-scroll::-webkit-scrollbar\s*\{[^}]*height:\s*18px/.test(css));
+  const html = fs.readFileSync(path.join(ROOT, "index.html"), "utf8");
+  assert.ok(html.indexOf('id="editorOverview"') >= 0);
+  assert.ok(html.indexOf('id="overviewHint"') >= 0);
 });
 
 console.log("cjk-title-encoding: " + passed + " passed");

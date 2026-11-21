@@ -674,6 +674,7 @@
     state.expanded = null;
     if (ui.scroll) ui.scroll.classList.remove("is-zoomed");
     if (ui.zoomCard) ui.zoomCard.hidden = true;
+    syncOverview();
   }
 
   function expandString(s, opts) {
@@ -844,6 +845,7 @@
       // keep the source measure identifiable; dimming is CSS on .is-zoomed
       if (mEl) mEl.classList.add("is-source");
     }
+    syncOverview();
   }
 
   function renderTracks() {
@@ -875,9 +877,11 @@
       el.dataset.index = String(measure.index);
       el.style.width = MEASURE_W + "px";
 
-      const num = document.createElement("div");
+      const num = document.createElement("button");
+      num.type = "button";
       num.className = "editor-barnum";
       num.textContent = String(measure.index);
+      num.setAttribute("aria-label", "第 " + measure.index + " 小节");
       el.appendChild(num);
 
       const lane = document.createElement("div");
@@ -1017,6 +1021,7 @@
       if (ui.zoomCard) ui.zoomCard.hidden = true;
     }
     if (state.selection) restoreSelectionVisual();
+    renderOverview();
   }
 
   function restoreSelectionVisual() {
@@ -1403,6 +1408,10 @@
     ui.jsonFile = $("editorJsonFile");
     ui.tjaFile = $("editorTjaFile");
     ui.scroll = $("editorScroll");
+    ui.overview = $("editorOverview");
+    ui.overviewTrack = $("editorOverviewTrack");
+    ui.overviewWindow = $("editorOverviewWindow");
+    ui.overviewMeasures = $("editorOverviewMeasures");
     ui.measuresEl = $("editorMeasures");
     ui.playhead = $("editorPlayhead");
     ui.sel = $("editorSel");
@@ -1568,8 +1577,23 @@
     if (ui.scroll) {
       ui.scroll.addEventListener("mousedown", onPointerDown);
       ui.scroll.addEventListener("wheel", onZoomWheel, { passive: false });
+      ui.scroll.addEventListener("scroll", syncOverview, { passive: true });
+      ui.scroll.addEventListener("click", (e) => {
+        const barnum = e.target.closest(".editor-barnum");
+        if (!barnum || e.detail !== 0) return;
+        const measure = barnum.closest(".editor-measure");
+        if (!measure) return;
+        jumpToMeasure(+measure.dataset.index);
+      });
       bindZoomTouch();
     }
+    bindOverview();
+    if (typeof ResizeObserver === "function") {
+      const ro = new ResizeObserver(() => syncOverview());
+      if (ui.scroll) ro.observe(ui.scroll);
+      if (ui.overviewTrack) ro.observe(ui.overviewTrack);
+    }
+    window.addEventListener("resize", syncOverview);
 
     document.addEventListener("click", (e) => {
       if (ui.tech && !ui.tech.contains(e.target)) closeMenus();
@@ -1610,16 +1634,140 @@
     return Number.isFinite(i) ? i : null;
   }
 
+  const OVERVIEW_MIN_W = 56;
+
+  function overviewMetrics() {
+    const scroll = ui.scroll;
+    const track = ui.overviewTrack;
+    const sw = scroll ? scroll.scrollWidth : 0;
+    const cw = scroll ? scroll.clientWidth : 0;
+    const max = Math.max(0, sw - cw);
+    const trackW = track ? track.clientWidth : 0;
+    const ratio = sw > 0 ? Math.min(1, cw / sw) : 1;
+    let winW = trackW * ratio;
+    if (max > 0) winW = Math.max(Math.min(OVERVIEW_MIN_W, trackW), winW);
+    winW = Math.min(trackW, Math.max(0, winW));
+    const travel = Math.max(0, trackW - winW);
+    const left = max > 0 && travel > 0 ? (scroll.scrollLeft / max) * travel : 0;
+    return { sw: sw, cw: cw, max: max, trackW: trackW, winW: winW, travel: travel, left: left };
+  }
+
+  function scrollFromWindowLeft(left, metrics) {
+    if (!metrics || metrics.max <= 0 || metrics.travel <= 0) return 0;
+    return (left / metrics.travel) * metrics.max;
+  }
+
+  function syncOverview() {
+    if (!ui.overviewTrack || !ui.overviewWindow || !ui.scroll) return;
+    if (ui.overview && ui.overview.hidden) return;
+    const metrics = overviewMetrics();
+    ui.overviewWindow.style.left = metrics.left + "px";
+    ui.overviewWindow.style.width = metrics.winW + "px";
+    const pct = metrics.max > 0 ? Math.round((ui.scroll.scrollLeft / metrics.max) * 100) : 0;
+    ui.overviewTrack.setAttribute("aria-valuenow", String(pct));
+    if (!ui.overviewMeasures) return;
+    ui.overviewMeasures.querySelectorAll(".editor-overview-cell").forEach((cell) => {
+      const span = cell.querySelector("span");
+      if (span) span.hidden = cell.clientWidth < 16;
+    });
+  }
+
+  function renderOverview() {
+    if (!ui.overview || !ui.overviewMeasures) return;
+    const measures = state.measures || [];
+    ui.overview.hidden = !measures.length;
+    const frag = document.createDocumentFragment();
+    for (let i = 0; i < measures.length; i++) {
+      const cell = document.createElement("div");
+      cell.className = "editor-overview-cell";
+      cell.dataset.index = String(measures[i].index);
+      const label = document.createElement("span");
+      label.textContent = String(measures[i].index);
+      cell.appendChild(label);
+      frag.appendChild(cell);
+    }
+    ui.overviewMeasures.replaceChildren(frag);
+    syncOverview();
+  }
+
+  function bindOverview() {
+    const track = ui.overviewTrack;
+    if (!track) return;
+    track.addEventListener("mousedown", (e) => {
+      if (e.button !== 0) return;
+      if (e.target.closest("button, a, input, textarea")) return;
+      e.preventDefault();
+      const metrics = overviewMetrics();
+      const x = e.clientX - track.getBoundingClientRect().left;
+      const onWindow = x >= metrics.left - 1 && x <= metrics.left + metrics.winW + 1;
+      const grab = onWindow ? x - metrics.left : metrics.winW / 2;
+      const apply = (clientX) => {
+        const now = overviewMetrics();
+        const xx = clientX - track.getBoundingClientRect().left;
+        const left = Math.max(0, Math.min(now.travel, xx - grab));
+        ui.scroll.scrollLeft = scrollFromWindowLeft(left, now);
+        syncOverview();
+      };
+      if (!onWindow) apply(e.clientX);
+      track.classList.add("is-panning");
+      const move = (ev) => apply(ev.clientX);
+      const up = () => {
+        document.removeEventListener("mousemove", move);
+        document.removeEventListener("mouseup", up);
+        track.classList.remove("is-panning");
+      };
+      document.addEventListener("mousemove", move);
+      document.addEventListener("mouseup", up);
+    });
+    track.addEventListener("keydown", (e) => {
+      if (e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const max = Math.max(0, ui.scroll.scrollWidth - ui.scroll.clientWidth);
+      const step = Math.max(48, ui.scroll.clientWidth * 0.25);
+      if (e.key === "ArrowRight") { e.preventDefault(); ui.scroll.scrollLeft += step; }
+      else if (e.key === "ArrowLeft") { e.preventDefault(); ui.scroll.scrollLeft -= step; }
+      else if (e.key === "Home") { e.preventDefault(); ui.scroll.scrollLeft = 0; }
+      else if (e.key === "End") { e.preventDefault(); ui.scroll.scrollLeft = max; }
+      else return;
+      syncOverview();
+    });
+  }
+
+  function jumpToMeasure(measureIndex) {
+    if (!ui.scroll || !ui.measuresEl || !Number.isFinite(+measureIndex)) return;
+    const el = ui.measuresEl.querySelector('.editor-measure[data-index="' + measureIndex + '"]');
+    if (!el) return;
+    const max = Math.max(0, ui.scroll.scrollWidth - ui.scroll.clientWidth);
+    const target = el.offsetLeft + (ui.measuresEl.offsetLeft || 0);
+    ui.scroll.scrollLeft = Math.max(0, Math.min(max, target));
+    syncOverview();
+  }
+
+  function measureIndexFromPoint(target, clientX) {
+    const direct = target && target.closest && target.closest(".editor-measure");
+    if (direct && ui.scroll && ui.scroll.contains(direct)) {
+      const idx = +direct.dataset.index;
+      if (Number.isFinite(idx)) return idx;
+    }
+    if (!ui.measuresEl || clientX == null) return null;
+    const nodes = ui.measuresEl.querySelectorAll(".editor-measure");
+    for (let i = 0; i < nodes.length; i++) {
+      const rect = nodes[i].getBoundingClientRect();
+      if (clientX >= rect.left - MEASURE_GAP / 2 && clientX <= rect.right + MEASURE_GAP / 2) {
+        const idx = +nodes[i].dataset.index;
+        if (Number.isFinite(idx)) return idx;
+      }
+    }
+    return null;
+  }
+
   function onScrollbar(e) {
     const el = ui.scroll;
     if (!el) return false;
     const r = el.getBoundingClientRect();
-    // Overlay bars don't change client size, but they still sit on the
-    // trailing edge. Leave that strip to the native scrollbar.
-    const barY = Math.max(el.offsetHeight - el.clientHeight, 18);
-    const barX = Math.max(el.offsetWidth - el.clientWidth, 12);
-    if (el.scrollWidth > el.clientWidth + 1 && e.clientY >= r.bottom - barY && e.clientY <= r.bottom + 2) return true;
-    if (el.scrollHeight > el.clientHeight + 1 && e.clientX >= r.right - barX && e.clientX <= r.right + 2) return true;
+    const barY = el.offsetHeight - el.clientHeight;
+    const barX = el.offsetWidth - el.clientWidth;
+    if (barY > 2 && el.scrollWidth > el.clientWidth + 1 && e.clientY >= r.bottom - barY && e.clientY <= r.bottom + 2) return true;
+    if (barX > 2 && el.scrollHeight > el.clientHeight + 1 && e.clientX >= r.right - barX && e.clientX <= r.right + 2) return true;
     return false;
   }
 
@@ -1627,6 +1775,39 @@
     if (!target || !target.closest || !ui.scroll || !ui.scroll.contains(target)) return false;
     if (target.closest(".editor-note, .editor-string, .editor-zoom, .editor-popover, button, a, input, textarea, label")) return false;
     return true;
+  }
+
+  function isZoomBackground(target) {
+    if (!target || !target.closest || !state.expanded) return false;
+    if (!target.closest(".editor-zoom")) return false;
+    if (target.closest(".editor-note, .editor-zoom-cap, .editor-popover, a, input, textarea, button")) return false;
+    return true;
+  }
+
+  function beginZoomPan(e) {
+    if (!state.expanded) return;
+    e.preventDefault();
+    const startX = e.clientX;
+    const originPan = state.expanded.panX || 0;
+    let moved = false;
+    const move = (ev) => {
+      const dx = ev.clientX - startX;
+      if (!moved && Math.abs(dx) <= 4) return;
+      moved = true;
+      const innerW = ui.zoomInner ? ui.zoomInner.scrollWidth : 0;
+      const viewW = ui.zoomView ? Math.max(0, ui.zoomView.clientWidth - ZOOM_VIEW_PAD * 2) : 0;
+      state.expanded.panX = clampZoomPan(originPan + dx, innerW, viewW);
+      if (ui.zoomInner) ui.zoomInner.style.transform = "translateX(" + state.expanded.panX + "px)";
+    };
+    const up = () => {
+      document.removeEventListener("mousemove", move);
+      document.removeEventListener("mouseup", up);
+      if (moved) return;
+      hidePops();
+      state.selection = null;
+    };
+    document.addEventListener("mousemove", move);
+    document.addEventListener("mouseup", up);
   }
 
   function beginTrackPan(e) {
@@ -1645,12 +1826,15 @@
       ui.scroll.classList.add("is-panning");
       ui.scroll.scrollLeft = startLeft - dx;
       ui.scroll.scrollTop = startTop - dy;
+      syncOverview();
     };
     const up = (ev) => {
       document.removeEventListener("mousemove", move);
       document.removeEventListener("mouseup", up);
       ui.scroll.classList.remove("is-panning");
       if (moved) return;
+      const idx = measureIndexFromPoint(origin, ev.clientX);
+      if (idx != null) jumpToMeasure(idx);
       const t = timeAtClientX(ev.clientX);
       if (t != null && origin && origin.closest && (origin.closest(".editor-lane") || origin.closest(".editor-hands"))) {
         seekTo(t);
@@ -1727,8 +1911,14 @@
       return;
     }
 
-    if (isEmptyTrack(e.target)) {
-      if (onScrollbar(e)) return;
+    if (isZoomBackground(e.target)) {
+      beginZoomPan(e);
+      return;
+    }
+
+    const barnum = e.target.closest(".editor-barnum");
+    if (barnum || isEmptyTrack(e.target)) {
+      if (!barnum && onScrollbar(e)) return;
       beginTrackPan(e);
       return;
     }
@@ -1811,7 +2001,8 @@
     const dy = wheelPixels(e.deltaY, e.deltaMode);
     const delta = Math.abs(dx) > Math.abs(dy) ? dx : dy;
     if (!delta) return;
-    if (state.expanded) {
+    const overZoom = !!(state.expanded && e.target.closest && e.target.closest(".editor-zoom"));
+    if (overZoom) {
       e.preventDefault();
       panZoom(delta);
       return;
@@ -1821,6 +2012,7 @@
     if (max <= 0) return;
     e.preventDefault();
     ui.scroll.scrollLeft += delta;
+    syncOverview();
   }
 
   function bindZoomTouch() {

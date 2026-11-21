@@ -1048,25 +1048,54 @@
     return toAbsPairs(auto22, start);
   }
 
-  function applyRollLayer(notes, hands, runs, dominant, mode, fresh) {
+  function applyRollLayer(notes, hands, runs, dominant, mode, fresh, technique) {
     var allPairs = [];
     if (mode === "不滚奏") return allPairs;
     var nextStartHand = null;
     var prevEnd = -2;
+    // 全换：滚完接着数。一套滚奏用掉的手算完后，后面的音（含两串滚奏之间的单打）
+    // 从滚完后的下一只手接着走，不再退回套滚奏之前那套单打交替。
+    // 新乐句仍回惯用手。炒菜、半换不走这条，各自的正手起保持原样。
+    var carry = null;
     for (var r = 0; r < runs.length; r++) {
       var run = runs[r];
-      var startHand;
-      // Adjacent roll-runs keep the hand after the previous pair, unless this
-      // note is a fresh start (new phrase, or a new 炒菜 segment). Those
-      // already have 惯用手 written into hands[] by assignTechnique; do not
-      // carry the previous phrase's off-hand onto a 鱼蛋 / 三连 / 四连 / 五连.
-      if (nextStartHand && run.start === prevEnd + 1 && !(fresh && fresh[run.start])) startHand = nextStartHand;
-      else startHand = hands[run.start];
+      if (fresh && fresh[run.start]) carry = null;
+      var startHand = hands[run.start];
+      var fromCarry = false;
+      if (technique === "全换" && carry && !(fresh && fresh[run.start])) {
+        var h = carry;
+        var blocked = false;
+        for (var i = prevEnd + 1; i < run.start; i++) {
+          if (fresh && fresh[i]) { blocked = true; break; }
+          hands[i] = h;
+          h = otherHand(h);
+        }
+        if (!blocked) {
+          startHand = h;
+          fromCarry = true;
+        } else {
+          carry = null;
+          startHand = hands[run.start];
+        }
+      } else if (nextStartHand && run.start === prevEnd + 1 && !(fresh && fresh[run.start])) {
+        // 炒菜 / 半换：只有紧挨着的下一串才接着上一对之后的手。
+        // 新乐句、炒菜的新句型已经在 hands[] 里写成惯用手，不要把上一句的逆手带过去。
+        startHand = nextStartHand;
+      }
       var pairs = chooseAutoPairs(notes, run.start, run.end, startHand, dominant, mode);
       var after = applyPairsToHands(hands, run.start, run.end, startHand, pairs);
       for (var p = 0; p < pairs.length; p++) allPairs.push(pairs[p]);
+      if (technique === "全换" && (pairs.length > 0 || fromCarry)) carry = after;
       nextStartHand = after;
       prevEnd = run.end;
+    }
+    if (technique === "全换" && carry && prevEnd >= 0) {
+      var tail = carry;
+      for (var t = prevEnd + 1; t < notes.length; t++) {
+        if (fresh && fresh[t]) break;
+        hands[t] = tail;
+        tail = otherHand(tail);
+      }
     }
     return allPairs;
   }
@@ -1178,7 +1207,7 @@
     } else {
       fresh = freshStarts(notes, phrases);
     }
-    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh);
+    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh, 手法);
     var warnings = collectWarnings(notes, hands, runs, rollPairs, dominant, 手法, globalBpm);
     return { hands: hands, rollPairs: rollPairs, warnings: warnings };
   }

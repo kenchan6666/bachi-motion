@@ -753,6 +753,43 @@ extra("炒菜 restarts a dense string on the dominant hand after 散音", functi
   assert.strictEqual(out.hands.join(""), "RLRLRL", "hole " + out.hands.join(""));
 });
 
+// 三连之间隔半拍，中间夹一颗咚的单打，不是休止。三连和单打都是咚。
+function spacedTripleDon() {
+  const groups = ["ddd", "d", "ddd", "d", "ddd"];
+  const notes = [];
+  let beat = 0;
+  groups.forEach(function (g) {
+    for (let i = 0; i < g.length; i++) {
+      if (notes.length) beat += (i === 0 ? 0.5 : 0.25);
+      notes.push({ beat: +beat.toFixed(6), colour: "don", big: false });
+    }
+  });
+  return notes;
+}
+
+extra("全换自动滚奏：有间隔的三连滚完接着数，炒菜仍正手起", function () {
+  const notes = spacedTripleDon();
+  // (RR)l r (LL)r l (RR)l。三连正、逆、正轮着滚，夹着的咚接着滚完后的下一只手。
+  const quan = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(quan.hands.join(""), "RRLRLLRLRRL", "全换 " + quan.hands.join(""));
+  assert.strictEqual(pairSig(quan), "0-1,4-5,8-9");
+  assert.deepStrictEqual(quan.warnings, []);
+  const left = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "L", 滚奏: "自动滚奏" });
+  assert.strictEqual(left.hands.join(""), "LLRLRRLRLLR", "全换 L " + left.hands.join(""));
+  assert.strictEqual(pairSig(left), "0-1,4-5,8-9");
+  // 没有滚奏就不要改掉原来的单打交替。24 分滚奏里这些 16 分也不滚。
+  const flat = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  assert.strictEqual(flat.hands.join(""), "RLRLRLRLRLR");
+  assert.strictEqual(pairSig(flat), "");
+  const slow = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "24分滚奏" });
+  assert.strictEqual(slow.hands.join(""), "RLRLRLRLRLR");
+  assert.strictEqual(pairSig(slow), "");
+  // 炒菜每个三连仍正手起：(RR)l r (RR)l r (RR)l。
+  const chao = sticking.autoSticking(notes, { bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(chao.hands.join(""), "RRLRRRLRRRL", "炒菜 " + chao.hands.join(""));
+  assert.strictEqual(pairSig(chao), "0-1,4-5,8-9");
+});
+
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);
 if (failed.length) process.exit(1);
 console.log("sticking: all passed (" + passed + ")");

@@ -691,6 +691,28 @@ extra("synthetic TJA: 16夹24 fish 24s are 1-2, 12夹24 stays", function () {
     [15, "1"], [18, "1"], [21, "1"],
   ], 48);
   assertRoll("16 fish ooox(xx)ooo", fish, "RLRLRRLRL", "4-5");
+  // 连续两个 16夹24 鱼蛋 ooo(xxx)ooo(xxx)。1-2 接着数，第二组 (xx) 是逆手滚。
+  // 第二组 24 分恰好结在谱尾，后面没有再跟 16 分。
+  const twoFishEnd = tjaBySlots([
+    [0, "1"], [3, "1"], [6, "1"],
+    [9, "2"], [11, "2"], [13, "2"],
+    [15, "1"], [18, "1"], [21, "1"],
+    [24, "2"], [26, "2"], [28, "2"],
+  ], 48);
+  ["全换", "炒菜", "半换A", "半换B"].forEach(function (tech) {
+    assertRoll("two fish end " + tech, twoFishEnd, "RLRLRRLRLRLL", "4-5,10-11", { 手法: tech });
+  });
+  // 第二组后面还有 16 分，仍是 1-2 逆手滚，不改成 2-1。
+  const twoFishMore = tjaBySlots([
+    [0, "1"], [3, "1"], [6, "1"],
+    [9, "2"], [11, "2"], [13, "2"],
+    [15, "1"], [18, "1"], [21, "1"],
+    [24, "2"], [26, "2"], [28, "2"],
+    [30, "1"], [33, "1"], [36, "1"],
+  ], 48);
+  ["全换", "炒菜", "半换A", "半换B"].forEach(function (tech) {
+    assertRoll("two fish more " + tech, twoFishMore, "RLRLRRLRLRLLRLR", "4-5,10-11", { 手法: tech });
+  });
   // 12 夹 24：12 分占 4 槽。仍是旧的入间隔 1-2，把后面那颗 12 分卷进 24 段。
   const fish12 = tjaBySlots([
     [0, "1"], [4, "1"], [8, "1"],
@@ -751,6 +773,43 @@ extra("炒菜 restarts a dense string on the dominant hand after 散音", functi
   });
   out = sticking.autoSticking(hole, { bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "不滚奏" });
   assert.strictEqual(out.hands.join(""), "RLRLRL", "hole " + out.hands.join(""));
+});
+
+// 三连之间隔半拍，中间夹一颗咚的单打，不是休止。三连和单打都是咚。
+function spacedTripleDon() {
+  const groups = ["ddd", "d", "ddd", "d", "ddd"];
+  const notes = [];
+  let beat = 0;
+  groups.forEach(function (g) {
+    for (let i = 0; i < g.length; i++) {
+      if (notes.length) beat += (i === 0 ? 0.5 : 0.25);
+      notes.push({ beat: +beat.toFixed(6), colour: "don", big: false });
+    }
+  });
+  return notes;
+}
+
+extra("全换自动滚奏：有间隔的三连滚完接着数，炒菜仍正手起", function () {
+  const notes = spacedTripleDon();
+  // (RR)l r (LL)r l (RR)l。三连正、逆、正轮着滚，夹着的咚接着滚完后的下一只手。
+  const quan = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(quan.hands.join(""), "RRLRLLRLRRL", "全换 " + quan.hands.join(""));
+  assert.strictEqual(pairSig(quan), "0-1,4-5,8-9");
+  assert.deepStrictEqual(quan.warnings, []);
+  const left = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "L", 滚奏: "自动滚奏" });
+  assert.strictEqual(left.hands.join(""), "LLRLRRLRLLR", "全换 L " + left.hands.join(""));
+  assert.strictEqual(pairSig(left), "0-1,4-5,8-9");
+  // 没有滚奏就不要改掉原来的单打交替。24 分滚奏里这些 16 分也不滚。
+  const flat = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "不滚奏" });
+  assert.strictEqual(flat.hands.join(""), "RLRLRLRLRLR");
+  assert.strictEqual(pairSig(flat), "");
+  const slow = sticking.autoSticking(notes, { bpm: 200, 手法: "全换", 惯用手: "R", 滚奏: "24分滚奏" });
+  assert.strictEqual(slow.hands.join(""), "RLRLRLRLRLR");
+  assert.strictEqual(pairSig(slow), "");
+  // 炒菜每个三连仍正手起：(RR)l r (RR)l r (RR)l。
+  const chao = sticking.autoSticking(notes, { bpm: 200, 手法: "炒菜", 惯用手: "R", 滚奏: "自动滚奏" });
+  assert.strictEqual(chao.hands.join(""), "RRLRRRLRRRL", "炒菜 " + chao.hands.join(""));
+  assert.strictEqual(pairSig(chao), "0-1,4-5,8-9");
 });
 
 console.log("sticking: " + passed + "/" + cases.length + " cases + extras, failed " + failed.length);

@@ -946,17 +946,21 @@
     return (left === 16 && right === 16) || (left === 12 && right === 12);
   }
 
-  // 16 夹 24 鱼蛋：一串时值是 24 分的音，前后都是 16 分。
+  // 16 夹 24 鱼蛋：一串时值是 24 分的音，从 16 分后面接出来。
   // 时值是这一颗到下一颗的间隔（合成 TJA 的槽位），不是入间隔。
-  // 返回这组 24 的长度，以及后面第一颗 16 分的下标。不够两颗 24 时不是鱼蛋。
+  // 返回这组 24 的长度，以及组后面第一颗音的下标（可能已经超出串尾）。
+  // 1-2 只决定哪两颗成对，不把每一对再正手起；整串从已经排好的手接着数。
+  // 组尾若正好是最后一颗，没有出间隔，入间隔仍是 24 分，也要算进这组。
   function sixteenFish24(notes, i, end) {
     if (i <= 0 || i > end) return null;
     if (classifyDelta(inbound(notes, i)) !== 16) return null;
     if (classifyDelta(outbound(notes, i)) !== 24) return null;
     var j = i;
     while (j <= end && classifyDelta(outbound(notes, j)) === 24) j++;
+    if (j === end && classifyDelta(inbound(notes, j)) === 24) j++;
     var len = j - i;
-    if (len < 2 || j > end) return null;
+    if (len < 2) return null;
+    if (j > end) return { len: len, next: j };
     var follow = classifyDelta(outbound(notes, j));
     // 后面紧跟 12 分的是 12 夹 24，不在这里改。
     if (follow === 12) return null;
@@ -1048,25 +1052,54 @@
     return toAbsPairs(auto22, start);
   }
 
-  function applyRollLayer(notes, hands, runs, dominant, mode, fresh) {
+  function applyRollLayer(notes, hands, runs, dominant, mode, fresh, technique) {
     var allPairs = [];
     if (mode === "不滚奏") return allPairs;
     var nextStartHand = null;
     var prevEnd = -2;
+    // 全换：滚完接着数。一套滚奏用掉的手算完后，后面的音（含两串滚奏之间的单打）
+    // 从滚完后的下一只手接着走，不再退回套滚奏之前那套单打交替。
+    // 新乐句仍回惯用手。炒菜、半换不走这条，各自的正手起保持原样。
+    var carry = null;
     for (var r = 0; r < runs.length; r++) {
       var run = runs[r];
-      var startHand;
-      // Adjacent roll-runs keep the hand after the previous pair, unless this
-      // note is a fresh start (new phrase, or a new 炒菜 segment). Those
-      // already have 惯用手 written into hands[] by assignTechnique; do not
-      // carry the previous phrase's off-hand onto a 鱼蛋 / 三连 / 四连 / 五连.
-      if (nextStartHand && run.start === prevEnd + 1 && !(fresh && fresh[run.start])) startHand = nextStartHand;
-      else startHand = hands[run.start];
+      if (fresh && fresh[run.start]) carry = null;
+      var startHand = hands[run.start];
+      var fromCarry = false;
+      if (technique === "全换" && carry && !(fresh && fresh[run.start])) {
+        var h = carry;
+        var blocked = false;
+        for (var i = prevEnd + 1; i < run.start; i++) {
+          if (fresh && fresh[i]) { blocked = true; break; }
+          hands[i] = h;
+          h = otherHand(h);
+        }
+        if (!blocked) {
+          startHand = h;
+          fromCarry = true;
+        } else {
+          carry = null;
+          startHand = hands[run.start];
+        }
+      } else if (nextStartHand && run.start === prevEnd + 1 && !(fresh && fresh[run.start])) {
+        // 炒菜 / 半换：只有紧挨着的下一串才接着上一对之后的手。
+        // 新乐句、炒菜的新句型已经在 hands[] 里写成惯用手，不要把上一句的逆手带过去。
+        startHand = nextStartHand;
+      }
       var pairs = chooseAutoPairs(notes, run.start, run.end, startHand, dominant, mode);
       var after = applyPairsToHands(hands, run.start, run.end, startHand, pairs);
       for (var p = 0; p < pairs.length; p++) allPairs.push(pairs[p]);
+      if (technique === "全换" && (pairs.length > 0 || fromCarry)) carry = after;
       nextStartHand = after;
       prevEnd = run.end;
+    }
+    if (technique === "全换" && carry && prevEnd >= 0) {
+      var tail = carry;
+      for (var t = prevEnd + 1; t < notes.length; t++) {
+        if (fresh && fresh[t]) break;
+        hands[t] = tail;
+        tail = otherHand(tail);
+      }
     }
     return allPairs;
   }
@@ -1178,7 +1211,7 @@
     } else {
       fresh = freshStarts(notes, phrases);
     }
-    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh);
+    var rollPairs = applyRollLayer(notes, hands, runs, dominant, 滚奏, fresh, 手法);
     var warnings = collectWarnings(notes, hands, runs, rollPairs, dominant, 手法, globalBpm);
     return { hands: hands, rollPairs: rollPairs, warnings: warnings };
   }

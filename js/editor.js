@@ -169,7 +169,7 @@
     if (!tja.trim()) throw new Error("请先打开或贴一段 TJA 谱面");
     const opts = currentOpts();
     const parsed = P.parseTja(tja);
-    const picked = P.pickCourse(parsed, opts.course);
+    const picked = P.resolveCourse ? P.resolveCourse(parsed, opts) : P.pickCourse(parsed, opts.course);
     return P.sliceCourse(picked, P.parseMeasuresOpt(opts.measures));
   }
 
@@ -1377,7 +1377,9 @@
 
   function importTjaText(text) {
     const a = app();
-    if (a && a.setTja) a.setTja(text);
+    if (a && a.loadChartText) {
+      a.loadChartText(text, { forget: true, preferDefault: true, clearJson: state.mode === "custom" });
+    } else if (a && a.setTja) a.setTja(text);
     if (state.mode === "custom") {
       state.mode = "tweak";
       if (a && a.setMode) a.setMode("zhuren");

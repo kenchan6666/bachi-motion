@@ -263,6 +263,26 @@
   }
 
   .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chart-open-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .course-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    flex: 1 0 auto;
+    max-width: 100%;
+  }
+  .course-picker[hidden] { display: none; }
+  .course-picker .chip {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+    text-align: center;
+  }
   .chip {
     appearance: none;
     border: 1.5px solid var(--line-strong);
@@ -1176,13 +1196,15 @@
                 <p class="block-label">谱面规则</p>
                 <button type="button" class="route-hint-btn" id="chartHintBtn" popovertarget="chartHint" aria-expanded="false" aria-controls="chartHint" aria-label="谱面规则说明">!</button>
               </div>
-              <div class="chips">
+              <div class="chart-open-row">
                 <label class="file-btn">打开 TJA<input id="tjaFile" type="file" accept=".tja,text/plain"></label>
                 <label class="file-btn">打开手顺 JSON<input id="jsonFile" type="file" accept=".json,application/json"></label>
+                <div class="course-picker" id="coursePicker" role="radiogroup" aria-label="难度" hidden></div>
               </div>
               <div id="chartHint" class="route-hint route-hint-wide" popover="auto">
                 <button type="button" class="route-hint-close" popovertarget="chartHint" popovertargetaction="hide" aria-label="关闭">×</button>
                 <p>谱面规则：1 咚　2 咔　3 大咚　4 大咔　0 休止。黄条和气球这版会跳过。半边鼓面变红 = 咚　鼓边青光 = 咔　拇指食指捏 = 滚奏　整手握 = 单击　金色柔光 = 插音　大音符外圈按上面的「大音符」设置（默认单手交替，可改双手或当小音符）</p>
+                <p>同一份谱里有多段难度时，用旁边的按钮换。有鬼先用鬼，没有鬼再用里，否则用第一段。Oni、おに、3 是鬼，Edit、Ura、裏、4 是里；易、普、难也可以写成 0、1、2。大小写不拘。</p>
               </div>
             </div>
 

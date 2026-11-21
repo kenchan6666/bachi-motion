@@ -26,7 +26,7 @@ Flags:
   --song <path>        Optional original audio (wav/ogg/mp3/mp4/…). Aligned at chartStart =
                        firstNoteTime - 0.7. Note times already include OFFSET; it is not
                        subtracted again. Omit this to export with no original music.
-  --course <name>      COURSE/difficulty to render if the TJA has several (default: first / only)
+  --course <name>      COURSE/difficulty if the TJA has several (default: Oni, else Ura/Edit, else first). Aliases: 0–4, Oni/おに, Edit/Ura/裏.
   --measures <A-B>     Inclusive 1-based measure range (default: whole chart)
   --rate <n>           Slow-motion factor applied to the video timeline (default 1).
                        0.5 → video is 2× longer. renderAt still receives real chart time.

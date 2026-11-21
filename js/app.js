@@ -560,6 +560,8 @@
   setupRouteHint("routeHintBtn", "routeHint");
   setupRouteHint("chartHintBtn", "chartHint");
   setupRouteHint("batchHintBtn", "batchHint");
+  setupRouteHint("previewHitsHintBtn", "previewHitsHint");
+  setupRouteHint("editorPreviewHitsHintBtn", "editorPreviewHitsHint");
   setupRouteHint("settingsBlankHintBtn", "settingsBlankHint");
   setupRouteHint("editorBlankHintBtn", "editorBlankHint");
   setupRouteHint("editorAddNoteHintBtn", "editorAddNoteHint");

@@ -2710,6 +2710,10 @@ const state = {
   offset: 0,
   lastTs: null,
 };
+// 预览打点声。只在实时播放跨过音符时出声；导出 / renderAt 不经过这里。
+const previewHitPlayer = (typeof PreviewHits !== "undefined" && PreviewHits.player)
+  ? PreviewHits.player
+  : null;
 // 捏点高度随手的模式变（图片手露到手腕，矢量手裁到指关节）
 for (const h of ["L", "R"]) GEOM.hands[h].pivot.y = CONFIG.PIVOT_Y[state.hands];
 function pickNum(v, def, lo, hi) { const n = parseFloat(v); return isFinite(n) ? Math.max(lo, Math.min(hi, n)) : def; }
@@ -2820,6 +2824,7 @@ function renderFrame(now) {
 
 function tick(ts) {
   if (state.lastTs !== null && state.playing) {
+    const prev = state.now;
     const realDt = Math.min(0.1, (ts - state.lastTs) / 1000);
     // 唯一的时钟累加（实时播放）。进度条选段是预览窗口；循环跳回左帽，不再垫 0.7 秒。
     const clip = currentClip();
@@ -2834,6 +2839,19 @@ function tick(ts) {
       clipEnd: clip.end,
     });
     state.now = step.now;
+    // 打点声跟这一帧的谱面时间走。event.t 已经减过 OFFSET，这里不再减。
+    // maxStep 是本帧允许前进的谱面秒数；选段把播放头一下子吸到窗口里时不补响。
+    if (previewHitPlayer && step.now !== prev) {
+      previewHitPlayer.advance(state.events, prev, step.now, {
+        playing: true,
+        loop: state.loop,
+        loopStart: state.loopStart,
+        loopEnd: state.loopEnd,
+        clipStart: clip.start,
+        clipEnd: clip.end,
+        maxStep: realDt * state.rate,
+      });
+    }
     if (!step.playing) {
       setPlaying(false);
       if (step.done) signalBachiDone({ ok: true });
@@ -2855,6 +2873,7 @@ function renderAt(t) {
   const n = +t;
   const time = isFinite(n) ? Math.max(state.start, Math.min(state.end, n)) : state.start;
   state.now = time;
+  if (previewHitPlayer) previewHitPlayer.cancelPending();
   if (state.playing) setPlaying(false);
   renderFrame(time);
   return time;
@@ -2905,6 +2924,10 @@ function syncOriginalSong() {
 
 function setPlaying(p) {
   state.playing = p;
+  if (previewHitPlayer) {
+    if (p) previewHitPlayer.unlock();
+    else previewHitPlayer.cancelPending();
+  }
   syncOriginalSong();
   const btn = $("btnPlay");
   if (!btn) return;
@@ -2941,6 +2964,7 @@ function setTechnique(name) {
   if (typeof window.updateTitleBar === "function") window.updateTitleBar();
 }
 function seek(t) {
+  if (previewHitPlayer) previewHitPlayer.cancelPending();
   state.now = Math.max(state.start, Math.min(state.end, t));
   syncOriginalSong();
   renderFrame(state.now);

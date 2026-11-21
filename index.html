@@ -285,6 +285,17 @@
 
   .transport { display: flex; flex-direction: column; gap: 12px; }
   .transport-row { display: flex; align-items: center; gap: 8px; }
+  .preview-hits {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .preview-hits .check {
+    flex: 1 1 auto;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+  .preview-hits .route-hint-btn { margin-top: 1px; }
   .icon-btn {
     appearance: none;
     width: 40px;
@@ -1102,6 +1113,15 @@
           </div>
         </div>
 
+        <div class="preview-hits">
+          <label class="check"><input id="previewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
+          <button type="button" class="route-hint-btn" id="previewHitsHintBtn" popovertarget="previewHitsHint" aria-expanded="false" aria-controls="previewHitsHint" aria-label="打点声说明">!</button>
+          <div id="previewHitsHint" class="route-hint" popover="auto">
+            <button type="button" class="route-hint-close" popovertarget="previewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
+            <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
+          </div>
+        </div>
+
         <div class="rates" role="group" aria-label="慢放">
           <span class="block-label" style="margin:0 4px 0 0">慢放</span>
           <button type="button" class="chip" data-rate="0.25">0.25×</button>
@@ -1459,6 +1479,14 @@ LEVEL:6
             <span id="editorPlayText">尚未开始</span>
             <button type="button" class="editor-play-btn" id="editorPlayBtn">播放</button>
           </div>
+          <div class="editor-preview-hits">
+            <label class="check"><input id="editorPreviewHits" data-preview-hits type="checkbox" checked> 叠打点声</label>
+            <button type="button" class="route-hint-btn" id="editorPreviewHitsHintBtn" popovertarget="editorPreviewHitsHint" aria-expanded="false" aria-controls="editorPreviewHitsHint" aria-label="打点声说明">!</button>
+            <div id="editorPreviewHitsHint" class="route-hint" popover="auto">
+              <button type="button" class="route-hint-close" popovertarget="editorPreviewHitsHint" popovertargetaction="hide" aria-label="关闭">×</button>
+              <p>预览用自带的合成咚/咔，在鼓棒打到的时刻出声，不是原曲。大音符稍响，和出片一样是 1.25 倍。拖进度或暂停不会把跳过的音补响。这个开关只管预览，和批量出片里的「叠打点声」不是同一个；成片默认不叠，要另外勾上才进视频。</p>
+            </div>
+          </div>
         </div>
         <div class="editor-preview-legend">
           <div class="sw"><span class="hand-pill is-R">右</span>右手</div>
@@ -1474,6 +1502,7 @@ LEVEL:6
 <script src="js/hand-edits.js"></script>
 <script src="js/chart-author.js"></script>
 <script src="js/loop-range.js"></script>
+<script src="js/preview-hits.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/original-song.js"></script>
 <script src="js/titlebar-bpm.js"></script>

@@ -73,6 +73,10 @@ echo "== original song switch (高级) =="
 node tests/original-song.test.js
 echo
 
+echo "== preview don/ka hits =="
+node tests/preview-hits.test.js
+echo
+
 echo "== batch queue + progress =="
 node tests/batch-queue.test.js
 echo

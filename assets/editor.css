@@ -1002,6 +1002,15 @@ body.editor-mode .editor-stage-host svg#stage #dynamic rect[rx="30"] { display: 
   color: var(--ed-hand-ink);
   box-shadow: 0 0 0 1.5px var(--ed-hand-l-line);
 }
+.editor-preview-hits {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.editor-preview-hits .check { font-size: 12px; }
 .editor-play-btn {
   appearance: none;
   margin-left: auto;

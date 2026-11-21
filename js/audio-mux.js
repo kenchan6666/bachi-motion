@@ -23,6 +23,9 @@ const { spawn } = require("child_process");
 
 const LEAD_IN = 0.7;
 const TAIL_TIME = 0.5;
+// Big notes are mixed a bit hotter than small ones. Preview playback uses
+// the same multiplier (see js/preview-hits.js).
+const BIG_BOOST = 1.25;
 
 function chartStartFromFirstNote(firstNoteTime) {
   return +firstNoteTime - LEAD_IN;
@@ -194,7 +197,7 @@ function mixHitAudio(events, opts) {
   const start = opts.start;
   const end = opts.end;
   const rate = opts.rate;
-  const bigBoost = opts.bigBoost == null ? 1.25 : opts.bigBoost;
+  const bigBoost = opts.bigBoost == null ? BIG_BOOST : opts.bigBoost;
   const sr = don.sampleRate;
   if (ka.sampleRate !== sr) throw new Error("don.wav 和 ka.wav 的采样率不一致");
   const videoDur = (end - start) / rate;
@@ -301,6 +304,7 @@ async function prepareExportWav(spec, chartStart, chartEnd, work) {
 module.exports = {
   LEAD_IN: LEAD_IN,
   TAIL_TIME: TAIL_TIME,
+  BIG_BOOST: BIG_BOOST,
   chartStartFromFirstNote: chartStartFromFirstNote,
   exportWindow: exportWindow,
   originalAudioPlan: originalAudioPlan,

@@ -354,6 +354,97 @@ function nearly(a, b, eps) {
     }
   });
 
+  await check("a job plays the selected course and branch, and an omitted course still defaults to Oni", () => {
+    const multi = [
+      "TITLE:多难度",
+      "BPM:120",
+      "OFFSET:0",
+      "COURSE:Easy",
+      "#START",
+      "2,",
+      "#END",
+      "COURSE:Normal",
+      "#START",
+      "1,",
+      "#END",
+      "COURSE:Hard",
+      "#START",
+      "12,",
+      "#END",
+      "COURSE:Oni",
+      "#START",
+      "1,",
+      "#SECTION",
+      "#BRANCHSTART r,1,2",
+      "#LEVELHOLD",
+      "#N",
+      "2,",
+      "#E",
+      "3,",
+      "#M",
+      "4,",
+      "#BRANCHEND",
+      "1,",
+      "#END",
+      "COURSE:Edit",
+      "#START",
+      "22,",
+      "#END",
+      "",
+    ].join("\n");
+    const types = (data) => data.events.map((event) => event.type);
+    const implicit = jobs.buildPayload({ tjaText: multi });
+    assert.strictEqual(implicit.course, "Oni");
+    assert.strictEqual(implicit.branch, "M");
+    assert.deepStrictEqual(types(implicit), ["don", "bigka", "don"]);
+    assert.deepStrictEqual(types(jobs.buildPayload({ tjaText: multi, course: "Easy" })), ["ka"]);
+    assert.deepStrictEqual(types(jobs.buildPayload({ tjaText: multi, course: "Normal" })), ["don"]);
+    assert.deepStrictEqual(types(jobs.buildPayload({ tjaText: multi, course: "Hard" })), ["don", "ka"]);
+    assert.deepStrictEqual(types(jobs.buildPayload({ tjaText: multi, course: "Edit", branch: "N" })), ["ka", "ka"]);
+    const expert = jobs.buildPayload({ tjaText: multi, course: "Oni", branch: "E" });
+    assert.strictEqual(expert.course, "Oni");
+    assert.strictEqual(expert.branch, "E");
+    assert.deepStrictEqual(types(expert), ["don", "bigdon", "don"]);
+    assert.deepStrictEqual(types(jobs.buildPayload({ tjaText: multi, course: "Oni", branch: "N" })), ["don", "ka", "don"]);
+
+    const only = "TITLE:只有易\nBPM:120\nOFFSET:0\nCOURSE:Easy\n#START\n2,\n#END\n";
+    const named = jobs.buildPayload({ tjaText: only, course: "Easy" });
+    const plain = jobs.buildPayload({ tjaText: only, course: null });
+    assert.deepStrictEqual(types(named), types(plain));
+    assert.strictEqual(plain.course, "Easy");
+
+    const args = jobs.parseArgs(["--tja", "a.tja", "--out", "o.mp4"]);
+    assert.strictEqual(args.course, null);
+    assert.strictEqual(args.branch, null);
+
+    const serialized = ui.serializeJob({
+      tjaText: multi,
+      course: "Hard",
+      branch: "N",
+      hits: false,
+    });
+    assert.strictEqual(serialized.course, "Hard");
+    assert.strictEqual(serialized.branch, "N");
+
+    const serverMod = require(path.join(__dirname, "..", "js", "render-server.js"));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bachi-course-job-"));
+    try {
+      const made = serverMod.materializeJobs([
+        { name: "鬼.tja", tjaText: multi, course: "Oni", branch: "E", hits: false },
+        { name: "里.tja", tjaText: multi, course: "Edit", branch: null, hits: false },
+      ], dir);
+      assert.strictEqual(made[0].course, "Oni");
+      assert.strictEqual(made[0].branch, "E");
+      assert.strictEqual(made[1].course, "Edit");
+      assert.strictEqual(made[1].branch, null);
+      assert.deepStrictEqual(types(jobs.buildPayload(made[0])), ["don", "bigdon", "don"]);
+      assert.strictEqual(jobs.buildPayload(made[1]).course, "Edit");
+      assert.deepStrictEqual(types(jobs.buildPayload(made[1])), ["ka", "ka"]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   console.log("batch-queue tests: " + passed);
 })().catch((err) => {
   console.error(err && err.stack ? err.stack : err);

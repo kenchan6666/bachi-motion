@@ -33,6 +33,15 @@ const MIME = {
   ".woff": "font/woff",
 };
 
+const BATCH_HARNESS = [
+  '<div id="batchHarness" hidden>',
+  '<ol id="batchList"></ol>',
+  '<button type="button" id="batchAddCurrent">把当前谱面加入队列</button>',
+  '<button type="button" id="batchStart">开始队列</button>',
+  '<p id="batchStatus"></p>',
+  "</div>",
+].join("");
+
 function startStaticServer(root) {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
@@ -43,6 +52,15 @@ function startStaticServer(root) {
       if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
       fs.readFile(file, (err, buf) => {
         if (err) { res.writeHead(404); res.end("not found"); return; }
+        if (rel === "/index.html" && url.searchParams.get("batchHarness") === "1") {
+          const html = buf.toString("utf8").replace(
+            '<script src="js/batch-ui.js"></script>',
+            BATCH_HARNESS + '<script src="js/batch-ui.js"></script>'
+          );
+          res.writeHead(200, { "Content-Type": MIME[".html"] });
+          res.end(html);
+          return;
+        }
         res.writeHead(200, { "Content-Type": MIME[path.extname(file)] || "application/octet-stream" });
         res.end(buf);
       });
@@ -222,6 +240,228 @@ function layoutSnapshot() {
     if (!third || third.hits !== true) fails.push("volume post dropped 叠打点声");
     const playHtml = await page.evaluate(() => document.getElementById("singleRender").innerHTML);
     if (playHtml.includes('type="range"')) fails.push("出片 grew its own volume slider");
+
+    function pageUrl(params) {
+      const url = new URL("http://127.0.0.1:" + port + "/");
+      Object.keys(params || {}).forEach((key) => {
+        if (params[key] != null) url.searchParams.set(key, params[key]);
+      });
+      return url.toString();
+    }
+
+    const multi = [
+      "TITLE:多难度",
+      "BPM:120",
+      "OFFSET:0",
+      "COURSE:Easy",
+      "#START",
+      "2,",
+      "#END",
+      "COURSE:Normal",
+      "#START",
+      "1,",
+      "#END",
+      "COURSE:Hard",
+      "#START",
+      "12,",
+      "#END",
+      "COURSE:Oni",
+      "#START",
+      "1,",
+      "#SECTION",
+      "#BRANCHSTART r,1,2",
+      "#LEVELHOLD",
+      "#N",
+      "2,",
+      "#E",
+      "3,",
+      "#M",
+      "4,",
+      "#BRANCHEND",
+      "1,",
+      "#END",
+      "COURSE:Edit",
+      "#START",
+      "22,",
+      "#END",
+      "",
+    ].join("\n");
+
+    function expectPosted(job, course, branch, where) {
+      if (!job) {
+        fails.push(where + " missing job");
+        return;
+      }
+      if (job.course !== course) fails.push(where + " course " + JSON.stringify(job.course) + " want " + JSON.stringify(course));
+      if (job.branch !== branch) fails.push(where + " branch " + JSON.stringify(job.branch) + " want " + JSON.stringify(branch));
+      if (where.indexOf("queued") !== 0 && job.tjaText !== multi && where !== "single 易" && where !== "single unnamed") {
+        fails.push(where + " replaced the open chart");
+      }
+    }
+
+    async function clickCourse(label) {
+      const clicked = await page.evaluate((want) => {
+        const btn = [...document.querySelectorAll("#coursePicker button")].find((b) => b.textContent === want);
+        if (!btn) return false;
+        btn.click();
+        return true;
+      }, label);
+      if (!clicked) throw new Error("missing course button " + label);
+      await page.waitForFunction((want) => {
+        const on = document.querySelector("#coursePicker button.on");
+        const raw = window.taikoAnim && window.taikoAnim.raw;
+        return on && on.textContent === want && raw && raw.course === on.dataset.course;
+      }, { timeout: 8000 }, label);
+    }
+
+    async function clickBranch(label) {
+      const clicked = await page.evaluate((want) => {
+        const btn = [...document.querySelectorAll("#branchPicker button")].find((b) => b.textContent === want);
+        if (!btn) return false;
+        btn.click();
+        return true;
+      }, label);
+      if (!clicked) throw new Error("missing branch button " + label);
+      await page.waitForFunction((want) => {
+        const on = document.querySelector("#branchPicker button.on");
+        const raw = window.taikoAnim && window.taikoAnim.raw;
+        return on && on.textContent === want && raw && raw.branch === on.dataset.branch;
+      }, { timeout: 8000 }, label);
+    }
+
+    async function clickRender(source) {
+      await page.evaluate(() => { document.getElementById("settingsPlay").open = true; });
+      const before = await page.evaluate((name) => (window[name] || []).length, source);
+      await page.click("#renderStart");
+      await page.waitForFunction((name, n) => {
+        return window[name] && window[name].length >= n && !document.getElementById("renderStart").disabled;
+      }, { timeout: 8000 }, source, before + 1);
+    }
+
+    await page.goto(pageUrl({ settings: "1", tja: multi }), { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction(() => {
+      const on = document.querySelector("#coursePicker button.on");
+      const branch = document.querySelector("#branchPicker button.on");
+      return on && on.textContent === "鬼" && branch && branch.textContent === "达人"
+        && window.BachiApp && typeof window.BachiApp.parseOpts === "function";
+    }, { timeout: 8000 });
+    await page.evaluate(installRenderStub);
+    const pickers = await page.evaluate(() => ({
+      course: document.querySelectorAll("#coursePicker").length,
+      inPlay: !!document.getElementById("settingsPlay").querySelector("#coursePicker, #branchPicker"),
+    }));
+    if (pickers.course !== 1 || pickers.inPlay) fails.push("render grew a second difficulty picker " + JSON.stringify(pickers));
+
+    await clickRender("__renderPosts");
+    let job = await page.evaluate(() => window.__renderPosts[0].jobs[0]);
+    expectPosted(job, "Oni", "M", "default 鬼/达人");
+
+    await clickCourse("里");
+    await clickRender("__renderPosts");
+    job = await page.evaluate(() => window.__renderPosts[1].jobs[0]);
+    expectPosted(job, "Edit", null, "里");
+
+    await clickCourse("易");
+    await clickRender("__renderPosts");
+    job = await page.evaluate(() => window.__renderPosts[2].jobs[0]);
+    expectPosted(job, "Easy", null, "易");
+
+    await clickCourse("普");
+    await clickRender("__renderPosts");
+    job = await page.evaluate(() => window.__renderPosts[3].jobs[0]);
+    expectPosted(job, "Normal", null, "普");
+
+    await clickCourse("难");
+    await clickRender("__renderPosts");
+    job = await page.evaluate(() => window.__renderPosts[4].jobs[0]);
+    expectPosted(job, "Hard", null, "难");
+
+    await clickCourse("鬼");
+    await clickBranch("普通");
+    await clickRender("__renderPosts");
+    job = await page.evaluate(() => window.__renderPosts[5].jobs[0]);
+    expectPosted(job, "Oni", "N", "鬼/普通");
+
+    await clickBranch("玄人");
+    await page.evaluate(() => {
+      window.__desktopPosts = [];
+      window.bachiDesktop = {
+        startBatch: function (payload) {
+          window.__desktopPosts.push(payload);
+          return Promise.resolve({ id: "desk" });
+        },
+        onBatchEvent: function (cb) {
+          setTimeout(function () {
+            cb({ id: "desk", done: true, failed: 0, files: [], itemFraction: 1, currentLabel: "当前谱面" });
+          }, 0);
+          return function () {};
+        },
+      };
+    });
+    await clickRender("__desktopPosts");
+    const desktopJob = await page.evaluate(() => window.__desktopPosts[0].jobs[0]);
+    expectPosted(desktopJob, "Oni", "E", "desktop 鬼/玄人");
+    const webCount = await page.evaluate(() => window.__renderPosts.length);
+    if (webCount !== 6) fails.push("desktop path also posted to /api/batch " + webCount);
+
+    const onlyEasy = [
+      "TITLE:只有易",
+      "BPM:120",
+      "OFFSET:0",
+      "COURSE:Easy",
+      "#START",
+      "2,",
+      "#END",
+      "",
+    ].join("\n");
+    await page.goto(pageUrl({ settings: "1", tja: onlyEasy }), { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction(() => {
+      const buttons = [...document.querySelectorAll("#coursePicker button")];
+      return buttons.length === 1 && buttons[0].textContent === "易" && buttons[0].classList.contains("on")
+        && document.getElementById("branchPicker").hidden;
+    }, { timeout: 8000 });
+    await page.evaluate(installRenderStub);
+    await clickRender("__renderPosts");
+    job = await page.evaluate(() => window.__renderPosts[0].jobs[0]);
+    expectPosted(job, "Easy", null, "single 易");
+    if (job && job.tjaText !== onlyEasy) fails.push("single 易 replaced the open chart");
+
+    const bare = "TITLE:单段\nBPM:120\nOFFSET:0\n#START\n12,\n#END\n";
+    await page.goto(pageUrl({ settings: "1", tja: bare }), { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction(() => {
+      const on = document.querySelector("#coursePicker button.on");
+      return on && window.taikoAnim && window.taikoAnim.raw && window.taikoAnim.raw.events
+        && window.taikoAnim.raw.events.length === 2;
+    }, { timeout: 8000 });
+    await page.evaluate(installRenderStub);
+    await clickRender("__renderPosts");
+    job = await page.evaluate(() => window.__renderPosts[0].jobs[0]);
+    expectPosted(job, null, null, "single unnamed");
+    if (job && job.tjaText !== bare) fails.push("single unnamed replaced the open chart");
+
+    await page.goto(pageUrl({ settings: "1", tja: multi, batchHarness: "1" }), { waitUntil: "networkidle0", timeout: 30000 });
+    await page.waitForFunction(() => {
+      const on = document.querySelector("#coursePicker button.on");
+      return on && on.textContent === "鬼" && document.getElementById("batchAddCurrent") && document.getElementById("batchStart");
+    }, { timeout: 8000 });
+    await page.evaluate(installRenderStub);
+    await clickBranch("玄人");
+    await page.evaluate(() => document.getElementById("batchAddCurrent").click());
+    await clickCourse("里");
+    await page.evaluate(() => document.getElementById("batchAddCurrent").click());
+    await page.evaluate(() => document.getElementById("batchStart").click());
+    await page.waitForFunction(() => window.__renderPosts.length === 1 && !document.getElementById("batchStart").disabled, { timeout: 8000 });
+    const queued = await page.evaluate(() => window.__renderPosts[0].jobs.map((row) => ({
+      course: row.course,
+      branch: row.branch,
+      tjaText: row.tjaText,
+    })));
+    if (!queued || queued.length !== 2) fails.push("queue jobs " + JSON.stringify(queued && queued.length));
+    else {
+      expectPosted(queued[0], "Oni", "E", "queued 鬼/玄人");
+      expectPosted(queued[1], "Edit", null, "queued 里");
+      if (queued[0].tjaText !== multi || queued[1].tjaText !== multi) fails.push("queue replaced the open chart");
+    }
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

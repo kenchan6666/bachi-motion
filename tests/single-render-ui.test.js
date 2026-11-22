@@ -208,6 +208,20 @@ function layoutSnapshot() {
     }));
     if (!second.hits || second.count !== 1) fails.push("render hits did not apply to the one job " + JSON.stringify(second));
     if (!second.preview) fails.push("出片叠打点声 changed the preview switch");
+
+    await page.evaluate(() => { window.TaikoVolume.setVolumes(80, 250); });
+    await page.click("#renderStart");
+    await page.waitForFunction(() => window.__renderPosts.length === 3 && !document.getElementById("renderStart").disabled);
+    const third = await page.evaluate(() => window.__renderPosts[2].jobs[0]);
+    if (!third || third.musicVolume !== 80 || third.drumVolume !== 250) {
+      fails.push("开始渲染 did not send the editor volumes " + JSON.stringify(third && {
+        musicVolume: third.musicVolume,
+        drumVolume: third.drumVolume,
+      }));
+    }
+    if (!third || third.hits !== true) fails.push("volume post dropped 叠打点声");
+    const playHtml = await page.evaluate(() => document.getElementById("singleRender").innerHTML);
+    if (playHtml.includes('type="range"')) fails.push("出片 grew its own volume slider");
   } finally {
     await browser.close();
     await new Promise((resolve) => server.close(resolve));

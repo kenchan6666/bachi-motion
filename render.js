@@ -192,6 +192,8 @@ async function prepareExportAudio(args, data, chartStart, chartEnd, work) {
     audio: !!args.audio,
     rate: args.rate,
     timeShift: data.timeShift || 0,
+    musicVolume: args.musicVolume,
+    drumVolume: args.drumVolume,
     hits: hits,
   }, chartStart, chartEnd, work);
 }
@@ -487,6 +489,8 @@ function singleJobFromArgs(args) {
     size: args.size,
     workers: args.workers,
     audio: args.audio,
+    musicVolume: args.musicVolume,
+    drumVolume: args.drumVolume,
     sectionStart: args.sectionStart,
     sectionEnd: args.sectionEnd,
     label: path.basename(args.tja),

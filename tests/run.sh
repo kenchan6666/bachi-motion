@@ -117,6 +117,10 @@ echo "== original-audio mux =="
 node tests/audio-mux.test.js
 echo
 
+echo "== export volumes (same mix as the editor sliders) =="
+node tests/export-volume.test.js
+echo
+
 echo "== original song switch (beside 叠打点声) =="
 node tests/original-song.test.js
 echo

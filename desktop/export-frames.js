@@ -140,6 +140,8 @@ async function prepareExportAudio(args, data, chartStart, chartEnd, work, root) 
     audio: !!args.audio,
     rate: args.rate,
     timeShift: data.timeShift || 0,
+    musicVolume: args.musicVolume,
+    drumVolume: args.drumVolume,
     hits: hits,
   }, chartStart, chartEnd, work);
 }

@@ -14,6 +14,8 @@ npm test
 2b. `node tests/audio-mux.test.js`（原曲对齐：chartStart = 已减 OFFSET 的第一个音 − 0.7，不再减一次；只有 TJA 时不含原曲）
 2f. `node tests/preview-hits.test.js`（预览开关文案是「叠打点声」，说明在 ! 里：合成咚/咔，大音符 1.25 倍。成片默认不叠，要另外勾上才进视频。播放头到达音符才出声，暂停/拖进度不出声，export=1 与 renderAt 静音）
 2g. `node tests/original-song.test.js`（原曲在编辑器「高级」里选；主页和编辑器预览的「原曲」开关在「叠打点声」旁边，预览和出片共用这一首）
+2i. `node tests/taiko-volume.test.js`（音量栏：100 为原音量，音乐和鼓点分开乘，拉高鼓点不改原曲、不做整段峰值归一化；这一栏不再选文件）
+2j. `node tests/taiko-volume-ui.test.js`（编辑器音量栏颜色跟现有界面；导出用已加载原曲和当前谱面鼓点）
 2d. `node tests/section-trim.test.js`（进度条选段：整首仍是原来的入场/收尾；收窄后预览和导出从选段内第一个音 − 0.7 起到右帽，循环跳回左帽不再垫 0.7）
 2c. `node tests/batch-queue.test.js`（批量进度、队列里缺省原曲、本机出片接口）
 2h. `node tests/single-render-ui.test.js`（公开页只有三折；「演奏」里的「开始渲染」只提交当前谱。页面上没有批量队列，也没有把批量折调回来的入口）

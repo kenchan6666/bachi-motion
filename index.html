@@ -1618,6 +1618,22 @@ LEVEL:6
             </div>
           </div>
         </div>
+        <section class="editor-volume" id="editorVolume" aria-label="音量">
+          <h2>音量</h2>
+          <p class="editor-volume-note">音乐用已经打开的原曲，鼓点用这张谱生成的咚/咔。100 是原来的音量。两路分开乘，拉高鼓点不改原曲。</p>
+          <label class="editor-volume-row" for="editorMusicVolume">
+            <span>音乐</span>
+            <span id="editorMusicVolumeReadout">100%</span>
+          </label>
+          <input id="editorMusicVolume" data-volume="music" type="range" min="0" max="400" step="1" value="100" aria-label="音乐">
+          <label class="editor-volume-row" for="editorDrumVolume">
+            <span>鼓点</span>
+            <span id="editorDrumVolumeReadout">100%</span>
+          </label>
+          <input id="editorDrumVolume" data-volume="drums" type="range" min="0" max="400" step="1" value="100" aria-label="鼓点">
+          <button type="button" class="editor-volume-export" id="editorExportMix">导出音源</button>
+          <p id="editorVolumeStatus" class="editor-volume-status" role="status"></p>
+        </section>
         <div class="editor-preview-legend">
           <div class="sw"><span class="hand-pill is-R">右</span>右手</div>
           <div class="sw"><span class="hand-pill is-L">左</span>左手</div>
@@ -1634,6 +1650,7 @@ LEVEL:6
 <script src="js/chart-author.js"></script>
 <script src="js/loop-range.js"></script>
 <script src="js/scroll-tempo.js"></script>
+<script src="js/taiko-volume.js"></script>
 <script src="js/preview-hits.js"></script>
 <script src="js/engine.js"></script>
 <script src="js/original-song.js"></script>

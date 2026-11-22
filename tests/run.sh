@@ -77,7 +77,7 @@ echo "== chart author (blank chart + 16th notes) =="
 node tests/chart-author.test.js
 echo
 
-echo "== TJA export (UTF-8 round-trip) =="
+echo "== TJA export (CP932 CRLF) =="
 node tests/tja-export.test.js
 echo
 

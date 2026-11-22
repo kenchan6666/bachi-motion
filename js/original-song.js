@@ -223,6 +223,10 @@
       }
     }
     if (!clock || !clock.playing || target.play) holdLeadIn = false;
+    const volumes = typeof globalThis !== "undefined" ? globalThis.TaikoVolume : null;
+    if (audioEl && volumes && typeof volumes.applyMusicOutput === "function") {
+      volumes.applyMusicOutput(audioEl);
+    }
   }
 
   function publishFromAnim() {

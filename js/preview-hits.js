@@ -229,7 +229,10 @@
         var src = ac.createBufferSource();
         src.buffer = buf;
         var gain = ac.createGain();
-        gain.gain.value = hit.gain;
+        var level = hit.gain;
+        var volumes = typeof globalThis !== "undefined" ? globalThis.TaikoVolume : null;
+        if (volumes && typeof volumes.scaledHitGain === "function") level = volumes.scaledHitGain(hit.gain);
+        gain.gain.value = level;
         src.connect(gain);
         gain.connect(ac.destination);
         src.start();

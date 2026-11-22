@@ -125,6 +125,14 @@ echo "== preview don/ka hits =="
 node tests/preview-hits.test.js
 echo
 
+echo "== volume column (music and drums) =="
+node tests/taiko-volume.test.js
+echo
+
+echo "== volume column in the editor =="
+node tests/taiko-volume-ui.test.js
+echo
+
 echo "== preview render (paused skip, retained hands) =="
 node tests/preview-render.test.js
 echo

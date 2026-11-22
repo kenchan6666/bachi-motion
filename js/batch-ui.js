@@ -139,6 +139,7 @@
       id: String(Date.now()),
       name: chartName(text),
       tjaText: text,
+      course: opts.course || null,
       branch: opts.branch || null,
       songFile: sharedOriginalFile(),
       stickingText: settings.stickingText,
@@ -265,6 +266,7 @@
           rate: row.rate,
           sectionStart: row.sectionStart,
           sectionEnd: row.sectionEnd,
+          course: row.course || null,
           branch: row.branch || null,
         });
       });
@@ -453,6 +455,7 @@
         sectionStart: row.sectionStart,
         sectionEnd: row.sectionEnd,
         course: row.course || null,
+        branch: row.branch || null,
       });
       renderList();
     }

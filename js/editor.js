@@ -1699,7 +1699,7 @@
       course: opts.course,
     });
     if (!file) return;
-    const blob = new Blob([file.bytes], { type: "text/plain;charset=utf-8" });
+    const blob = new Blob([file.bytes], { type: "application/octet-stream" });
     const link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = file.filename;

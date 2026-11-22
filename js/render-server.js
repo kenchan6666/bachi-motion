@@ -8,6 +8,7 @@ const crypto = require("crypto");
 
 const batch = require("./batch-queue.js");
 const jobs = require("./render-jobs.js");
+const tjaExport = require("./tja-export.js");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -86,7 +87,8 @@ function materializeJobs(specJobs, dir) {
   return specJobs.map((job, i) => {
     const tjaText = String(job.tjaText || "");
     const tja = path.join(dir, i + ".tja");
-    fs.writeFileSync(tja, tjaText);
+    const playable = tjaExport.toPlayableFile(tjaText);
+    fs.writeFileSync(tja, Buffer.from(playable.bytes));
     let song = null;
     if (job.songBase64) {
       song = path.join(dir, i + "-song" + songExt(job.songName));

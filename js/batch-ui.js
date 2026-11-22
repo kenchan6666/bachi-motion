@@ -22,8 +22,26 @@
     return Number.isFinite(n) ? n : null;
   }
 
+  function editorVolumes() {
+    const api = typeof window !== "undefined" ? window.TaikoVolume : null;
+    const music = api && typeof api.musicVolume === "function" ? +api.musicVolume() : 100;
+    const drum = api && typeof api.drumVolume === "function" ? +api.drumVolume() : 100;
+    return {
+      musicVolume: Number.isFinite(music) && music >= 0 ? music : 100,
+      drumVolume: Number.isFinite(drum) && drum >= 0 ? drum : 100,
+    };
+  }
+
+  function volumeOr(value, fallback) {
+    if (value == null || value === "") return fallback;
+    const n = +value;
+    if (!Number.isFinite(n) || n < 0) return fallback;
+    return n;
+  }
+
   function serializeJob(job) {
     const song = job && job.songBase64 ? String(job.songBase64) : null;
+    const volumes = editorVolumes();
     return {
       id: job.id || "",
       name: job.name || "chart.tja",
@@ -31,6 +49,8 @@
       songBase64: song,
       songName: song ? (job.songName || "song") : null,
       hits: !!job.hits,
+      musicVolume: volumeOr(job && job.musicVolume, volumes.musicVolume),
+      drumVolume: volumeOr(job && job.drumVolume, volumes.drumVolume),
       stickingText: job.stickingText || null,
       course: job.course || null,
       branch: job.branch || null,

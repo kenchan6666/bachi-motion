@@ -155,7 +155,9 @@ t = chartStart + (f / fps) * rate
 
 ### 打点声（`--audio`）
 
-`assets/sounds/don.wav` 和 `ka.wav` 是本项目里合成的短促打击声（16-bit PCM），**不是南梦宫官方或游戏里的采样**，可以一起发布。咚略低、咔略亮。大音符会稍稍加大音量。同一时刻同一面只响一次。声音出现在视频时间 `(event.t - chartStart) / rate` 上。
+`assets/sounds/don.wav` 和 `ka.wav` 是本项目里合成的短促打击声（16-bit PCM），**不是南梦宫官方或游戏里的采样**，可以一起发布。咚略低、咔略亮。大音符仍是 1.25 倍，再乘鼓点音量。同一时刻同一面只响一次。声音出现在视频时间 `(event.t - chartStart) / rate` 上。
+
+音乐和鼓点各乘各的。100 是原来的音量，和 TJA 的 SONGVOL / SEVOL 一样。重叠处线性相加，不把整段按峰值压回去。拉高鼓点只乘鼓点。网页「开始渲染」用编辑器里已有的两路滑条。命令行是 `--music-volume` 和 `--drum-volume`，不写都是 100。
 
 ### 原曲（`--song`）
 

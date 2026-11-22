@@ -70,6 +70,13 @@ function optionalSeconds(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function volumeField(value, fallback) {
+  if (value == null || value === "") return fallback;
+  const n = +value;
+  if (!Number.isFinite(n) || n < 0) throw new Error("音量不能小于 0，收到的是 " + value);
+  return n;
+}
+
 function songExt(name) {
   const ext = path.extname(String(name || "")).toLowerCase();
   return SONG_EXT[ext] ? ext : ".bin";
@@ -99,6 +106,8 @@ function materializeJobs(specJobs, dir) {
       out: path.join(dir, i + ".mp4"),
       label: label,
       audio: !!job.hits,
+      musicVolume: volumeField(job.musicVolume, 100),
+      drumVolume: volumeField(job.drumVolume, 100),
       course: job.course || null,
       branch: job.branch || null,
       measures: job.measures || null,

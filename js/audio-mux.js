@@ -16,10 +16,16 @@
  * No song file → includeOriginal is false (synthesized don/ka may still mix).
  * A song may be an audio file or a video container (mp4). Only its audio
  * stream is extracted; the picture is not copied into the wav.
+ *
+ * The two buses use the editor volumes (100 = original, TJA SONGVOL / SEVOL).
+ * Big notes stay at 1.25 and are then multiplied by the drum volume. Overlap
+ * is a linear sum, matching TaikoVolume.mixBuffers. The song samples are not
+ * rewritten when the drums get louder, and the mix is not peak-normalized.
  */
 
 const fs = require("fs");
 const { spawn } = require("child_process");
+const volume = require("./taiko-volume.js");
 
 const LEAD_IN = 0.7;
 const TAIL_TIME = 0.5;
@@ -140,10 +146,10 @@ function audioInputs(plan, paths) {
   return inputs;
 }
 
-function readWavPcm(file) {
-  const buf = fs.readFileSync(file);
+function parseWavPcm(buf) {
+  if (!Buffer.isBuffer(buf)) buf = Buffer.from(buf);
   if (buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") {
-    throw new Error("不是 WAV：" + file);
+    throw new Error("不是 WAV");
   }
   let off = 12;
   let sr = 44100;
@@ -165,10 +171,19 @@ function readWavPcm(file) {
     }
     off += 8 + size + (size % 2);
   }
-  if (data == null || bits !== 16) throw new Error("需要 16-bit PCM WAV：" + file);
+  if (data == null || bits !== 16) throw new Error("需要 16-bit PCM WAV");
   const samples = new Int16Array(dataLen / 2);
   for (let i = 0; i < samples.length; i++) samples[i] = buf.readInt16LE(data + i * 2);
   return { sampleRate: sr, channels: ch, samples: samples };
+}
+
+function readWavPcm(file) {
+  try {
+    return parseWavPcm(fs.readFileSync(file));
+  } catch (err) {
+    if (err && /WAV/.test(err.message)) throw new Error(err.message + "：" + file);
+    throw err;
+  }
 }
 
 function writeWavPcm(file, sampleRate, samples) {
@@ -191,42 +206,160 @@ function writeWavPcm(file, sampleRate, samples) {
   fs.writeFileSync(file, buf);
 }
 
-function mixHitAudio(events, opts) {
+function musicMatrix(music) {
+  if (music == null) return null;
+  if (music.samples && music.sampleRate) {
+    const channels = music.channels || 1;
+    if (channels < 1) throw new Error("音频必须是一维或二维，且至少有一个声道");
+    const frames = Math.floor(music.samples.length / channels);
+    const data = new Float64Array(frames * channels);
+    for (let i = 0; i < data.length; i++) data[i] = music.samples[i] / 32768;
+    return { frames: frames, channels: channels, data: data, sampleRate: music.sampleRate | 0 };
+  }
+  if (music.data != null && music.frames != null) {
+    const channels = (music.channels | 0) || 1;
+    const frames = music.frames | 0;
+    const data = new Float64Array(frames * channels);
+    for (let i = 0; i < data.length; i++) data[i] = Number(music.data[i]);
+    return { frames: frames, channels: channels, data: data, sampleRate: music.sampleRate | 0 };
+  }
+  if (ArrayBuffer.isView(music) || Array.isArray(music)) {
+    const data = new Float64Array(music.length);
+    for (let i = 0; i < music.length; i++) data[i] = Number(music[i]);
+    return { frames: data.length, channels: 1, data: data, sampleRate: 0 };
+  }
+  throw new Error("音频必须是一维或二维，且至少有一个声道");
+}
+
+function monoClip(pcm) {
+  const channels = pcm.channels || 1;
+  const frames = Math.floor(pcm.samples.length / channels);
+  const out = new Float64Array(frames);
+  for (let i = 0; i < frames; i++) {
+    let sum = 0;
+    for (let c = 0; c < channels; c++) sum += pcm.samples[i * channels + c] / 32768;
+    out[i] = sum / channels;
+  }
+  return out;
+}
+
+function renderVideoDrums(events, opts) {
   const don = opts.don;
   const ka = opts.ka;
-  const start = opts.start;
-  const end = opts.end;
-  const rate = opts.rate;
-  const bigBoost = opts.bigBoost == null ? BIG_BOOST : opts.bigBoost;
-  const sr = don.sampleRate;
-  if (ka.sampleRate !== sr) throw new Error("don.wav 和 ka.wav 的采样率不一致");
+  const sr = don.sampleRate | 0;
+  if (!(sr > 0) || (ka.sampleRate | 0) !== sr) throw new Error("don.wav 和 ka.wav 的采样率不一致");
+  const start = +opts.start;
+  const end = +opts.end;
+  const rate = +opts.rate;
+  if (!Number.isFinite(start) || !Number.isFinite(end) || !(end > start)) throw new Error("出片窗口无效");
+  if (!Number.isFinite(rate) || rate <= 0) throw new Error("rate 必须是正数");
+  const bigBoost = opts.bigBoost == null ? BIG_BOOST : +opts.bigBoost;
   const videoDur = (end - start) / rate;
-  const total = Math.max(1, Math.ceil(videoDur * sr) + Math.max(don.samples.length, ka.samples.length));
-  const mix = new Float64Array(total);
+  const videoSamples = Math.max(1, Math.ceil(videoDur * sr));
+  const donClip = monoClip(don);
+  const kaClip = monoClip(ka);
   const seen = new Set();
-  for (const e of events) {
-    const key = e.t.toFixed(6) + ":" + e.face;
+  let total = videoSamples;
+  const hits = [];
+  const list = events || [];
+  for (let n = 0; n < list.length; n++) {
+    const e = list[n];
+    if (!e || !Number.isFinite(+e.t)) continue;
+    const key = (+e.t).toFixed(6) + ":" + e.face;
     if (seen.has(key)) continue;
     seen.add(key);
     const videoT = (e.t - start) / rate;
     if (videoT < -0.05 || videoT > videoDur + 0.05) continue;
-    const clip = e.face === "ka" ? ka.samples : don.samples;
+    const clip = e.face === "ka" ? kaClip : donClip;
     const gain = e.big ? bigBoost : 1;
     const at = Math.round(videoT * sr);
-    for (let i = 0; i < clip.length; i++) {
-      const j = at + i;
-      if (j >= 0 && j < mix.length) mix[j] += (clip[i] / 32768) * gain;
+    hits.push({ at: at, clip: clip, gain: gain });
+    if (at + clip.length > total) total = at + clip.length;
+  }
+  if (total < 0) total = 0;
+  const data = new Float64Array(total);
+  for (let h = 0; h < hits.length; h++) {
+    const hit = hits[h];
+    for (let i = 0; i < hit.clip.length; i++) {
+      const j = hit.at + i;
+      if (j >= 0 && j < data.length) data[j] += hit.clip[i] * hit.gain;
     }
   }
-  let peak = 1;
-  for (const x of mix) peak = Math.max(peak, Math.abs(x));
-  const out = new Int16Array(Math.ceil(videoDur * sr));
-  const norm = peak > 1 ? 0.95 / peak : 0.95;
-  for (let i = 0; i < out.length; i++) {
-    const x = (mix[i] || 0) * norm;
-    out[i] = Math.max(-32767, Math.min(32767, Math.round(x * 32767)));
+  return { frames: data.length, channels: 1, data: data, sampleRate: sr };
+}
+
+function mixExportAudio(spec) {
+  spec = spec || {};
+  const musicVolume = spec.musicVolume == null ? 100 : spec.musicVolume;
+  const drumVolume = spec.drumVolume == null ? 100 : spec.drumVolume;
+  volume.volumePercentToGain(musicVolume);
+  volume.volumePercentToGain(drumVolume);
+  const wantHits = spec.includeHits != null ? !!spec.includeHits : !!(spec.don && spec.ka);
+  if (wantHits && (!spec.don || !spec.ka)) throw new Error("缺少 don/ka 打点声");
+
+  let music = musicMatrix(spec.music);
+  if (music && spec.musicRate != null) music.sampleRate = spec.musicRate | 0;
+  let drums = null;
+  if (wantHits) {
+    drums = renderVideoDrums(spec.events || [], {
+      start: spec.start,
+      end: spec.end,
+      rate: spec.rate == null ? 1 : spec.rate,
+      don: spec.don,
+      ka: spec.ka,
+      bigBoost: spec.bigBoost,
+    });
   }
-  return { sampleRate: sr, samples: out };
+  if (!music && !drums) return null;
+
+  let musicRate;
+  let drumRate;
+  if (!music) {
+    musicRate = drums.sampleRate;
+    drumRate = drums.sampleRate;
+    music = { frames: 0, channels: 1, data: new Float64Array(0), sampleRate: musicRate };
+  } else if (!drums) {
+    musicRate = music.sampleRate;
+    drumRate = music.sampleRate;
+    drums = { frames: 0, channels: 1, data: new Float64Array(0), sampleRate: drumRate };
+  } else {
+    musicRate = music.sampleRate;
+    drumRate = drums.sampleRate;
+  }
+  if (!(musicRate > 0) || !(drumRate > 0)) throw new Error("采样率必须是正数");
+
+  const mixed = volume.mixBuffers(music, drums, {
+    musicVolume: musicVolume,
+    drumVolume: drumVolume,
+    musicRate: musicRate,
+    drumRate: drumRate,
+  });
+  const bytes = volume.encodeWav(mixed, musicRate);
+  const parsed = parseWavPcm(Buffer.from(bytes));
+  return {
+    sampleRate: parsed.sampleRate,
+    channels: parsed.channels,
+    samples: parsed.samples,
+    wav: bytes,
+  };
+}
+
+function mixHitAudio(events, opts) {
+  opts = opts || {};
+  const mixed = mixExportAudio({
+    music: null,
+    events: events,
+    start: opts.start,
+    end: opts.end,
+    rate: opts.rate,
+    don: opts.don,
+    ka: opts.ka,
+    includeHits: true,
+    musicVolume: 100,
+    drumVolume: opts.drumVolume == null ? 100 : opts.drumVolume,
+    bigBoost: opts.bigBoost,
+  });
+  return { sampleRate: mixed.sampleRate, samples: mixed.samples };
 }
 
 function ffmpegCommand() {
@@ -252,21 +385,6 @@ function extractSongSlice(songPath, plan, outWav) {
   return runFfmpeg(songFfmpegArgs(songPath, plan, outWav));
 }
 
-function mixWavFiles(inputs, outWav) {
-  const args = ["-y"];
-  inputs.forEach((file) => { args.push("-i", file); });
-  const labels = inputs.map((_, i) => "[" + i + ":a]").join("");
-  args.push(
-    "-filter_complex",
-    labels + "amix=inputs=" + inputs.length + ":duration=longest:dropout_transition=0:normalize=0,alimiter=limit=0.95",
-    "-ac", "1",
-    "-ar", "44100",
-    "-c:a", "pcm_s16le",
-    outWav,
-  );
-  return runFfmpeg(args);
-}
-
 async function prepareExportWav(spec, chartStart, chartEnd, work) {
   spec = spec || {};
   const plan = originalAudioPlan({
@@ -278,32 +396,35 @@ async function prepareExportWav(spec, chartStart, chartEnd, work) {
     timeShift: spec.timeShift || 0,
     offset: spec.offset,
   });
+  if (!plan.includeOriginal && !plan.includeHits) return null;
+  volume.volumePercentToGain(spec.musicVolume == null ? 100 : spec.musicVolume);
+  volume.volumePercentToGain(spec.drumVolume == null ? 100 : spec.drumVolume);
   const path = require("path");
-  let songSlice = null;
+  let music = null;
   if (plan.includeOriginal) {
-    songSlice = path.join(work, "song-slice.wav");
+    const songSlice = path.join(work, "song-slice.wav");
     await extractSongSlice(spec.song, plan, songSlice);
+    music = readWavPcm(songSlice);
   }
-  let hitsPath = null;
-  if (plan.includeHits) {
-    if (!spec.hits || !spec.hits.don || !spec.hits.ka) {
-      throw new Error("缺少 don/ka 打点声");
-    }
-    const mixed = mixHitAudio(spec.hits.events || [], {
-      start: chartStart,
-      end: chartEnd,
-      rate: plan.rate,
-      don: spec.hits.don,
-      ka: spec.hits.ka,
-    });
-    hitsPath = path.join(work, "hits.wav");
-    writeWavPcm(hitsPath, mixed.sampleRate, mixed.samples);
+  if (plan.includeHits && (!spec.hits || !spec.hits.don || !spec.hits.ka)) {
+    throw new Error("缺少 don/ka 打点声");
   }
-  const inputs = audioInputs(plan, { songSlice: songSlice, hits: hitsPath });
-  if (!inputs.length) return null;
-  if (inputs.length === 1) return inputs[0];
+  const mixed = mixExportAudio({
+    music: music,
+    events: plan.includeHits ? (spec.hits.events || []) : [],
+    start: chartStart,
+    end: chartEnd,
+    rate: plan.rate,
+    don: plan.includeHits ? spec.hits.don : null,
+    ka: plan.includeHits ? spec.hits.ka : null,
+    includeHits: plan.includeHits,
+    musicVolume: spec.musicVolume,
+    drumVolume: spec.drumVolume,
+    bigBoost: spec.bigBoost,
+  });
+  if (!mixed) return null;
   const mixedPath = path.join(work, "mixed.wav");
-  await mixWavFiles(inputs, mixedPath);
+  fs.writeFileSync(mixedPath, Buffer.from(mixed.wav));
   return mixedPath;
 }
 
@@ -320,6 +441,7 @@ module.exports = {
   audioInputs: audioInputs,
   readWavPcm: readWavPcm,
   writeWavPcm: writeWavPcm,
+  mixExportAudio: mixExportAudio,
   mixHitAudio: mixHitAudio,
   extractSongSlice: extractSongSlice,
   prepareExportWav: prepareExportWav,

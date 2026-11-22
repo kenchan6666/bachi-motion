@@ -12,6 +12,7 @@ npm test
 2. `node tests/titlebar-bpm.test.js`（标题栏 BPM 区间：过滤短于 4 拍的段，自制谱）
 2e. `node tests/titlebar-layout.test.js`（网页标题栏在谱面上方，左缘对齐谱面外缘；间距 16px，视口宽 ≥1920 为 20px；放不下就把舞台下移；会挡住角标、“bachi-motion”、“溯溯的鼓棒” 或「手顺编辑」时改到这组元素右侧 12px，必要时收窄；窄到放不下就再把舞台下移，让标题落到它们下面。`body.export` 宽画幅仍在谱面左侧，位置和内边距不变）
 2b. `node tests/audio-mux.test.js`（原曲对齐：chartStart = 已减 OFFSET 的第一个音 − 0.7，不再减一次；只有 TJA 时不含原曲）
+2k. `node tests/export-volume.test.js`（手元成片用编辑器的两路音量：100 为原音量，大音符 1.25 后再乘鼓点音量，线性相加，不整段峰值归一化）
 2f. `node tests/preview-hits.test.js`（预览开关文案是「叠打点声」，说明在 ! 里：合成咚/咔，大音符 1.25 倍。成片默认不叠，要另外勾上才进视频。播放头到达音符才出声，暂停/拖进度不出声，export=1 与 renderAt 静音）
 2g. `node tests/original-song.test.js`（原曲在编辑器「高级」里选；主页和编辑器预览的「原曲」开关在「叠打点声」旁边，预览和出片共用这一首）
 2i. `node tests/taiko-volume.test.js`（音量栏：100 为原音量，音乐和鼓点分开乘，拉高鼓点不改原曲、不做整段峰值归一化；这一栏不再选文件）

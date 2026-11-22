@@ -42,6 +42,10 @@ Flags:
   --workers <n>        Parallel render workers (default: min(6, cpus-2) = ${defaultWorkers()};
                        1 = legacy single-page PNG-to-disk path)
   --audio              Mix bundled don/ka hits (assets/sounds/*.wav, synthesized, not official)
+  --music-volume <n>   Music bus. 100 is the original level (TJA SONGVOL). Default 100.
+  --drum-volume <n>    Drum bus. 100 is the original level (TJA SEVOL). Big notes stay
+                       at 1.25 and are then multiplied by this volume. Default 100.
+                       The buses are scaled separately and summed. No peak normalization.
   --section <a,b>      Trim preview/export to the same range as the progress-bar caps,
                        in chart seconds (event.t). Start is the earlier of <a> and
                        (first note in range − 0.7). End is <b>. Omit for the whole chart.
@@ -81,6 +85,8 @@ function parseArgs(argv) {
     size: "1080p",
     workers: defaultWorkers(),
     audio: false,
+    musicVolume: 100,
+    drumVolume: 100,
     sectionStart: null,
     sectionEnd: null,
     out: null,
@@ -112,6 +118,8 @@ function parseArgs(argv) {
       case "--size": args.size = need(); break;
       case "--workers": args.workers = Number(need()); break;
       case "--audio": args.audio = true; break;
+      case "--music-volume": args.musicVolume = parseVolume(need()); break;
+      case "--drum-volume": args.drumVolume = parseVolume(need()); break;
       case "--section": {
         const raw = String(need());
         const m = raw.match(/^(-?\d+(?:\.\d+)?)\s*[,:]\s*(-?\d+(?:\.\d+)?)$/);
@@ -131,6 +139,17 @@ function parseArgs(argv) {
     }
   }
   return args;
+}
+
+function parseVolume(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) throw new Error("音量不能小于 0，收到的是 " + raw);
+  return n;
+}
+
+function volumeField(value, fallback) {
+  if (value == null || value === "") return fallback;
+  return parseVolume(value);
 }
 
 function optionalSeconds(value) {
@@ -235,6 +254,8 @@ function loadBatchFile(file) {
       size: job.size != null ? job.size : (spec.size || "1080p"),
       workers: job.workers != null ? Number(job.workers) : (spec.workers != null ? Number(spec.workers) : defaultWorkers()),
       audio: job.audio != null ? !!job.audio : !!spec.audio,
+      musicVolume: volumeField(job.musicVolume, volumeField(spec.musicVolume, 100)),
+      drumVolume: volumeField(job.drumVolume, volumeField(spec.drumVolume, 100)),
       sectionStart: optionalSeconds(job.sectionStart),
       sectionEnd: optionalSeconds(job.sectionEnd),
     };
